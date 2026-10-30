@@ -1,0 +1,16 @@
+**/target/
+**/dist/
+*.exe
+*.dll
+*.bak
+*.bak2
+*.rof
+*.iso
+*.bin
+*.cue
+*.crimson-original.bak
+*.before-nul-guard
+*.tmp
+
+**/__pycache__/
+*.pyc
