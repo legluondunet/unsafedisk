@@ -4010,6 +4010,7 @@ fn help() {
 Usage:\n\
   unsafedisc-linux inspect --loader CRIMSON.EXE --icd CRIMSON.ICD \\\n\
       --dplayerx dplayerx.dll [--reference TESTME.EXE] [--reported-key 0x7496538F] [--layout] [--generic-inspect] [--checksum-research] [--sections] [--key-research] [--modifier-research] [--modifier-snapshot CS98-DLL-00.BIN] [--startup-research] [--attach-research] [--xref-research] [--literal-research] [--reference-audit] [--historical-selection] [--strings]\n\
+  unsafedisc-linux compare-unwrapped --icd CRIMSON.ICD --unwrapped TESTME.EXE\n\\
   unsafedisc-linux inspect-snapshot --snapshot CS98-DLL-00.BIN\n\\
   unsafedisc-linux inspect-historical --unsafedisc unSafedisc.exe\n\
   unsafedisc-linux --help\n\
@@ -5635,7 +5636,62 @@ fn inspect_snapshot_cli() -> Result<()> {
     Ok(())
 }
 
+// Generic comparison of owner-supplied protected and historical unwrapped files.
+// No transform, binary output or per-version assumptions.
+fn compare_unwrapped_cli() -> Result<()> {
+    let mut args = env::args().skip(2);
+    let mut icd_path:Option<PathBuf> = None;
+    let mut unwrapped_path:Option<PathBuf> = None;
+    while let Some(arg) = args.next() {
+        let val = args.next().ok_or_else(|| format!("missing value for {arg}"))?;
+        match arg.as_str() {
+            "--icd" if icd_path.is_none() => icd_path=Some(PathBuf::from(val)),
+            "--unwrapped" if unwrapped_path.is_none() => unwrapped_path=Some(PathBuf::from(val)),
+            _ => return Err(format!("unexpected or repeated compare-unwrapped argument: {arg}")),
+        }
+    }
+    let paths=[
+        ("ICD",icd_path.ok_or("compare-unwrapped requires --icd")?),
+        ("unwrapped",unwrapped_path.ok_or("compare-unwrapped requires --unwrapped")?)
+    ];
+    let mut data=Vec::new();
+    for (role,path) in &paths {
+        let meta=fs::symlink_metadata(path).map_err(|e|format!("{}: {e}",path.display()))?;
+        if meta.file_type().is_symlink() || !meta.is_file() || meta.len()>MAX_INPUT_LEN {
+            return Err(format!("refusing symlink/non-regular/oversized file {}",path.display()));
+        }
+        let bytes=fs::read(path).map_err(|e|format!("{}: {e}",path.display()))?;
+        println!("{role}: {} bytes SHA-256 {}",bytes.len(),sha256(&bytes));
+        data.push(bytes);
+    }
+    let a=parse_pe32(&data[0])?;
+    let b=parse_pe32(&data[1])?;
+    println!("Entry RVA: 0x{:08X} / 0x{:08X}",a.entry_rva,b.entry_rva);
+    if a.sections.len()!=b.sections.len() { println!("Section count differs: {} vs {}",a.sections.len(),b.sections.len()); }
+    for (x,y) in a.sections.iter().zip(&b.sections) {
+        let xn=String::from_utf8_lossy(x.name.split(|v|*v==0).next().unwrap_or(&[]));
+        let yn=String::from_utf8_lossy(y.name.split(|v|*v==0).next().unwrap_or(&[]));
+        if x.name!=y.name || x.raw_len!=y.raw_len {
+            println!("{xn}/{yn}: layout differs, positional comparison skipped");
+            continue;
+        }
+        let ax=data[0].get(x.raw_offset..x.raw_offset.checked_add(x.raw_len).ok_or("ICD section overflow")?)
+            .ok_or("ICD section outside file")?;
+        let by=data[1].get(y.raw_offset..y.raw_offset.checked_add(y.raw_len).ok_or("output section overflow")?)
+            .ok_or("output section outside file")?;
+        let different=ax.iter().zip(by).filter(|(a,b)|a!=b).count();
+        println!("{xn}: {different}/{} bytes differ ({:.2}%)",
+            x.raw_len,if x.raw_len==0{0.0}else{100.0*different as f64/x.raw_len as f64});
+    }
+    println!("Read-only positional comparison: no decryption attempted, no file modified.");
+    Ok(())
+}
+
 fn main() {
+    if env::args().nth(1).as_deref()==Some("compare-unwrapped") {
+        if let Err(e)=compare_unwrapped_cli() { eprintln!("ERROR: {e}"); process::exit(1); }
+        return;
+    }
     if env::args().nth(1).as_deref()==Some("inspect-snapshot") {
         if let Err(e)=inspect_snapshot_cli() {
             eprintln!("ERROR: {e}");
