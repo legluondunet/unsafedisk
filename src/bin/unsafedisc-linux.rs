@@ -4016,6 +4016,7 @@ fn help() {
 Usage:\n\
   unsafedisc-linux inspect --loader CRIMSON.EXE --icd CRIMSON.ICD \\\n\
       --dplayerx dplayerx.dll [--reference TESTME.EXE] [--reported-key 0x7496538F] [--layout] [--generic-inspect] [--checksum-research] [--sections] [--key-research] [--modifier-research] [--modifier-snapshot CS98-DLL-00.BIN] [--startup-research] [--attach-research] [--xref-research] [--literal-research] [--reference-audit] [--historical-selection] [--strings]\n\
+  unsafedisc-linux inspect-loader-key-slots --loader CRIMSON.EXE\n\\
   unsafedisc-linux inspect-import-codec --icd CRIMSON.ICD [--rebuild-tables] [--reference TESTME.EXE]\n\\
   unsafedisc-linux compare-unwrapped --icd CRIMSON.ICD --unwrapped TESTME.EXE [--delta-details]\n\\
   unsafedisc-linux inspect-snapshot --snapshot CS98-DLL-00.BIN\n\\
@@ -5733,6 +5734,42 @@ fn compare_unwrapped_cli() -> Result<()> {
 }
 
 
+fn inspect_loader_key_slots_cli() -> Result<()> {
+    let mut args=env::args().skip(2);
+    let mut loader:Option<PathBuf>=None;
+    while let Some(arg)=args.next() {
+        if arg=="--help" {
+            println!("Usage: unsafedisc-linux inspect-loader-key-slots --loader crimson.exe");
+            return Ok(());
+        }
+        let value=args.next().ok_or_else(||format!("missing value for {arg}"))?;
+        match arg.as_str() {
+            "--loader" if loader.is_none() => loader=Some(PathBuf::from(value)),
+            _ => return Err(format!("unknown/repeated argument: {arg}")),
+        }
+    }
+    let loader=loader.ok_or("inspect-loader-key-slots requires --loader")?;
+    // Do not broaden the trust gate: only two independently verified inputs.
+    const FRENCH_LOADER_SHA: &str =
+        "cf9ec31364e1893c21636f53bc9410d0e1aa49ee6c32a555cf3adab9df4712ae";
+    let metadata=fs::symlink_metadata(&loader).map_err(|e|format!("{}: {e}",loader.display()))?;
+    let (expected_len,expected_sha) = match metadata.len() {
+        344_925 => (344_925,FRENCH_LOADER_SHA),
+        344_851 => (LOADER_LEN,LOADER_SHA),
+        _ => return Err("unrecognized protected loader size".into()),
+    };
+    let bytes=read_original(&loader,expected_len,expected_sha)?;
+    let (at,words)=locate_raw_key(&bytes,DLL_LEN)?;
+    println!("Verified SafeDisc launcher: {} bytes SHA-256 {}",bytes.len(),expected_sha);
+    println!("Static CRPE raw-word location: 0x{at:X}");
+    for (i,word) in words.iter().enumerate() {
+        println!("  raw[{i}] = 0x{word:08X}");
+    }
+    println!("These are raw loader DWORDs, not asserted plaintext TEA key words.");
+    println!("Read-only. No DLL executed or EXE generated.");
+    Ok(())
+}
+
 fn inspect_import_codec_cli() -> Result<()> {
     let mut args=env::args().skip(2);
     let mut icd:Option<PathBuf>=None;
@@ -5808,6 +5845,10 @@ fn inspect_import_codec_cli() -> Result<()> {
 }
 
 fn main() {
+    if env::args().nth(1).as_deref()==Some("inspect-loader-key-slots") {
+        if let Err(e)=inspect_loader_key_slots_cli() {eprintln!("ERROR: {e}");process::exit(1);}
+        return;
+    }
     if env::args().nth(1).as_deref()==Some("inspect-import-codec") {
         if let Err(e)=inspect_import_codec_cli() { eprintln!("ERROR: {e}"); process::exit(1); }
         return;
