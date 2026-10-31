@@ -39,7 +39,74 @@ def pe_sections(data):
     return result
 
 
-def audit(icd, unwrapped):
+def audit_coverage(a, b, descriptors, base_rva):
+    """Classify changed .idata bytes by PE import structures in the unwrapped file.
+
+    This identifies metadata locations; it does NOT reverse SafeDisc encryption.
+    """
+    labels = [None] * len(b)
+    changed_words = collections.Counter()
+
+    def mark(start, length, category):
+        if start < 0 or length < 0 or start + length > len(b):
+            raise ValueError(f"out-of-bounds {category} at 0x{start:X}")
+        for i in range(start, start + length):
+            if labels[i] not in (None, category):
+                raise ValueError(f"overlapping structures: {labels[i]}/{category} at 0x{i:X}")
+            labels[i] = category
+
+    def to_offset(rva):
+        offset = rva - base_rva
+        if not 0 <= offset < len(b):
+            raise ValueError(f"import RVA outside .idata: 0x{rva:X}")
+        return offset
+
+    def mark_string(start, category, prefix=0):
+        if start + prefix >= len(b):
+            raise ValueError(f"invalid import string start 0x{start:X}")
+        end = b.find(b"\x00", start + prefix)
+        if end < 0:
+            raise ValueError(f"unterminated import string at 0x{start:X}")
+        mark(start, end + 1 - start, category)
+
+    for pos, _old, new in descriptors:
+        mark(pos, 20, "descriptors")
+        mark_string(to_offset(new[3]), "dll_names")
+        dll = b[to_offset(new[3]):].split(b"\x00", 1)[0].decode("ascii", "replace")
+        for category, table_rva in (("ILT", new[0]), ("IAT", new[4])):
+            start = to_offset(table_rva)
+            for entry in range(2048):
+                p = start + entry * 4
+                if p + 4 > len(b):
+                    raise ValueError(f"unterminated {category} array for {dll}")
+                old_thunk = struct.unpack_from("<I", a, p)[0]
+                new_thunk = struct.unpack_from("<I", b, p)[0]
+                mark(p, 4, category)
+                if old_thunk != new_thunk:
+                    changed_words[(dll, category)] += 1
+                if new_thunk == 0:
+                    break
+                if category == "ILT" and (new_thunk & 0x80000000) == 0:
+                    mark_string(to_offset(new_thunk), "import_names", prefix=2)
+            else:
+                raise ValueError(f"too many {category} entries for {dll}")
+
+    classes = collections.Counter()
+    for i, (old_byte, new_byte) in enumerate(zip(a, b)):
+        if old_byte != new_byte:
+            classes[labels[i] or "unclassified"] += 1
+    print("Detailed .idata changed-byte accounting:")
+    for category in ("descriptors", "ILT", "IAT", "import_names", "dll_names", "unclassified"):
+        print(f"  {category}: {classes[category]} bytes")
+    print(f"  total classified/observed: {sum(v for k, v in classes.items() if k != 'unclassified')}/{sum(classes.values())}")
+    print("Import thunk entries changed, by DLL:")
+    for (dll, table), amount in sorted(changed_words.items()):
+        print(f"  {dll} {table}: {amount} DWORDs")
+    if classes["unclassified"]:
+        print("WARNING: some byte differences are not explained by these import structures")
+
+
+def audit(icd, unwrapped, coverage=False):
     aa, bb = pe_sections(icd), pe_sections(unwrapped)
     if ".idata" not in aa or ".idata" not in bb:
         raise ValueError("missing .idata")
@@ -70,11 +137,14 @@ def audit(icd, unwrapped):
     print("Non-descriptor changed offsets in 256-byte bins:")
     for page, count in sorted(by_page.items()):
         print(f"  RVA 0x{ra + page*256:08X}: {count} bytes")
+    if coverage:
+        audit_coverage(a, b, descriptors, ra)
 
 
 if __name__ == "__main__":
     cli = argparse.ArgumentParser(description=__doc__)
     cli.add_argument("--icd", type=pathlib.Path, required=True)
     cli.add_argument("--unwrapped", type=pathlib.Path, required=True)
+    cli.add_argument("--coverage", action="store_true", help="classify changed bytes as import metadata, thunks, or import strings")
     args = cli.parse_args()
-    audit(args.icd.read_bytes(), args.unwrapped.read_bytes())
+    audit(args.icd.read_bytes(), args.unwrapped.read_bytes(), coverage=args.coverage)
