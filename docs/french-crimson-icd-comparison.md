@@ -56,3 +56,27 @@ historical Windows 98 `TESTME.EXE` output:
 
 These observations do **not** demonstrate the encryption key, transform
 order, SafeDisc variant equivalence or native unwrapper correctness.
+
+
+## 2026-10-31: import descriptor follow-up
+
+A separate bounded parse of the PE32 `.idata` section found **21**
+`IMAGE_IMPORT_DESCRIPTOR` entries. Each is 20 bytes (five DWORDs),
+and the only descriptor field changed between the French protected ICD and
+the Win98 TESTME output is `TimeDateStamp` at descriptor-relative +4:
+`0x00000000 -> 0xAD2B0000` for all 21 entries.
+This accounts for exactly 42 changed bytes out of the 3,360 total
+changed bytes within `.idata`; **3,318 changes remain outside these
+21 timestamp words**. The other descriptor fields
+(`OriginalFirstThunk`, `ForwarderChain`, `Name`, `FirstThunk`)
+are unchanged on this comparison.
+
+Caution: `0xAD2B0000` is a descriptor field *value*, not proven to be
+a SafeDisc cipher key. The remaining byte differences may include
+import name/thunk data or other content, and need separate characterization.
+
+Reproduction:
+`python scripts/audit_import_deltas.py --icd crimson.icd --unwrapped testme.exe`.
+
+This script is strictly read-only and does not claim to reproduce
+decryption or generate a modified game binary.
