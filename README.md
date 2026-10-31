@@ -59,6 +59,32 @@ exact French ICD are supported. This is **only a name decoder**, not an
 EXE unpacker, import-table rebuilder or SafeDisc removal utility.
 Files on disk are never modified. Other hashes/versions are rejected.
 
+### Full French import-section reconstruction (in memory)
+
+The next research stage extends the 136 verified API names to the entire
+`.idata` section of the exact French ICD:
+
+```sh
+./unsafedisc-linux inspect-import-codec \
+  --icd crimson.icd --rebuild-tables --reference testme.exe
+```
+
+- Discovers the import-pointer XOR constant **0x6A966E30** directly from
+  the 134 nonzero protected thunk words and the 136 encoded name-record
+  RVAs; all 134 resolve to distinct valid name addresses.
+- Reconstructs ILT and IAT using two version-specific **permutation tables
+  derived offline from the owner's historical Win98 output**. The permutations
+  are reference-guided metadata, not a general SafeDisc shuffle algorithm.
+- Restores the 21 descriptor timestamps and two historical DLL name-case
+  bytes for exact output formatting.
+- Checks the complete rebuilt **16,384-byte** `.idata` section against
+  its fixed SHA-256 `c8674927a6a2f6c53330b9692dca084084cb5cfef9acc3ecaab1bb8a0cbd7534`.
+  The optional historical reference verifies 0 remaining differing bytes.
+
+The source ICD is still not decrypted beyond imports, and **no EXE is
+generated**. `--rebuild-tables` is fail-closed to the exact French ICD
+SHA-256 and should not be used on other language editions.
+
 ## Python v0.9 prototype (restored from the original archive)
 
 The separate **Crimson Skies unwrapping prototype v0.9** is preserved
