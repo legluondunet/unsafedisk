@@ -4019,6 +4019,7 @@ fn help() {
 Usage:\n\
   unsafedisc-linux inspect --loader CRIMSON.EXE --icd CRIMSON.ICD \\\n\
       --dplayerx dplayerx.dll [--reference TESTME.EXE] [--reported-key 0x7496538F] [--layout] [--generic-inspect] [--checksum-research] [--sections] [--key-research] [--modifier-research] [--modifier-snapshot CS98-DLL-00.BIN] [--startup-research] [--attach-research] [--xref-research] [--literal-research] [--reference-audit] [--historical-selection] [--strings]\n\
+  unsafedisc-linux inspect-french-tea-tail --icd CRIMSON.ICD --reference TESTME.EXE [--key K0,K1,K2,K3]\n\\
   unsafedisc-linux inspect-french-crypto --icd CRIMSON.ICD --reference TESTME.EXE --modifier-snapshot CS98-DLL-00.BIN\n\\
   unsafedisc-linux inspect-french-callsites --icd CRIMSON.ICD [--reference TESTME.EXE]\n\\
   unsafedisc-linux inspect-loader-key-slots --loader CRIMSON.EXE\n\\
@@ -5742,6 +5743,82 @@ fn compare_unwrapped_cli() -> Result<()> {
 // Falsifiable edition-specific hypothesis: the French pointer XOR is also
 // TEA key[0], while the remaining three key words and Win98 F1/F2 modifiers
 // are shared with the older retail edition. Strict input hashes required.
+fn inspect_french_tea_tail_cli() -> Result<()> {
+    let mut args=env::args().skip(2);
+    let mut icd_path:Option<PathBuf>=None;
+    let mut reference_path:Option<PathBuf>=None;
+    let mut custom_key:Option<[u32;4]>=None;
+    while let Some(arg)=args.next() {
+        if arg=="--help" {
+            println!("Usage: unsafedisc-linux inspect-french-tea-tail --icd crimson.icd --reference testme.exe [--key K0,K1,K2,K3]");
+            return Ok(());
+        }
+        let value=args.next().ok_or_else(||format!("missing value for {arg}"))?;
+        match arg.as_str(){
+            "--icd" if icd_path.is_none() => icd_path=Some(PathBuf::from(value)),
+            "--reference" if reference_path.is_none() => reference_path=Some(PathBuf::from(value)),
+            "--key" if custom_key.is_none() => {
+                let vals:Vec<&str>=value.split(',').collect();
+                if vals.len()!=4 {return Err("--key expects four comma-separated 32-bit hex words".into());}
+                let mut candidate=[0u32;4];
+                for (i,v) in vals.iter().enumerate(){
+                    candidate[i]=parse_hex_u32(v)?;
+                }
+                custom_key=Some(candidate);
+            },
+            _=>return Err(format!("unknown/repeated tea-tail argument: {arg}"))
+        }
+    }
+    let icd=read_original(&icd_path.ok_or("missing --icd")?,
+        ICD_LEN,unsafedisc_import_codec::FRENCH_ICD_SHA)?;
+    let reference=read_original(&reference_path.ok_or("missing --reference")?,
+        TESTME_LEN,TESTME_SHA)?;
+    let original=parse_pe32(&icd)?;
+    let unwrapped=parse_pe32(&reference)?;
+    let (blocks,_)=pe_relocation_blocks(&icd,&original)?;
+    let retail=[0x7496_538Fu32,0xE9C7_914F,0xCF10_EA3F,0x82F5_DE2F];
+    let candidates:Vec<(&str,[u32;4])>=if let Some(key)=custom_key {
+        vec![("custom",key)]
+    } else {
+        vec![
+            ("older-edition",retail),
+            ("French-import-XOR-as-TEA-first-word",
+                [0x6A96_6E30,retail[1],retail[2],retail[3]]),
+            ("raw-loader-XOR-delta-as-TEA-first-word",
+                [retail[0]^0xE51D_C3D7^0xA217_4C1A,retail[1],retail[2],retail[3]]),
+            ("raw-loader-add-delta-as-TEA-first-word",
+                [retail[0].wrapping_add(0xA217_4C1A).wrapping_sub(0xE51D_C3D7),
+                    retail[1],retail[2],retail[3]]),
+            ("all-zero-negative-control",[0,0,0,0]),
+        ]
+    };
+    println!("Exact French ICD and historical reference SHA-256 verified.");
+    println!("Independent TEA tail oracle: relocation-excluded .text fragments >=8 bytes with 1..3 tail bytes.");
+    println!("The modifier F1/F2 never changes these tail bytes, but overlapping TEA does.");
+    let mut any_full=false;
+    for (name,key) in candidates {
+        let result=validate_tea_key_by_unchanged_fragment_tails(
+            &icd,&reference,&original,&unwrapped,&blocks,key)?;
+        println!("{name}: TEA key={:08X},{:08X},{:08X},{:08X} | exact tails {}/{} | equal bytes {}/{}",
+            key[0],key[1],key[2],key[3],
+            result.matching_fragments,result.fragments,
+            result.matching_bytes,result.checked_bytes);
+        if result.fragments==0 || result.checked_bytes==0 {
+            return Err("TEA tail oracle found no eligible fragments".into());
+        }
+        if result.matching_bytes==result.checked_bytes &&
+           result.matching_fragments==result.fragments {
+            any_full=true;
+            println!("  Candidate PASSES necessary tail condition, not sufficient for TEA key recovery.");
+        }else{
+            println!("  Candidate REJECTED by necessary TEA tail condition.");
+        }
+    }
+    if !any_full {println!("No tested TEA key candidate passes; French full-code decryption NOT established.");}
+    println!("Read-only. No modifier snapshot required and no game EXE written.");
+    Ok(())
+}
+
 fn inspect_french_crypto_hypothesis_cli() -> Result<()> {
     let mut args=env::args().skip(2);
     let mut icd_path:Option<PathBuf>=None;
@@ -6050,6 +6127,10 @@ fn inspect_import_codec_cli() -> Result<()> {
 }
 
 fn main() {
+    if env::args().nth(1).as_deref()==Some("inspect-french-tea-tail") {
+        if let Err(e)=inspect_french_tea_tail_cli(){eprintln!("ERROR: {e}");process::exit(1);}
+        return;
+    }
     if env::args().nth(1).as_deref()==Some("inspect-french-crypto") {
         if let Err(e)=inspect_french_crypto_hypothesis_cli(){eprintln!("ERROR: {e}");process::exit(1);}
         return;
