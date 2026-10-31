@@ -361,3 +361,71 @@ power and was **not used** to confirm any TEA key.
 Only a direct test with the SHA-verified F1/F2 Win98 modifier snapshot,
 against the entire `.text` and `.data` reference sections, can validate
 the specific candidate implemented by `inspect-french-crypto`.
+
+## 2026-10-31: actual Win98 snapshot received; French hypothesis disproved
+
+The owner supplied the original `CS98-DLL-00.BIN` Win98 passive DLL
+snapshot, 167,936 bytes, with exact SHA-256
+`5931af1ba40b0f28b0bb3e9fabc663127bbd9a8c1de8ea1e9c87b56154c84519`.
+The existing native `inspect-snapshot` command successfully validates
+its mapped PE geometry and the two EAX-only modifiers (F1: 24 operations;
+F2: 33). The input bytes are **not committed or redistributed**.
+
+With the SHA-verified snapshot and owner-supplied French ICD plus
+historical `TESTME.EXE`, ran the exact previously untested hypothesis:
+
+```sh
+./unsafedisc-linux inspect-french-crypto \
+  --icd crimson.icd --reference testme.exe \
+  --modifier-snapshot CS98-DLL-00.BIN
+```
+
+**Observed actual result (failure):**
+
+| Non-HIGHLOW section | Equal bytes | Checked bytes | Mismatches |
+|---|---:|---:|---:|
+| .text | 77,464 | 1,855,489 | 1,778,025 |
+| .data | 859 | 168,072 | 167,213 |
+| **Total** | **78,323** | **2,023,561** | **1,945,238** |
+
+The hypothesis that `0x6A966E30` (independently verified as the French
+**import-pointer XOR**) is also French **TEA key[0]** with the older
+edition's other three key words and exact same F1/F2 is **refuted**.
+The import-key property remains validated but is not evidence of TEA
+key equality. Possible independent explanations include changed TEA
+words and/or changed runtime modifier functions for the French version.
+
+A separate **TEA-only fragment-tail oracle** re-encrypts known plaintext
+using TEA, examines only 1..3 trailing fragment bytes excluded from the
+F1/F2 DWORD operations, and compares with the original protected source.
+It tests a *necessary*, not sufficient, correctness property of the TEA
+key even when the modifier functions differ. A local Python probe of
+1,761 eligible fragment tails from a 3,000-fragment-per-section sample:
+
+| TEA candidate | Exact tails | Matching bytes / 3,445 |
+|---|---:|---:|
+| Old edition full key | 4 / 1,761 | 18 |
+| French import XOR as first word, other three inherited | 1 / 1,761 | 13 |
+| All-zero negative control | 5 / 1,761 | 16 |
+
+All fail at a rate consistent with the wrong TEA key; this also shows
+why a snapshot-only mismatch cannot be blamed solely on F1/F2. Other
+candidate first-word extrapolations from the old/new raw CRPE first
+word (XOR or arithmetic delta) failed a separate 350-first-block
+comparison, with zero matching 8-byte blocks.
+
+**Do not claim a full French TEA key is recovered.** The separate
+`inspect-french-tea-tail` Rust command now evaluates multiple candidates
+against all eligible relocation-excluded `.text` fragments and also
+supports a supplied four-word key, without requiring the snapshot or
+running any protected Windows code:
+
+```sh
+./unsafedisc-linux inspect-french-tea-tail \
+  --icd crimson.icd --reference testme.exe
+```
+
+Next work: reconstruct the four TEA key words from the game's SafeDisc
+loader/key schedule rather than incorrectly reusing the import-pointer
+XOR; determine whether the captured F1/F2 modifiers are portable across
+the original and French editions. No game EXE has been output.
