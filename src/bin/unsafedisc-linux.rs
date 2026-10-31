@@ -4010,7 +4010,7 @@ fn help() {
 Usage:\n\
   unsafedisc-linux inspect --loader CRIMSON.EXE --icd CRIMSON.ICD \\\n\
       --dplayerx dplayerx.dll [--reference TESTME.EXE] [--reported-key 0x7496538F] [--layout] [--generic-inspect] [--checksum-research] [--sections] [--key-research] [--modifier-research] [--modifier-snapshot CS98-DLL-00.BIN] [--startup-research] [--attach-research] [--xref-research] [--literal-research] [--reference-audit] [--historical-selection] [--strings]\n\
-  unsafedisc-linux compare-unwrapped --icd CRIMSON.ICD --unwrapped TESTME.EXE\n\\
+  unsafedisc-linux compare-unwrapped --icd CRIMSON.ICD --unwrapped TESTME.EXE [--delta-details]\n\\
   unsafedisc-linux inspect-snapshot --snapshot CS98-DLL-00.BIN\n\\
   unsafedisc-linux inspect-historical --unsafedisc unSafedisc.exe\n\
   unsafedisc-linux --help\n\
@@ -5642,7 +5642,13 @@ fn compare_unwrapped_cli() -> Result<()> {
     let mut args = env::args().skip(2);
     let mut icd_path:Option<PathBuf> = None;
     let mut unwrapped_path:Option<PathBuf> = None;
+    let mut delta_details=false;
     while let Some(arg) = args.next() {
+        if arg=="--delta-details" {
+            if delta_details { return Err("repeated --delta-details".into()); }
+            delta_details=true;
+            continue;
+        }
         let val = args.next().ok_or_else(|| format!("missing value for {arg}"))?;
         match arg.as_str() {
             "--icd" if icd_path.is_none() => icd_path=Some(PathBuf::from(val)),
@@ -5682,6 +5688,38 @@ fn compare_unwrapped_cli() -> Result<()> {
         let different=ax.iter().zip(by).filter(|(a,b)|a!=b).count();
         println!("{xn}: {different}/{} bytes differ ({:.2}%)",
             x.raw_len,if x.raw_len==0{0.0}else{100.0*different as f64/x.raw_len as f64});
+    }
+    if delta_details {
+        for (x,y) in a.sections.iter().zip(&b.sections) {
+            if x.name != y.name || x.raw_len != y.raw_len {continue;}
+            let ax=&data[0][x.raw_offset..x.raw_offset+x.raw_len];
+            let by=&data[1][y.raw_offset..y.raw_offset+y.raw_len];
+            let name=String::from_utf8_lossy(x.name.split(|c|*c==0).next().unwrap_or(&[]));
+            let mut i=0usize;
+            let mut count=0usize;
+            while i<ax.len() && count<12 {
+                if ax[i]==by[i] {i+=1;continue;}
+                let begin=i;
+                while i<ax.len() && ax[i]!=by[i] {i+=1;}
+                let preview=(begin..i.min(begin+8))
+                    .map(|p|format!("{:02X}->{:02X}",ax[p],by[p]))
+                    .collect::<Vec<_>>().join(" ");
+                println!("  {name} file offset 0x{:X}, RVA 0x{:X}: {}-byte delta [{}]",
+                    x.raw_offset+begin, x.virtual_address as usize+begin,i-begin,preview);
+                count+=1;
+            }
+            if count==12 {println!("  {name}: showing at most 12 delta runs");}
+        }
+        for (label,blob,pe) in [("ICD",&data[0],&a),("unwrapped",&data[1],&b)] {
+            let end=pe.sections.iter().map(|section|
+                section.raw_offset.saturating_add(section.raw_len)).max().unwrap_or(0);
+            println!("{label}: {} bytes after last PE section",blob.len().saturating_sub(end));
+            if end<blob.len() {
+                let preview=blob[end..blob.len().min(end+32)].iter()
+                    .map(|x|format!("{x:02X}")).collect::<Vec<_>>().join(" ");
+                println!("  trailing bytes: {preview}");
+            }
+        }
     }
     println!("Read-only positional comparison: no decryption attempted, no file modified.");
     Ok(())
