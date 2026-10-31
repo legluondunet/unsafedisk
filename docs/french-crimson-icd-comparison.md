@@ -98,8 +98,10 @@ Direct read-only hexdump inspection identifies two categories beyond the
   regions occur near file offset `0x2464C2` with
   `InitializeCriticalSection` and `DeleteCriticalSection`.
 
-No constant XOR or subtraction transform should be assumed from the sample
-DWORD pairs; sampled XOR/subtraction deltas are not constant.
+Historical observation (superseded by the 2026-10-31 reconstruction below):
+XOR deltas for words at the **same import index** were not constant.
+This is explained by an additional **permutation** of the imported names,
+not by a failure of constant-XOR decoding of the protected pointer set.
 
 The **next justified task** is separating thunk-array transformations from
 import-name restoration, and determining whether they share decoder logic
@@ -158,8 +160,8 @@ both before and after unSafeDisc:
 - The original protected table's first thunk of each of these DLLs is zero;
   the Win98-unwrapped table instead points to its first import-name record.
 - Most other protected thunk values fall in the `0x6AF4xxxx` range.
-  There is no demonstrated constant-XOR or direct arithmetic mapping from
-  these words to the recovered IMAGE_IMPORT_BY_NAME RVAs.
+  (Superseded: a constant XOR **does** map every nonzero protected pointer
+  to a valid import-name RVA once index permutations are allowed; see below.)
 - Descriptor timestamps contribute 42 changed bytes, and capitalization of
   the `KERNEL32.dll` name contributes 2. The rest (1,082 changed bytes)
   is duplicated between ILT and IAT.
@@ -184,9 +186,9 @@ table, and must **not** be identified as a cryptographic key.
 
 For the remaining 73 kernel entries, old-value XOR target-RVA produces
 71 distinct results. For the 61 user entries, it produces 59 distinct
-results. This refutes a **single constant XOR key** as the complete
-table restoration rule; it does not refute more complex position- or
-state-dependent transforms.
+results. This refutes only **same-index constant XOR**. The protected words are
+permuted, and the later cross-index analysis recovers a single XOR key
+for all 134 nonzero pointers (see below).
 
 Original ILT and IAT are byte-identical to one another for the 136
 entries, likewise the historical output ILT and IAT, allowing one
@@ -197,3 +199,55 @@ and how they correspond to import records; independently derive the
 mapping without reading TESTME, then verify all 1,126 outstanding
 `.idata` bytes. Do not embed a direct old-to-known-plaintext lookup
 table and call it a general decryption algorithm.
+
+
+## 2026-10-31: complete French .idata reconstruction (supersedes earlier hypotheses)
+
+**Key finding:** 134 nonzero protected ILT entries XOR a **single constant
+`0x6A966E30`** to yield 134 **distinct** record-start RVAs among the
+136 encrypted import-name records. We discovered this by enumerating
+134 × 136 candidate XOR relations, **without using the unwrapped output
+to infer the key**. The leading candidate matched 134 values; the
+runner-up matched only 34.
+
+Each of KERNEL32.dll and USER32.dll has exactly one zeroed initial
+protected entry. Once their nonzero entries are decoded, the one
+unreferenced name RVA in each DLL group is identified unambiguously
+from the encoded name-record geometry:
+
+| DLL | Import entries | Protected nonzero | Missing name RVA |
+|---|---:|---:|---|
+| KERNEL32 | 74 | 73 | `0x0062109C` |
+| USER32 | 62 | 61 | `0x006215C4` |
+
+**Important limitation:** the final order of the 74 and 62 import
+names is **not** determined by XOR or by these record boundaries.
+The exact-version order permutations were obtained offline from
+the owner's Windows 98 `TESTME.EXE` and embedded as index-only
+metadata; the reference is *not* needed at reconstruction runtime.
+This preserves original call-site semantics but is not a generic
+recovered SafeDisc permutation algorithm.
+
+A local independent Python implementation has rebuilt all 16,384 bytes
+of the French `.idata` section from the protected ICD in memory,
+restoring 21 descriptor timestamps and historical name-case style:
+
+```text
+reconstructed .idata differing bytes: 0 / 16384
+SHA-256: c8674927a6a2f6c53330b9692dca084084cb5cfef9acc3ecaab1bb8a0cbd7534
+```
+
+The Rust command added under this PR performs the same operation with
+a strict French ICD SHA-256 gate and expected reconstructed-section
+SHA-256 check. It does not write a game executable:
+
+```sh
+./unsafedisc-linux inspect-import-codec --icd crimson.icd \
+  --rebuild-tables --reference testme.exe
+```
+
+The historical original `0x7496538F` first key word is **not**
+interchangeable with the French import-pointer XOR `0x6A966E30`.
+Do not infer the remaining TEA key words from the import-pointer relation
+without additional evidence; the `.text` and `.data` transform remains
+unreconstructed for this French protected ICD.
