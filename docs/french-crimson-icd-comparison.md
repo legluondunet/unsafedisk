@@ -135,3 +135,36 @@ import-name/hint bytes still has to be reconstructed.
 ```sh
 python scripts/audit_import_deltas.py --icd crimson.icd --unwrapped TESTME.EXE --coverage
 ```
+
+## Runtime validation of the Rust import-name decoder
+
+The user successfully tested the Rust executable's command
+`inspect-import-codec --icd crimson.icd --reference testme.exe`:
+
+- exact French ICD SHA-256 matched `f3fe7c1e…e7262eb`
+- 136 protected API-name records restored in RAM
+- exactly 2,234 changed bytes reproduced against historical Win98 output
+- `.idata` difference count fell from 3,360 to **1,126**
+- no output executable generated
+
+### Remaining 1,126 bytes: structural follow-up
+
+Direct analysis of the user's original and historical reference confirms
+identical contents for ILT and IAT within **each** of the two affected DLLs,
+both before and after unSafeDisc:
+
+- `KERNEL32.dll`: 74 thunk entries; ILT and IAT match in each file.
+- `USER32.dll`: 62 thunk entries; ILT and IAT match in each file.
+- The original protected table's first thunk of each of these DLLs is zero;
+  the Win98-unwrapped table instead points to its first import-name record.
+- Most other protected thunk values fall in the `0x6AF4xxxx` range.
+  There is no demonstrated constant-XOR or direct arithmetic mapping from
+  these words to the recovered IMAGE_IMPORT_BY_NAME RVAs.
+- Descriptor timestamps contribute 42 changed bytes, and capitalization of
+  the `KERNEL32.dll` name contributes 2. The rest (1,082 changed bytes)
+  is duplicated between ILT and IAT.
+
+The matching ILT/IAT values let future work model **one 136-entry mapping**
+and apply it consistently to both tables. Such a mapping must be derived or
+explicitly identified as reference-guided data; it must not be described as
+a proven general SafeDisc decryptor.
