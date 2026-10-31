@@ -80,3 +80,28 @@ Reproduction:
 
 This script is strictly read-only and does not claim to reproduce
 decryption or generate a modified game binary.
+
+
+## Further .idata byte inspection
+
+Direct read-only hexdump inspection identifies two categories beyond the
+21 descriptor timestamp fields:
+
+- At file offset `0x2432D8` the ICD contains DWORD
+  `0x6AF47C3C` where TESTME contains `0x00620E42`; successive DWORDs
+  likewise change from `0x6AF4....`-range values to valid PE-image RVAs
+  (`0x00620E4E`, `0x00620E5A`, etc.). This is evidence of restoration or
+  normalization of import lookup/thunk content, not yet an identified cipher.
+- At file offset `0x245000` the TESTME output contains readable import
+  API names, including `LoadLibraryA` and `FreeLibrary`, whereas the
+  corresponding ICD bytes are not readable ASCII. Additional API-name
+  regions occur near file offset `0x2464C2` with
+  `InitializeCriticalSection` and `DeleteCriticalSection`.
+
+No constant XOR or subtraction transform should be assumed from the sample
+DWORD pairs; sampled XOR/subtraction deltas are not constant.
+
+The **next justified task** is separating thunk-array transformations from
+import-name restoration, and determining whether they share decoder logic
+with the native Rust SafeDisc stages. The exact complete unwrapping
+algorithm remains unverified.
