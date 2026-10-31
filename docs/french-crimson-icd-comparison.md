@@ -251,3 +251,33 @@ interchangeable with the French import-pointer XOR `0x6A966E30`.
 Do not infer the remaining TEA key words from the import-pointer relation
 without additional evidence; the `.text` and `.data` transform remains
 unreconstructed for this French protected ICD.
+
+
+## French loader key-slot provenance
+
+The exact French SafeDisc launcher (344,925 bytes, SHA-256
+`cf9ec313…4712ae`) contains one `CRPE\\0\\0` marker at
+file offset `0x28E6A`. Following the historical 0x148-byte skip
+(after the six marker bytes) reaches offset `0x28FB8`. Reading four
+little-endian DWORDs gives:
+
+| Word | French protected launcher | Earlier original protected launcher |
+|---|---|---|
+| raw[0] | `0xA2174C1A` | `0xE51DC3D7` |
+| raw[1] | `0x63CA5EAC` | `0x63CA5EAC` |
+| raw[2] | `0x4493379C` | `0x4493379C` |
+| raw[3] | `0x08B42B8C` | `0x08B42B8C` |
+
+Only the first *raw* DWORD differs. The imported-thunk XOR for the
+French variant is independently inferred as `0x6A966E30`, while
+the previous variant used the reported first key word
+`0x7496538F`. This correlation does **not** by itself prove that
+the remaining TEA plaintext key words are unchanged, or disclose how
+the protected raw words are converted into the full TEA key.
+
+```sh
+./unsafedisc-linux inspect-loader-key-slots --loader crimson.exe
+```
+
+This new command is restricted to the two verified launcher SHA-256s,
+performs no execution, and prints only on-disk raw-word values.
