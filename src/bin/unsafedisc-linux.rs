@@ -5,6 +5,9 @@
 // Research stage: strictly read-only. No loader/DLL execution, no executable
 // reconstruction, no SafeDisc driver, and no Wine requirement.
 
+#[path = "../unsafedisc_french_callsites.rs"]
+mod unsafedisc_french_callsites;
+
 #[path = "../unsafedisc_french_import_tables.rs"]
 mod unsafedisc_french_import_tables;
 
@@ -4016,6 +4019,7 @@ fn help() {
 Usage:\n\
   unsafedisc-linux inspect --loader CRIMSON.EXE --icd CRIMSON.ICD \\\n\
       --dplayerx dplayerx.dll [--reference TESTME.EXE] [--reported-key 0x7496538F] [--layout] [--generic-inspect] [--checksum-research] [--sections] [--key-research] [--modifier-research] [--modifier-snapshot CS98-DLL-00.BIN] [--startup-research] [--attach-research] [--xref-research] [--literal-research] [--reference-audit] [--historical-selection] [--strings]\n\
+  unsafedisc-linux inspect-french-callsites --icd CRIMSON.ICD [--reference TESTME.EXE]\n\\
   unsafedisc-linux inspect-loader-key-slots --loader CRIMSON.EXE\n\\
   unsafedisc-linux inspect-import-codec --icd CRIMSON.ICD [--rebuild-tables] [--reference TESTME.EXE]\n\\
   unsafedisc-linux compare-unwrapped --icd CRIMSON.ICD --unwrapped TESTME.EXE [--delta-details]\n\\
@@ -5734,6 +5738,122 @@ fn compare_unwrapped_cli() -> Result<()> {
 }
 
 
+fn inspect_french_callsites_cli() -> Result<()> {
+    let mut args=env::args().skip(2);
+    let mut icd_path:Option<PathBuf>=None;
+    let mut ref_path:Option<PathBuf>=None;
+    while let Some(arg)=args.next(){
+        if arg=="--help" {
+            println!("Usage: unsafedisc-linux inspect-french-callsites --icd crimson.icd [--reference testme.exe]");
+            return Ok(());
+        }
+        let value=args.next().ok_or_else(||format!("missing value for {arg}"))?;
+        match arg.as_str() {
+            "--icd" if icd_path.is_none()=>icd_path=Some(PathBuf::from(value)),
+            "--reference" if ref_path.is_none()=>ref_path=Some(PathBuf::from(value)),
+            _=>return Err(format!("unknown or repeated callsite argument: {arg}"))
+        }
+    }
+    let path=icd_path.ok_or("inspect-french-callsites requires --icd")?;
+    let icd=read_original(&path,ICD_LEN,unsafedisc_import_codec::FRENCH_ICD_SHA)?;
+    let pe=parse_pe32(&icd)?;
+    let text=pe.section(b".text")?;
+    let idata=pe.section(b".idata")?;
+    let restored_names=unsafedisc_import_codec::restore_import_names(
+        &icd,idata.virtual_address,idata.raw_offset,idata.raw_len)?;
+    let original_idata=icd.get(idata.raw_offset..idata.raw_offset+idata.raw_len)
+        .ok_or("protected .idata outside file")?;
+    let imports=unsafedisc_french_import_tables::reconstruct(
+        original_idata,&restored_names.reconstructed,idata.virtual_address)?;
+    if sha256(&imports.idata)!=unsafedisc_french_import_tables::EXPECTED_IDATA_SHA {
+        return Err("French imports fail SHA-256 self-check".into());
+    }
+
+    let mut kernel_iat=None;
+    let mut user_iat=None;
+    for desc in 0..21usize {
+        let d=idata.raw_offset+desc*20;
+        let name_rva=read_u32(&icd,d+12)?;
+        let n=name_rva.checked_sub(idata.virtual_address)
+            .ok_or("DLL import name before .idata")? as usize;
+        let begin=idata.raw_offset.checked_add(n).ok_or("DLL name offset overflow")?;
+        let name=icd.get(begin..begin+13).ok_or("DLL name beyond file")?;
+        let dll=String::from_utf8_lossy(name).to_ascii_lowercase();
+        if dll.starts_with("kernel32.dll") {
+            if kernel_iat.replace(read_u32(&icd,d+16)?).is_some(){
+                return Err("duplicate kernel32 import descriptor".into());
+            }
+        } else if dll.starts_with("user32.dll") {
+            if user_iat.replace(read_u32(&icd,d+16)?).is_some(){
+                return Err("duplicate user32 import descriptor".into());
+            }
+        }
+    }
+    let kernel_iat=kernel_iat.ok_or("missing kernel32 descriptor")?;
+    let user_iat=user_iat.ok_or("missing user32 descriptor")?;
+    let (blocks, _)=pe_relocation_blocks(&icd,&pe)?;
+    let mut highlow=std::collections::HashSet::new();
+    for block in &blocks {
+        for &item in &block.highlow_offsets {
+            let site=block.page_rva.checked_add(u32::from(item))
+                .ok_or("HIGHLOW location overflow")?;
+            if site>=text.virtual_address &&
+               site<text.virtual_address+text.virtual_size {
+                highlow.insert(site);
+            }
+        }
+    }
+    if highlow.len()!=61_743 {return Err(format!(
+        "unexpected French .text HIGHLOW site count {}",highlow.len()));}
+    let nt=read_u32(&icd,0x3C)? as usize;
+    let image_base=read_u32(&icd,nt+24+28)?;
+    let result=unsafedisc_french_callsites::reconstruct(
+        &icd,text.virtual_address,text.raw_offset,text.raw_len,
+        &highlow,image_base,kernel_iat,user_iat,imports.inferred_pointer_xor)?;
+    let partial_hash=sha256(&result.text);
+    if partial_hash!=unsafedisc_french_callsites::EXPECTED_PARTIAL_TEXT_SHA256 {
+        return Err(format!("partial .text SHA-256 mismatch: {partial_hash}"));
+    }
+    println!("Exact French ICD verified: {}",unsafedisc_import_codec::FRENCH_ICD_SHA);
+    println!("Reused independently inferred import XOR: 0x{:08X}",imports.inferred_pointer_xor);
+    println!("Protected .text HIGHLOW relocation sites: {}",highlow.len());
+    println!("Rotated import callsites restored: {} (KERNEL32={}, USER32={})",
+        result.sites_corrected,result.references_kernel,result.references_user);
+    println!("Partially reconstructed .text: {} bytes SHA-256 {}",result.text.len(),partial_hash);
+    if let Some(reference)=ref_path {
+        let expected=read_original(&reference,TESTME_LEN,TESTME_SHA)?;
+        let decoded_pe=parse_pe32(&expected)?;
+        let decoded_text=decoded_pe.section(b".text")?;
+        if decoded_text.raw_len!=text.raw_len ||
+           decoded_text.virtual_address!=text.virtual_address {
+            return Err("reference .text has incompatible geometry".into());
+        }
+        let target=expected.get(decoded_text.raw_offset..
+            decoded_text.raw_offset+decoded_text.raw_len)
+            .ok_or("reference .text outside file")?;
+        let before=icd[text.raw_offset..text.raw_offset+text.raw_len]
+            .iter().zip(target.iter()).filter(|(a,b)|a!=b).count();
+        let after=result.text.iter().zip(target.iter())
+            .filter(|(a,b)|a!=b).count();
+        if before!=1_812_843 || after!=1_812_482 {
+            return Err(format!("reference mismatch: original={before}, restored={after}"));
+        }
+        let mut relocation_differences=0usize;
+        for site in &highlow {
+            let p=(*site-text.virtual_address) as usize;
+            relocation_differences+=result.text[p..p+4].iter()
+                .zip(target[p..p+4].iter()).filter(|(a,b)|a!=b).count();
+        }
+        if relocation_differences!=0 {
+            return Err(format!("{relocation_differences} unmatched relocation bytes remain"));
+        }
+        println!("Historical TESTME .text differences: {before} -> {after}");
+        println!("HIGHLOW relocation bytes match reference: 61743/61743 DWORDs");
+    }
+    println!("Read-only: .text outside HIGHLOW slots remains encrypted; no EXE produced.");
+    Ok(())
+}
+
 fn inspect_loader_key_slots_cli() -> Result<()> {
     let mut args=env::args().skip(2);
     let mut loader:Option<PathBuf>=None;
@@ -5845,6 +5965,10 @@ fn inspect_import_codec_cli() -> Result<()> {
 }
 
 fn main() {
+    if env::args().nth(1).as_deref()==Some("inspect-french-callsites") {
+        if let Err(e)=inspect_french_callsites_cli() {eprintln!("ERROR: {e}");process::exit(1);}
+        return;
+    }
     if env::args().nth(1).as_deref()==Some("inspect-loader-key-slots") {
         if let Err(e)=inspect_loader_key_slots_cli() {eprintln!("ERROR: {e}");process::exit(1);}
         return;
