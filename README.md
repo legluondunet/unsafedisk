@@ -21,6 +21,22 @@ cargo test
 cargo build --release 
 ```
 
+## Generic read-only inspection (other language editions)
+
+For a different SafeDisc edition, for example the French Crimson Skies files:
+
+```sh
+unsafedisc-linux inspect --generic-inspect \\
+  --loader crimson.exe --icd crimson.icd --dplayerx dplayerx.dll \\
+  --layout --sections
+```
+
+Prints sizes, SHA-256, PE32 entry points and section metadata, without using
+game-specific keys or offsets. This is **not** decryption, unpacking or
+a compatibility assertion. Research flags such as `--strings`,
+`--key-research` and `--modifier-research` are prohibited in this mode.
+The legacy `inspect` behavior remains exact-SHA-gated.
+
 ## Python v0.9 prototype (restored from the original archive)
 
 The separate **Crimson Skies unwrapping prototype v0.9** is preserved
