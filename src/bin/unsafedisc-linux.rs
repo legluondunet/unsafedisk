@@ -5,6 +5,9 @@
 // Research stage: strictly read-only. No loader/DLL execution, no executable
 // reconstruction, no SafeDisc driver, and no Wine requirement.
 
+#[path = "../unsafedisc_import_codec.rs"]
+mod unsafedisc_import_codec;
+
 #[path = "../unsafedisc_strings.rs"]
 mod unsafedisc_strings;
 
@@ -4010,6 +4013,7 @@ fn help() {
 Usage:\n\
   unsafedisc-linux inspect --loader CRIMSON.EXE --icd CRIMSON.ICD \\\n\
       --dplayerx dplayerx.dll [--reference TESTME.EXE] [--reported-key 0x7496538F] [--layout] [--generic-inspect] [--checksum-research] [--sections] [--key-research] [--modifier-research] [--modifier-snapshot CS98-DLL-00.BIN] [--startup-research] [--attach-research] [--xref-research] [--literal-research] [--reference-audit] [--historical-selection] [--strings]\n\
+  unsafedisc-linux inspect-import-codec --icd CRIMSON.ICD [--reference TESTME.EXE]\n\\
   unsafedisc-linux compare-unwrapped --icd CRIMSON.ICD --unwrapped TESTME.EXE [--delta-details]\n\\
   unsafedisc-linux inspect-snapshot --snapshot CS98-DLL-00.BIN\n\\
   unsafedisc-linux inspect-historical --unsafedisc unSafedisc.exe\n\
@@ -5725,7 +5729,61 @@ fn compare_unwrapped_cli() -> Result<()> {
     Ok(())
 }
 
+
+fn inspect_import_codec_cli() -> Result<()> {
+    let mut args=env::args().skip(2);
+    let mut icd:Option<PathBuf>=None;
+    let mut reference:Option<PathBuf>=None;
+    while let Some(option)=args.next() {
+        if option=="--help" {
+            println!("Usage: unsafedisc-linux inspect-import-codec --icd crimson.icd [--reference testme.exe]");
+            return Ok(());
+        }
+        let value=args.next().ok_or_else(||format!("missing value for {option}"))?;
+        match option.as_str() {
+            "--icd" if icd.is_none() => icd=Some(PathBuf::from(value)),
+            "--reference" if reference.is_none() => reference=Some(PathBuf::from(value)),
+            _ => return Err(format!("unknown/repeated inspect-import-codec argument: {option}")),
+        }
+    }
+    let path=icd.ok_or("inspect-import-codec requires --icd")?;
+    // Exact French variant only: avoid treating similar layouts as compatible.
+    let protected=read_original(&path,ICD_LEN,unsafedisc_import_codec::FRENCH_ICD_SHA)?;
+    let original_pe=parse_pe32(&protected)?;
+    let idata=original_pe.section(b".idata")?;
+    let result=unsafedisc_import_codec::restore_import_names(
+        &protected,idata.virtual_address,idata.raw_offset,idata.raw_len)?;
+    println!("Exact French ICD verified: {}",unsafedisc_import_codec::FRENCH_ICD_SHA);
+    println!("Import names decoded in memory: {} records, {} changed bytes, {} record bytes",
+        result.names,result.changed_bytes,result.total_record_bytes);
+    if let Some(reference)=reference {
+        let expected=read_original(&reference,TESTME_LEN,TESTME_SHA)?;
+        let output_pe=parse_pe32(&expected)?;
+        let out=output_pe.section(b".idata")?;
+        if out.virtual_address!=idata.virtual_address || out.raw_len!=idata.raw_len {
+            return Err("reference .idata has incompatible PE section layout".into());
+        }
+        let ref_idata=expected.get(out.raw_offset..out.raw_offset+out.raw_len)
+            .ok_or("reference .idata beyond file")?;
+        let before=protected[idata.raw_offset..idata.raw_offset+idata.raw_len]
+            .iter().zip(ref_idata.iter()).filter(|(a,b)|a!=b).count();
+        let after=result.reconstructed.iter().zip(ref_idata.iter())
+            .filter(|(a,b)|a!=b).count();
+        if before!=3360 || after!=1126 {
+            return Err(format!("reference mismatch: {before} differing bytes before / {after} after; expected 3360/1126"));
+        }
+        println!("Historical TESTME validation: .idata differences {before} -> {after}");
+        println!("All 2234 import-name changed bytes reproduced exactly; 1126 non-name differences remain.");
+    }
+    println!("Read-only, no executable generated.");
+    Ok(())
+}
+
 fn main() {
+    if env::args().nth(1).as_deref()==Some("inspect-import-codec") {
+        if let Err(e)=inspect_import_codec_cli() { eprintln!("ERROR: {e}"); process::exit(1); }
+        return;
+    }
     if env::args().nth(1).as_deref()==Some("compare-unwrapped") {
         if let Err(e)=compare_unwrapped_cli() { eprintln!("ERROR: {e}"); process::exit(1); }
         return;
