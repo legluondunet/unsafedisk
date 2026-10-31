@@ -5,6 +5,9 @@
 // Research stage: strictly read-only. No loader/DLL execution, no executable
 // reconstruction, no SafeDisc driver, and no Wine requirement.
 
+#[path = "../unsafedisc_french_import_tables.rs"]
+mod unsafedisc_french_import_tables;
+
 #[path = "../unsafedisc_import_codec.rs"]
 mod unsafedisc_import_codec;
 
@@ -4013,7 +4016,7 @@ fn help() {
 Usage:\n\
   unsafedisc-linux inspect --loader CRIMSON.EXE --icd CRIMSON.ICD \\\n\
       --dplayerx dplayerx.dll [--reference TESTME.EXE] [--reported-key 0x7496538F] [--layout] [--generic-inspect] [--checksum-research] [--sections] [--key-research] [--modifier-research] [--modifier-snapshot CS98-DLL-00.BIN] [--startup-research] [--attach-research] [--xref-research] [--literal-research] [--reference-audit] [--historical-selection] [--strings]\n\
-  unsafedisc-linux inspect-import-codec --icd CRIMSON.ICD [--reference TESTME.EXE]\n\\
+  unsafedisc-linux inspect-import-codec --icd CRIMSON.ICD [--rebuild-tables] [--reference TESTME.EXE]\n\\
   unsafedisc-linux compare-unwrapped --icd CRIMSON.ICD --unwrapped TESTME.EXE [--delta-details]\n\\
   unsafedisc-linux inspect-snapshot --snapshot CS98-DLL-00.BIN\n\\
   unsafedisc-linux inspect-historical --unsafedisc unSafedisc.exe\n\
@@ -5734,10 +5737,16 @@ fn inspect_import_codec_cli() -> Result<()> {
     let mut args=env::args().skip(2);
     let mut icd:Option<PathBuf>=None;
     let mut reference:Option<PathBuf>=None;
+    let mut rebuild_tables=false;
     while let Some(option)=args.next() {
         if option=="--help" {
-            println!("Usage: unsafedisc-linux inspect-import-codec --icd crimson.icd [--reference testme.exe]");
+            println!("Usage: unsafedisc-linux inspect-import-codec --icd crimson.icd [--rebuild-tables] [--reference testme.exe]");
             return Ok(());
+        }
+        if option=="--rebuild-tables" {
+            if rebuild_tables {return Err("repeated --rebuild-tables".into());}
+            rebuild_tables=true;
+            continue;
         }
         let value=args.next().ok_or_else(||format!("missing value for {option}"))?;
         match option.as_str() {
@@ -5747,7 +5756,7 @@ fn inspect_import_codec_cli() -> Result<()> {
         }
     }
     let path=icd.ok_or("inspect-import-codec requires --icd")?;
-    // Exact French variant only: avoid treating similar layouts as compatible.
+    // Exact French SHA-256 gate: fail closed on any other edition.
     let protected=read_original(&path,ICD_LEN,unsafedisc_import_codec::FRENCH_ICD_SHA)?;
     let original_pe=parse_pe32(&protected)?;
     let idata=original_pe.section(b".idata")?;
@@ -5756,6 +5765,25 @@ fn inspect_import_codec_cli() -> Result<()> {
     println!("Exact French ICD verified: {}",unsafedisc_import_codec::FRENCH_ICD_SHA);
     println!("Import names decoded in memory: {} records, {} changed bytes, {} record bytes",
         result.names,result.changed_bytes,result.total_record_bytes);
+    let restored=if rebuild_tables {
+        let original_idata=protected
+            .get(idata.raw_offset..idata.raw_offset+idata.raw_len)
+            .ok_or("protected .idata outside file")?;
+        let rebuild=unsafedisc_french_import_tables::reconstruct(
+            original_idata,&result.reconstructed,idata.virtual_address)?;
+        let hash=sha256(&rebuild.idata);
+        if hash!=unsafedisc_french_import_tables::EXPECTED_IDATA_SHA {
+            return Err(format!("fully rebuilt .idata SHA-256 mismatch: {hash}"));
+        }
+        println!("Inferred French import pointer XOR: 0x{:08X}",rebuild.inferred_pointer_xor);
+        println!("Protected thunk pointers matched: {}/134",rebuild.matched_protected_thunks);
+        println!("ILT/IAT entries rebuilt in memory: {}",rebuild.reconstructed_thunks);
+        println!("Reconstructed .idata: {} bytes; SHA-256 {}",rebuild.idata.len(),hash);
+        println!("Historical output order uses exact-edition reference-guided permutation metadata.");
+        rebuild.idata
+    } else {
+        result.reconstructed
+    };
     if let Some(reference)=reference {
         let expected=read_original(&reference,TESTME_LEN,TESTME_SHA)?;
         let output_pe=parse_pe32(&expected)?;
@@ -5767,13 +5795,13 @@ fn inspect_import_codec_cli() -> Result<()> {
             .ok_or("reference .idata beyond file")?;
         let before=protected[idata.raw_offset..idata.raw_offset+idata.raw_len]
             .iter().zip(ref_idata.iter()).filter(|(a,b)|a!=b).count();
-        let after=result.reconstructed.iter().zip(ref_idata.iter())
+        let after=restored.iter().zip(ref_idata.iter())
             .filter(|(a,b)|a!=b).count();
-        if before!=3360 || after!=1126 {
-            return Err(format!("reference mismatch: {before} differing bytes before / {after} after; expected 3360/1126"));
+        let expected_after=if rebuild_tables {0} else {1126};
+        if before!=3360 || after!=expected_after {
+            return Err(format!("reference mismatch: {before} differing bytes before / {after} after; expected 3360/{expected_after}"));
         }
         println!("Historical TESTME validation: .idata differences {before} -> {after}");
-        println!("All 2234 import-name changed bytes reproduced exactly; 1126 non-name differences remain.");
     }
     println!("Read-only, no executable generated.");
     Ok(())
