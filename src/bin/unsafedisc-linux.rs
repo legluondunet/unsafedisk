@@ -4020,7 +4020,7 @@ Usage:\n\
   unsafedisc-linux inspect --loader CRIMSON.EXE --icd CRIMSON.ICD \\\n\
       --dplayerx dplayerx.dll [--reference TESTME.EXE] [--reported-key 0x7496538F] [--layout] [--generic-inspect] [--checksum-research] [--sections] [--key-research] [--modifier-research] [--modifier-snapshot CS98-DLL-00.BIN] [--startup-research] [--attach-research] [--xref-research] [--literal-research] [--reference-audit] [--historical-selection] [--strings]\n\
   unsafedisc-linux inspect-french-tea-tail --icd CRIMSON.ICD --reference TESTME.EXE [--key K0,K1,K2,K3]\n\\
-  unsafedisc-linux inspect-french-crypto --icd CRIMSON.ICD --reference TESTME.EXE --modifier-snapshot CS98-DLL-00.BIN\n\\
+  unsafedisc-linux inspect-french-crypto --icd CRIMSON.ICD --loader CRIMSON.EXE --reference TESTME.EXE --modifier-snapshot CS98-DLL-00.BIN\n\\
   unsafedisc-linux inspect-french-callsites --icd CRIMSON.ICD [--reference TESTME.EXE]\n\\
   unsafedisc-linux inspect-loader-key-slots --loader CRIMSON.EXE\n\\
   unsafedisc-linux inspect-import-codec --icd CRIMSON.ICD [--rebuild-tables] [--reference TESTME.EXE]\n\\
@@ -5824,9 +5824,10 @@ fn inspect_french_crypto_hypothesis_cli() -> Result<()> {
     let mut icd_path:Option<PathBuf>=None;
     let mut reference_path:Option<PathBuf>=None;
     let mut snapshot_path:Option<PathBuf>=None;
+    let mut loader_path:Option<PathBuf>=None;
     while let Some(arg)=args.next(){
         if arg=="--help" {
-            println!("Usage: unsafedisc-linux inspect-french-crypto --icd crimson.icd --reference testme.exe --modifier-snapshot CS98-DLL-00.BIN");
+            println!("Usage: unsafedisc-linux inspect-french-crypto --icd crimson.icd --loader crimson.exe --reference testme.exe --modifier-snapshot CS98-DLL-00.BIN");
             return Ok(());
         }
         let value=args.next().ok_or_else(||format!("missing value for {arg}"))?;
@@ -5834,6 +5835,7 @@ fn inspect_french_crypto_hypothesis_cli() -> Result<()> {
             "--icd" if icd_path.is_none()=>icd_path=Some(PathBuf::from(value)),
             "--reference" if reference_path.is_none()=>reference_path=Some(PathBuf::from(value)),
             "--modifier-snapshot" if snapshot_path.is_none()=>snapshot_path=Some(PathBuf::from(value)),
+            "--loader" if loader_path.is_none()=>loader_path=Some(PathBuf::from(value)),
             _=>return Err(format!("unknown or repeated French crypto option: {arg}"))
         }
     }
@@ -5843,11 +5845,59 @@ fn inspect_french_crypto_hypothesis_cli() -> Result<()> {
         TESTME_LEN,TESTME_SHA)?;
     let modifiers=load_verified_modifier_snapshot(
         &snapshot_path.ok_or("missing --modifier-snapshot")?)?;
+    const FRENCH_LOADER_SHA:&str=
+        "cf9ec31364e1893c21636f53bc9410d0e1aa49ee6c32a555cf3adab9df4712ae";
+    let loader=read_original(&loader_path.ok_or("missing --loader")?,
+        344_925,FRENCH_LOADER_SHA)?;
+    let (_,raw)=locate_raw_key(&loader,DLL_LEN)?;
     let original=parse_pe32(&icd)?;
     let decoded=parse_pe32(&reference)?;
     let (relocs,_)=pe_relocation_blocks(&icd,&original)?;
-    let key=[0x6A96_6E30u32,0xE9C7_914F,0xCF10_EA3F,0x82F5_DE2F];
-    println!("Falsifiable HYPOTHESIS: French TEA key[0]=0x6A966E30, remaining words inherited.");
+    let text=original.section(b".text")?;
+    let text_bytes=icd.get(text.raw_offset..text.raw_offset+text.raw_len)
+        .ok_or("protected .text outside ICD")?;
+    let text_relocs=relocs.iter().filter(|block|
+        block.page_rva>=text.virtual_address &&
+        block.page_rva < text.virtual_address+text.raw_len as u32)
+        .cloned().collect::<Vec<_>>();
+    let effective_len=text.raw_len.min(text.virtual_size as usize);
+    let checksum=checksum_pages_bounded_without_highlow(
+        text_bytes,text.virtual_address,&text_relocs,effective_len,0)?;
+    let corroboration=checksum_independent_relocation_walk(
+        text_bytes,text.virtual_address,&text_relocs,effective_len)?;
+    if checksum!=corroboration.checksum || checksum!=0x5C03_ECF6 {
+        return Err(format!("French checksum mismatch: 0x{checksum:08X}"));
+    }
+    let idata=original.section(b".idata")?;
+    let names=unsafedisc_import_codec::restore_import_names(
+        &icd,idata.virtual_address,idata.raw_offset,idata.raw_len)?;
+    let orig_idata=icd.get(idata.raw_offset..idata.raw_offset+idata.raw_len)
+        .ok_or(".idata extends beyond ICD")?;
+    let imports=unsafedisc_french_import_tables::reconstruct(
+        orig_idata,&names.reconstructed,idata.virtual_address)?;
+    if sha256(&imports.idata)!=unsafedisc_french_import_tables::EXPECTED_IDATA_SHA {
+        return Err("French import-section checksum mismatch".into());
+    }
+    let key=construct_tea_candidate(
+        imports.inferred_pointer_xor,checksum,original.entry_rva,raw);
+    const VERIFIED_FRENCH_KEY:[u32;4]=[
+        0x6A96_6E30,0xF7C7_7870,0xD110_DFA0,0x9CF5_E390];
+    if key!=VERIFIED_FRENCH_KEY {
+        return Err("French TEA staging derivation does not match independently verified key".into());
+    }
+    let tails=validate_tea_key_by_unchanged_fragment_tails(
+        &icd,&reference,&original,&decoded,&relocs,key)?;
+    if tails.fragments!=28_947 || tails.checked_bytes!=58_076 ||
+       tails.matching_fragments!=tails.fragments ||
+       tails.matching_bytes!=tails.checked_bytes {
+        return Err(format!("French derived TEA key failed tail oracle: {}/{} matching bytes",
+            tails.matching_bytes,tails.checked_bytes));
+    }
+    println!("French relocation-aware checksum: 0x{checksum:08X}");
+    println!("Derived TEA key: {:08X} {:08X} {:08X} {:08X}",
+        key[0],key[1],key[2],key[3]);
+    println!("Independent TEA tail oracle PASS: {}/{} exact fragments, {}/{} bytes",
+        tails.matching_fragments,tails.fragments,tails.matching_bytes,tails.checked_bytes);
     println!("Win98 F1/F2 snapshot verified by exact SHA-256; no DLL executed.");
     let mut mismatches_total=0usize;
     for (name,frags,words,checked,excluded) in [
@@ -5893,9 +5943,9 @@ fn inspect_french_crypto_hypothesis_cli() -> Result<()> {
     }
     if mismatches_total!=0 {
         return Err(format!(
-            "French full TEA/F1/F2 hypothesis NOT verified: {mismatches_total} differing bytes. No decrypt claim."));
+            "French F1/F2+TEA candidate failed exact reference: {mismatches_total} differing bytes"));
     }
-    println!("French F1/F2+TEA HYPOTHESIS VALIDATED on all non-HIGHLOW .text/.data bytes.");
+    println!("French F1/F2+TEA reconstruction VALIDATED on all non-HIGHLOW .text/.data bytes.");
     println!("No game EXE written. This does not validate remaining PE reconstruction.");
     Ok(())
 }
