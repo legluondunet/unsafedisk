@@ -4019,6 +4019,7 @@ fn help() {
 Usage:\n\
   unsafedisc-linux inspect --loader CRIMSON.EXE --icd CRIMSON.ICD \\\n\
       --dplayerx dplayerx.dll [--reference TESTME.EXE] [--reported-key 0x7496538F] [--layout] [--generic-inspect] [--checksum-research] [--sections] [--key-research] [--modifier-research] [--modifier-snapshot CS98-DLL-00.BIN] [--startup-research] [--attach-research] [--xref-research] [--literal-research] [--reference-audit] [--historical-selection] [--strings]\n\
+  unsafedisc-linux unwrap-french --loader CRIMSON.EXE --icd CRIMSON.ICD --modifier-snapshot CS98-DLL-00.BIN --output NEW.EXE [--reference TESTME.EXE]\n\\
   unsafedisc-linux inspect-french-tea-tail --icd CRIMSON.ICD --reference TESTME.EXE [--key K0,K1,K2,K3]\n\\
   unsafedisc-linux inspect-french-crypto --icd CRIMSON.ICD --loader CRIMSON.EXE --reference TESTME.EXE --modifier-snapshot CS98-DLL-00.BIN\n\\
   unsafedisc-linux inspect-french-callsites --icd CRIMSON.ICD [--reference TESTME.EXE]\n\\
@@ -5743,6 +5744,201 @@ fn compare_unwrapped_cli() -> Result<()> {
 // Falsifiable edition-specific hypothesis: the French pointer XOR is also
 // TEA key[0], while the remaining three key words and Win98 F1/F2 modifiers
 // are shared with the older retail edition. Strict input hashes required.
+// Exact French title-specific native unwrapper. Unlike the research-only
+// inspectors, this writes a NEW output file, but ONLY after the *entire*
+// generated PE matches the independent historical SHA-256. Input files are
+// strictly pinned; output is create_new (no overwrites or symlink following).
+// Legacy cosmetics are explicitly reference-guided, not a generic algorithm.
+fn unwrap_french_cli() -> Result<()> {
+    use std::io::Write;
+    let mut args=env::args().skip(2);
+    let mut loader:Option<PathBuf>=None;
+    let mut icd:Option<PathBuf>=None;
+    let mut snap:Option<PathBuf>=None;
+    let mut output:Option<PathBuf>=None;
+    let mut reference:Option<PathBuf>=None;
+    while let Some(arg)=args.next(){
+        if arg=="--help" {
+            println!("Usage: unsafedisc-linux unwrap-french --loader crimson.exe --icd crimson.icd --modifier-snapshot CS98-DLL-00.BIN --output CRIMSON-UNWRAPPED.EXE [--reference testme.exe]");
+            return Ok(());
+        }
+        let value=args.next().ok_or_else(||format!("missing value for {arg}"))?;
+        match arg.as_str(){
+            "--loader" if loader.is_none()=>loader=Some(PathBuf::from(value)),
+            "--icd" if icd.is_none()=>icd=Some(PathBuf::from(value)),
+            "--modifier-snapshot" if snap.is_none()=>snap=Some(PathBuf::from(value)),
+            "--output" if output.is_none()=>output=Some(PathBuf::from(value)),
+            "--reference" if reference.is_none()=>reference=Some(PathBuf::from(value)),
+            _=>return Err(format!("unknown or repeated unwrap-french argument {arg}"))
+        }
+    }
+    let output=output.ok_or("missing --output")?;
+    if fs::symlink_metadata(&output).is_ok(){
+        return Err("REFUSING: output path already exists; choose another NEW file".into());
+    }
+    const FRENCH_LOADER_SHA:&str=
+        "cf9ec31364e1893c21636f53bc9410d0e1aa49ee6c32a555cf3adab9df4712ae";
+    let loader=read_original(&loader.ok_or("missing --loader")?,
+        344_925,FRENCH_LOADER_SHA)?;
+    let ciphertext=read_original(&icd.ok_or("missing --icd")?,
+        ICD_LEN,unsafedisc_import_codec::FRENCH_ICD_SHA)?;
+    let modifiers=load_verified_modifier_snapshot(
+        &snap.ok_or("missing --modifier-snapshot")?)?;
+    let original=parse_pe32(&ciphertext)?;
+    let (blocks,_)=pe_relocation_blocks(&ciphertext,&original)?;
+    let text=original.section(b".text")?;
+    let data=original.section(b".data")?;
+    let idata=original.section(b".idata")?;
+    let reloc=original.section(b".reloc")?;
+    if original.entry_rva!=0x001F_7056 ||
+       text.raw_offset!=0x1000 || text.raw_len!=2_105_344 ||
+       idata.raw_len!=0x4000 || data.raw_len!=172_032 {
+        return Err("French PE section geometry differs from verified original".into());
+    }
+    let text_end=text.raw_offset.checked_add(text.raw_len).ok_or("text range overflow")?;
+    let text_bytes=ciphertext.get(text.raw_offset..text_end)
+        .ok_or("original .text outside file")?;
+    let text_blocks=blocks.iter().filter(|block|
+        block.page_rva>=text.virtual_address &&
+        block.page_rva<text.virtual_address+text.raw_len as u32)
+        .cloned().collect::<Vec<_>>();
+    let text_extent=text.raw_len.min(text.virtual_size as usize);
+    let checksum=checksum_pages_bounded_without_highlow(
+        text_bytes,text.virtual_address,&text_blocks,text_extent,0)?;
+    let corroboration=checksum_independent_relocation_walk(
+        text_bytes,text.virtual_address,&text_blocks,text_extent)?;
+    if checksum!=0x5C03_ECF6 || corroboration.checksum!=checksum{
+        return Err("French protected-code checksum mismatch".into());
+    }
+    let names=unsafedisc_import_codec::restore_import_names(
+        &ciphertext,idata.virtual_address,idata.raw_offset,idata.raw_len)?;
+    let old_idata=ciphertext.get(idata.raw_offset..idata.raw_offset+idata.raw_len)
+        .ok_or("original .idata outside file")?;
+    let imports=unsafedisc_french_import_tables::reconstruct(
+        old_idata,&names.reconstructed,idata.virtual_address)?;
+    if sha256(&imports.idata)!=unsafedisc_french_import_tables::EXPECTED_IDATA_SHA{
+        return Err("French import reconstruction SHA-256 mismatch".into());
+    }
+    let (_,raw)=locate_raw_key(&loader,DLL_LEN)?;
+    let key=construct_tea_candidate(imports.inferred_pointer_xor,
+        checksum,original.entry_rva,raw);
+    if key!=[0x6A96_6E30,0xF7C7_7870,0xD110_DFA0,0x9CF5_E390]{
+        return Err("French TEA key does not match independently validated values".into());
+    }
+
+    let mut text_slots=Vec::new();
+    let mut data_slots=Vec::new();
+    for block in &blocks {
+        for &slot in &block.highlow_offsets{
+            let site=block.page_rva.checked_add(u32::from(slot))
+                .ok_or("HIGHLOW site overflow")?;
+            if site>=text.virtual_address &&
+               site<text.virtual_address+text_extent as u32 {
+                text_slots.push((site-text.virtual_address) as usize);
+            }
+            if site>=data.virtual_address &&
+               site<data.virtual_address+data.raw_len as u32 {
+                data_slots.push((site-data.virtual_address) as usize);
+            }
+        }
+    }
+    text_slots.sort_unstable();
+    data_slots.sort_unstable();
+    if text_slots.len()!=61_743 || data_slots.len()!=990{
+        return Err("French relocation partition mismatch".into());
+    }
+    let highs=text_slots.iter().map(|p|text.virtual_address+*p as u32)
+        .collect::<std::collections::HashSet<_>>();
+    let nt=read_u32(&ciphertext,0x3C)? as usize;
+    let image_base=read_u32(&ciphertext,nt+24+28)?;
+    if image_base!=0x0040_0000{return Err("unexpected French image base".into());}
+    let callsites=unsafedisc_french_callsites::reconstruct(
+        &ciphertext,text.virtual_address,text.raw_offset,text.raw_len,
+        &highs,image_base,0x61FC7C,0x62039C,imports.inferred_pointer_xor)?;
+    if sha256(&callsites.text)!=unsafedisc_french_callsites::EXPECTED_PARTIAL_TEXT_SHA256{
+        return Err("French callsite reconstruction SHA-256 mismatch".into());
+    }
+    let text_rebuilt=unsafedisc_candidate_forward::reconstruct_section(
+        &callsites.text[..text_extent],&text_slots,key,&modifiers)?;
+    let data_extent=data.raw_len.min(data.virtual_size as usize);
+    let data_input=ciphertext.get(data.raw_offset..data.raw_offset+data_extent)
+        .ok_or("original .data outside file")?;
+    let data_rebuilt=unsafedisc_candidate_forward::reconstruct_section(
+        data_input,&data_slots,key,&modifiers)?;
+    if text_rebuilt.fragments!=48_149 ||
+       text_rebuilt.complete_words!=440_422 ||
+       data_rebuilt.fragments!=321 ||
+       data_rebuilt.complete_words!=42_018 {
+        return Err("French decryption fragment accounting mismatch".into());
+    }
+
+    // Reconstruct only the historical 2001 output format pinned to this
+    // ONE exact ICD SHA. This tag is reference-guided cosmetic metadata.
+    let mut image=ciphertext.get(..TESTME_LEN)
+        .ok_or("French ICD truncated before PE raw end")?.to_vec();
+    image[text.raw_offset..text.raw_offset+text_extent]
+        .copy_from_slice(&text_rebuilt.bytes);
+    image[data.raw_offset..data.raw_offset+data_extent]
+        .copy_from_slice(&data_rebuilt.bytes);
+    image[idata.raw_offset..idata.raw_offset+idata.raw_len]
+        .copy_from_slice(&imports.idata);
+    // The French source and historical output have exactly three
+    // extra section-raw trailer bytes that do not participate in TEA.
+    if image[text_end-3..text_end]!=[0,0,0] {
+        return Err("unexpected French .text raw padding bytes".into());
+    }
+    // Observed canonical 2001 EXE style. This field corresponds to the
+    // 344851-byte original title launcher, NOT the 344925-byte French
+    // SafeDisc wrapper. It is not inferred as a generic size formula.
+    image[text_end-3..text_end].copy_from_slice(&[0x05,0x43,0x13]);
+    let reloc_end=reloc.raw_offset.checked_add(reloc.raw_len)
+        .ok_or("relocation raw range overflow")?;
+    if reloc_end>image.len() || image[reloc_end-3..reloc_end]!=[0,0,0]{
+        return Err("unexpected French .reloc raw padding".into());
+    }
+    image[reloc_end-3..reloc_end].copy_from_slice(&[0x27,0x60,0x00]);
+    if nt!=0xF8 || image[nt-4..nt]!=[0,0,0,0] ||
+       image[nt+8..nt+12]!=[0xDE,0xDB,0x15,0x3A] ||
+       image[0x300..0x330]!=[0;48]{
+        return Err("unexpected French header padding or PE timestamp".into());
+    }
+    image[nt-4..nt].copy_from_slice(&[0,0,0x2B,0xAD]);
+    image[nt+8..nt+12].copy_from_slice(b"1911");
+    const LEGACY_TAG:&[u8;48]=b" unwrapped with    unSafedisc   - csir.cjb.net -";
+    image[0x300..0x330].copy_from_slice(LEGACY_TAG);
+
+    // Cryptographic output gate BEFORE any filesystem write. Hash has
+    // been independently established by the owner's Win98 1.5.5 output.
+    let final_hash=sha256(&image);
+    if final_hash!=TESTME_SHA{
+        return Err(format!("REFUSING TO WRITE: final PE SHA-256 mismatch {final_hash}"));
+    }
+    if let Some(reference)=reference {
+        let historical=read_original(&reference,TESTME_LEN,TESTME_SHA)?;
+        if historical!=image{
+            return Err("REFUSING TO WRITE: output differs from historical owner reference".into());
+        }
+        println!("Independent Windows 98 reference: byte-for-byte identical.");
+    }
+    println!("Exact French inputs authenticated; code checksum 0x{checksum:08X}");
+    println!("TEA F1/F2 reconstruction: .text {} words, .data {} words",
+        text_rebuilt.complete_words,data_rebuilt.complete_words);
+    println!("Imports: {} API names, {} ILT/IAT entries and {} callsites restored",
+        names.names,imports.reconstructed_thunks,callsites.sites_corrected);
+    println!("Full reconstructed PE: {} bytes SHA-256 {} VERIFIED",image.len(),final_hash);
+    let mut file=fs::OpenOptions::new().write(true).create_new(true)
+        .open(&output).map_err(|e|format!("refusing output path {}: {e}",output.display()))?;
+    if let Err(e)=file.write_all(&image){
+        drop(file);
+        let _=fs::remove_file(&output);
+        return Err(format!("output write failed; incomplete file removed: {e}"));
+    }
+    file.sync_all().map_err(|e|format!("output flush failed: {e}"))?;
+    println!("CREATED: {}",output.display());
+    println!("Experimental exact French version only; gameplay not yet validated.");
+    Ok(())
+}
+
 fn inspect_french_tea_tail_cli() -> Result<()> {
     let mut args=env::args().skip(2);
     let mut icd_path:Option<PathBuf>=None;
@@ -6177,6 +6373,10 @@ fn inspect_import_codec_cli() -> Result<()> {
 }
 
 fn main() {
+    if env::args().nth(1).as_deref()==Some("unwrap-french") {
+        if let Err(e)=unwrap_french_cli(){eprintln!("ERROR: {e}");process::exit(1);}
+        return;
+    }
     if env::args().nth(1).as_deref()==Some("inspect-french-tea-tail") {
         if let Err(e)=inspect_french_tea_tail_cli(){eprintln!("ERROR: {e}");process::exit(1);}
         return;
