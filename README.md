@@ -85,6 +85,36 @@ The source ICD is still not decrypted beyond imports, and **no EXE is
 generated**. `--rebuild-tables` is fail-closed to the exact French ICD
 SHA-256 and should not be used on other language editions.
 
+### French executable code / TEA research (read-only)
+
+The French ICD import section and all **245 modified import-callsite
+relocation DWORDs** in `.text` can now be reconstructed in memory:
+
+```sh
+./unsafedisc-linux inspect-french-callsites --icd crimson.icd --reference testme.exe
+```
+
+This restores only the selected relocated IAT pointers; the non-relocated
+game code is still encrypted. The tool validates the exact French input
+SHA-256 and the expected partially reconstructed `.text` SHA-256.
+
+There is also an **unverified, falsifiable** first-TEA-word hypothesis
+for the French edition, using the historical **SHA-verified** Win98 F1/F2
+memory snapshot. Its last three TEA words are provisionally inherited
+from the previous edition. The command compares all non-relocated
+`.text` and `.data` bytes, without writing anything:
+
+```sh
+./unsafedisc-linux inspect-french-crypto \
+  --icd crimson.icd --reference testme.exe \
+  --modifier-snapshot CS98-DLL-00.BIN
+```
+
+The snapshot is not bundled with the project and this French-key
+hypothesis has **not** yet been tested on its actual contents.
+Successful compilation is not evidence that it decrypts the game.
+The legacy Windows 98 reference and original files are never bundled.
+
 ## Python v0.9 prototype (restored from the original archive)
 
 The separate **Crimson Skies unwrapping prototype v0.9** is preserved
