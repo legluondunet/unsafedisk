@@ -347,3 +347,17 @@ currently accessible in this session. Consequently this test is
 be presumed. The command explicitly refuses a decrypt claim if
 any expected non-relocation byte differs. It never executes the DLL
 or writes an EXE.
+
+### Repeated-word cross-check is *not* a TEA key verifier
+
+An attempted consistency check inverted TEA on identical reference
+fragments using three different key candidates: the proposed French
+first word, the earlier original edition's first word, and an all-zero
+control key. All three produced **zero conflicting repeated-word
+observations** on the sample because repeated protected fragment words
+also had repeated plaintext context. This test has no discriminating
+power and was **not used** to confirm any TEA key.
+
+Only a direct test with the SHA-verified F1/F2 Win98 modifier snapshot,
+against the entire `.text` and `.data` reference sections, can validate
+the specific candidate implemented by `inspect-french-crypto`.
