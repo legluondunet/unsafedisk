@@ -168,3 +168,32 @@ The matching ILT/IAT values let future work model **one 136-entry mapping**
 and apply it consistently to both tables. Such a mapping must be derived or
 explicitly identified as reference-guided data; it must not be described as
 a proven general SafeDisc decryptor.
+
+## Follow-up: protected import-thunk values (independent audit)
+
+Directly inspected the user-supplied ICD and unSafeDisc Win98 reference.
+There are 74 KERNEL32 and 62 USER32 lookup-table entries. In the
+protected ICD **each table's first thunk is zero**, yet the historical
+output has a valid IMAGE_IMPORT_BY_NAME RVA at the same location.
+
+All other **134 protected thunk DWORDs have the upper 16 bits
+`0x6AF4`**. They are all even and unique within each DLL import
+table. These are *observed protected values*, not mapped PE RVAs.
+Their origin remains unknown: they may encode or reference an external
+table, and must **not** be identified as a cryptographic key.
+
+For the remaining 73 kernel entries, old-value XOR target-RVA produces
+71 distinct results. For the 61 user entries, it produces 59 distinct
+results. This refutes a **single constant XOR key** as the complete
+table restoration rule; it does not refute more complex position- or
+state-dependent transforms.
+
+Original ILT and IAT are byte-identical to one another for the 136
+entries, likewise the historical output ILT and IAT, allowing one
+future restored sequence to be reused at both sites.
+
+Next tasks: identify where the `0x6AF4xxxx` pointer values originate
+and how they correspond to import records; independently derive the
+mapping without reading TESTME, then verify all 1,126 outstanding
+`.idata` bytes. Do not embed a direct old-to-known-plaintext lookup
+table and call it a general decryption algorithm.
