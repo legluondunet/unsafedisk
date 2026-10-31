@@ -281,3 +281,69 @@ the protected raw words are converted into the full TEA key.
 
 This new command is restricted to the two verified launcher SHA-256s,
 performs no execution, and prints only on-disk raw-word values.
+
+
+## French .text relocation-only restoration and next TEA hypothesis (2026-10-31)
+
+An independent relocation-aware comparison of the exact French ICD with
+the historical Windows 98 output found:
+
+- Relocations: 558 blocks, **71,114** HIGHLOW DWORDs and 280 padding entries.
+- `.text`: 61,743 HIGHLOW DWORDs = 246,972 relocation bytes.
+  Among them, precisely **245 DWORD sites change**, comprising
+  **361 changed individual bytes**. Every one is an import reference;
+  every restored instruction in the historical output is `FF 15`
+  followed by the IAT pointer.
+- All 245 changes can be reproduced directly from French protected
+  pointers, file position and the previously independently inferred
+  `0x6A966E30` import key:
+  `corrected_index = (old_index - ((site_rva - text_rva - 2 + key) % import_count)) % import_count`.
+  Import counts: KERNEL32=74, USER32=62.
+- **183** restored sites refer to KERNEL32; **62** to USER32.
+  The restored `.text` raw span has SHA-256
+  `8a4a1dc7865c0469644a038aa1ea539493305cd3232117aff83fdd03b33b6282`.
+  It matches the historical reference at **all 61,743 HIGHLOW DWORD sites**
+  and reduces overall `.text` byte differences from
+  **1,812,843 to 1,812,482**. Almost all non-HIGHLOW code remains encrypted.
+- The exact French 245-site metadata differs from the previous edition's
+  245-site list at exactly two replacements:
+  remove `0x00009918` and `0x000356AA`;
+  add `0x00011D21` and `0x000C3BD1`.
+  These are edition-specific, reference-guided callsite locations, *not*
+  a general discovery procedure for all SafeDisc binaries.
+- Independently, `.text` has **48,149** relocation-excluded fragments
+  of at least four bytes containing **440,422** complete DWORDs, while
+  `.data` has **321** such fragments and **42,018** DWORDs.
+  These are precisely the original title's known fragment-geometry counts,
+  allowing reuse of the proven loop reconstruction *if* the key/modifiers
+  are established for the French edition.
+
+The Rust command, executed on the user's actual files and reference,
+reproduced these counts and the expected raw-span SHA-256:
+
+```sh
+./unsafedisc-linux inspect-french-callsites \
+  --icd crimson.icd --reference testme.exe
+```
+
+**Next falsifiable hypothesis (not yet verified):**
+the independently inferred French import XOR `0x6A966E30` might also be
+the first 32-bit TEA key word, and the other three words
+`0xE9C7914F,0xCF10EA3F,0x82F5DE2F` might match the previous edition.
+No proof for the full key exists; raw CRPE words alone do not prove it.
+A new read-only command tests this hypothesis over the **entire**
+non-relocated `.text` and `.data` using the owner's SHA-verified
+Win98 `CS98-DLL-00.BIN` F1/F2 snapshot and the exact historical TESTME:
+
+```sh
+./unsafedisc-linux inspect-french-crypto \
+  --icd crimson.icd --reference testme.exe \
+  --modifier-snapshot CS98-DLL-00.BIN
+```
+
+The verified snapshot bytes are not included in the repository or
+currently accessible in this session. Consequently this test is
+**compiled but not validated** on real snapshot input; success must not
+be presumed. The command explicitly refuses a decrypt claim if
+any expected non-relocation byte differs. It never executes the DLL
+or writes an EXE.
