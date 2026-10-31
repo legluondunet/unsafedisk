@@ -5,6 +5,9 @@
 // Research stage: strictly read-only. No loader/DLL execution, no executable
 // reconstruction, no SafeDisc driver, and no Wine requirement.
 
+#[path = "../unsafedisc_retail_metadata.rs"]
+mod unsafedisc_retail_metadata;
+
 #[path = "../unsafedisc_french_callsites.rs"]
 mod unsafedisc_french_callsites;
 
