@@ -3985,6 +3985,7 @@ fn import_xor_matches(
 #[derive(Default, Debug)]
 struct Options {
     loader: Option<PathBuf>,
+    generic_inspect: bool,
     icd: Option<PathBuf>,
     dplayerx: Option<PathBuf>,
     reference: Option<PathBuf>,
@@ -4008,14 +4009,15 @@ fn help() {
     println!("unSafeDisc Linux research port (native Rust, initial read-only stage)\n\
 Usage:\n\
   unsafedisc-linux inspect --loader CRIMSON.EXE --icd CRIMSON.ICD \\\n\
-      --dplayerx dplayerx.dll [--reference TESTME.EXE] [--reported-key 0x7496538F] [--layout] [--checksum-research] [--sections] [--key-research] [--modifier-research] [--modifier-snapshot CS98-DLL-00.BIN] [--startup-research] [--attach-research] [--xref-research] [--literal-research] [--reference-audit] [--historical-selection] [--strings]\n\
+      --dplayerx dplayerx.dll [--reference TESTME.EXE] [--reported-key 0x7496538F] [--layout] [--generic-inspect] [--checksum-research] [--sections] [--key-research] [--modifier-research] [--modifier-snapshot CS98-DLL-00.BIN] [--startup-research] [--attach-research] [--xref-research] [--literal-research] [--reference-audit] [--historical-selection] [--strings]\n\
   unsafedisc-linux inspect-snapshot --snapshot CS98-DLL-00.BIN\n\\
   unsafedisc-linux inspect-historical --unsafedisc unSafedisc.exe\n\
   unsafedisc-linux --help\n\
 \n\
 The --key-research first word defaults to the exact-version 0x7496538F;\n\
 use --reported-key only to override it for controlled experiments.\n\
-Scope: exact SHA-256 verified Crimson Skies 1.0.2.0 SafeDisc 1.50.20 files.\n\
+Scope: exact SHA-256 verified Crimson Skies 1.0.2.0 SafeDisc 1.50.20 files.\n\\
+--generic-inspect bypasses exact hashes for bounded PE32 metadata only; cannot combine with research flags.\n\
 Reads only; NEVER executes the protected DLL, edits inputs, or generates an EXE.\n\
 Decrypt/unpack is NOT implemented yet.");
 }
@@ -4040,6 +4042,11 @@ fn parse_args() -> Result<Option<Options>> {
     let mut options = Options::default();
     while let Some(key) = args.next() {
         if key == "--help" || key == "-h" { help(); return Ok(None); }
+        if key == "--generic-inspect" {
+            if options.generic_inspect { return Err("repeated --generic-inspect argument".into()); }
+            options.generic_inspect = true;
+            continue;
+        }
         if key == "--layout" {
             if options.layout { return Err("repeated --layout argument".into()); }
             options.layout = true;
@@ -4114,6 +4121,16 @@ fn parse_args() -> Result<Option<Options>> {
     if options.loader.is_none() || options.icd.is_none() || options.dplayerx.is_none() {
         return Err("--loader, --icd, and --dplayerx are all required".into());
     }
+    if options.generic_inspect {
+        if options.reference.is_some() || options.reported_key.is_some() || options.checksum_research ||
+           options.key_research || options.modifier_research || options.modifier_snapshot.is_some() ||
+           options.startup_research || options.attach_research || options.xref_research ||
+           options.literal_research || options.reference_audit || options.historical_selection ||
+           options.strings {
+            return Err("--generic-inspect supports only --layout and --sections; exact-version research options are forbidden".into());
+        }
+        return Ok(Some(options));
+    }
     if options.key_research && options.reported_key.is_none() {
         // This is a per-title, per-version exact-hash gated constant, now
         // independently checked against the original known-plaintext tails.
@@ -4129,7 +4146,38 @@ fn parse_args() -> Result<Option<Options>> {
     Ok(Some(options))
 }
 
+// This path deliberately has no access to per-version key/offset operations.
+// It never calls read_original, never executes a PE, and never writes files.
+fn inspect_generic(options:&Options)->Result<()> {
+    for (role,path) in [
+        ("loader",options.loader.as_ref().unwrap()),
+        ("icd",options.icd.as_ref().unwrap()),
+        ("dplayerx",options.dplayerx.as_ref().unwrap())
+    ] {
+        let meta=fs::symlink_metadata(path)
+            .map_err(|e|format!("{}: {e}",path.display()))?;
+        if meta.file_type().is_symlink() || !meta.is_file() || meta.len()>MAX_INPUT_LEN {
+            return Err(format!("refusing symlink/non-regular or oversized file: {}",path.display()));
+        }
+        let data=fs::read(path).map_err(|e|format!("{}: {e}",path.display()))?;
+        let pe=parse_pe32(&data)?;
+        println!("{role}: {} ({} bytes)",path.display(),data.len());
+        println!("  SHA-256: {}",sha256(&data));
+        println!("  PE32 x86 entry RVA: 0x{:08X}; sections: {}",pe.entry_rva,pe.sections.len());
+        if options.layout || options.sections {
+            for section in &pe.sections {
+                let name=String::from_utf8_lossy(section.name.split(|x|*x==0).next().unwrap_or(&[]));
+                println!("  {name}: RVA=0x{:08X} virtual=0x{:X} raw_offset=0x{:X} raw_length=0x{:X} flags=0x{:08X}",
+                    section.virtual_address,section.virtual_size,section.raw_offset,section.raw_len,section.characteristics);
+            }
+        }
+    }
+    println!("Read-only generic PE inspection; no SafeDisc version, key, or decryptability asserted.");
+    Ok(())
+}
+
 fn inspect(options: Options) -> Result<()> {
+    if options.generic_inspect { return inspect_generic(&options); }
     let captured_modifiers=options.modifier_snapshot.as_ref()
         .map(|p|load_verified_modifier_snapshot(p.as_path()))
         .transpose()?;
