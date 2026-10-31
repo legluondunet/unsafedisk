@@ -21,6 +21,55 @@ cargo test
 cargo build --release 
 ```
 
+## Native SafeDisc unwrap — French Crimson Skies 1.0.2.0 (verified)
+
+**A native Rust executable now reconstructs an exact, verified PE32 EXE**
+from the owner's protected French Crimson Skies ICD. It runs on Linux or
+Windows, without running Wine, Windows 98, SafeDisc drivers, or the game's
+DLL code. The exact previously captured `CS98-DLL-00.BIN` image is still
+needed **as data** to interpret the two F1/F2 arithmetic modifiers.
+
+```sh
+./unsafedisc-linux unwrap-french \
+  --loader crimson.exe \
+  --icd crimson.icd \
+  --modifier-snapshot CS98-DLL-00.BIN \
+  --output CRIMSON-NEW-UNWRAPPED.EXE
+```
+
+Use optional `--reference testme.exe` for an extra byte-by-byte check.
+All three inputs are SHA-256 verified against their known French
+edition/capture fingerprints. A different edition is **rejected**.
+The output path must not exist: `create_new` semantics prevent accidental
+overwrites, and malformed inputs cannot cause an output to be written.
+Before writing, the program verifies the complete reconstructed PE
+SHA-256 against the known historical Windows 98 output:
+
+```text
+Size:   2,580,480 bytes
+SHA256: 43540fc97347210d6f4c10b77edbd4cdab1f03d57554d638223c2430a6c37d75
+```
+
+**Local validation on the owner's exact French inputs:** generated a new
+EXE under Linux, compared it with the original Win98 unSafeDisc 1.5.5
+`TESTME.EXE` using `cmp`, and verified **2,580,480 / 2,580,480 bytes
+identical**. The source inputs remained unchanged. This is a verified
+**exact-version native unwrapping proof**, not generic SafeDisc
+decryption and not a demonstration of successful gameplay.
+
+The transformation includes: restoring 136 encoded API names; inferring
+the edition's import XOR and reconstructing both ILT/IAT arrays using
+reference-guided per-edition ordering; repairing 245 rotated callsites;
+deriving the four TEA words from the native `.text` checksum and the
+launcher CRPE words; interpreting F1/F2 with the SHA-verified Win98 snapshot;
+and rebuilding historical 2001 PE header/padding details. Certain legacy
+output-style values are deliberately pinned to the known reference edition
+rather than claimed to be a recovered generic unSafeDisc formatting algorithm.
+
+See [French native-unwrapper validation](docs/french-crimson-native-unwrapper.md)
+for independent checks and limitations. No protected game binaries or
+Win98 snapshots are shipped in the repository.
+
 ## Generic read-only inspection (other language editions)
 
 For a different SafeDisc edition, for example the French Crimson Skies files:
@@ -81,9 +130,9 @@ The next research stage extends the 136 verified API names to the entire
   its fixed SHA-256 `c8674927a6a2f6c53330b9692dca084084cb5cfef9acc3ecaab1bb8a0cbd7534`.
   The optional historical reference verifies 0 remaining differing bytes.
 
-The source ICD is still not decrypted beyond imports, and **no EXE is
-generated**. `--rebuild-tables` is fail-closed to the exact French ICD
-SHA-256 and should not be used on other language editions.
+The `inspect-import-codec` command remains **read-only**, although the
+new separate `unwrap-french` command now assembles an exact-version EXE.
+Both paths are fail-closed to the exact French ICD SHA-256.
 
 ### French executable code / TEA research (read-only)
 
@@ -98,22 +147,23 @@ This restores only the selected relocated IAT pointers; the non-relocated
 game code is still encrypted. The tool validates the exact French input
 SHA-256 and the expected partially reconstructed `.text` SHA-256.
 
-There is also an **unverified, falsifiable** first-TEA-word hypothesis
-for the French edition, using the historical **SHA-verified** Win98 F1/F2
-memory snapshot. Its last three TEA words are provisionally inherited
-from the previous edition. The command compares all non-relocated
-`.text` and `.data` bytes, without writing anything:
+The previous hypothesis that the French import XOR was the first TEA
+word and the other three TEA words remained unchanged was **disproved**
+using the owner-supplied Win98 snapshot. A correct key was subsequently
+reconstructed from the French relocation-excluded `.text` checksum,
+the original CRPE loader raw words and the historical 1.5.5 key schedule:
 
-```sh
-./unsafedisc-linux inspect-french-crypto \
-  --icd crimson.icd --reference testme.exe \
-  --modifier-snapshot CS98-DLL-00.BIN
+```text
+checksum = 0x5C03ECF6
+TEA      = 6A966E30 F7C77870 D110DFA0 9CF5E390
 ```
 
-The snapshot is not bundled with the project and this French-key
-hypothesis has **not** yet been tested on its actual contents.
-Successful compilation is not evidence that it decrypts the game.
-The legacy Windows 98 reference and original files are never bundled.
+The `inspect-french-tea-tail` command validates all 58,076 unchanged
+fragment-tail bytes. The `inspect-french-crypto` command, with exact
+`--loader`, `--icd`, `--reference` and `--modifier-snapshot`, validates
+**1,855,489 / 1,855,489 non-relocated `.text` bytes** and
+**168,072 / 168,072 non-relocated `.data` bytes**, without writing a file.
+The separate `unwrap-french` command now combines these stages.
 
 ## Python v0.9 prototype (restored from the original archive)
 
