@@ -105,3 +105,33 @@ The **next justified task** is separating thunk-array transformations from
 import-name restoration, and determining whether they share decoder logic
 with the native Rust SafeDisc stages. The exact complete unwrapping
 algorithm remains unverified.
+
+## Exhaustive structural .idata classification (2026-10-31)
+
+The enhanced read-only script accepts `--coverage` and assigns each
+changed byte to a region referenced by decoded PE import descriptors.
+Observed on the owner-provided French ICD / Windows 98 TESTME pair:
+
+| Region | Differing bytes |
+|---|---:|
+| 21 import descriptor timestamps | 42 |
+| Import lookup tables (ILT) | 541 |
+| Import address tables (IAT) | 541 |
+| IMAGE_IMPORT_BY_NAME records (hint + API name) | 2,234 |
+| DLL name strings | 2 |
+| Unclassified | **0** |
+| **Total** | **3,360** |
+
+Of the 21 imported DLLs, only the kernel and user imports have changed
+lookup/address-table DWORD entries: **74 entries each in ILT/IAT for
+KeRNeL32.dll** and **62 each in ILT/IAT for USER32.dll**.
+Two changed DLL-name characters affect the mixed-case
+`KeRNeL32.dll` spelling; these are not cipher-key evidence.
+
+These are *output-guided structural categories*, not an inferred decoder:
+the transformation generating 1,082 changed thunk bytes and 2,234 changed
+import-name/hint bytes still has to be reconstructed.
+
+```sh
+python scripts/audit_import_deltas.py --icd crimson.icd --unwrapped TESTME.EXE --coverage
+```
