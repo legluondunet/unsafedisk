@@ -91,6 +91,12 @@ struct Table {
 pub fn reconstruct(original:&[u8],decoded_names:&[u8],base:u32)
     ->Result<ImportRebuild,String>
 {
+    reconstruct_for_edition(original,decoded_names,base,false)
+}
+
+pub fn reconstruct_for_edition(original:&[u8],decoded_names:&[u8],base:u32,retail:bool)
+    ->Result<ImportRebuild,String>
+{
     if original.len()!=0x4000 || decoded_names.len()!=original.len() {
         return Err("expected exactly 0x4000-byte .idata section".into());
     }
@@ -147,13 +153,18 @@ pub fn reconstruct(original:&[u8],decoded_names:&[u8],base:u32)
         return Err(format!("ambiguous import XOR: matched {votes_for_key}/{nonzero_count}"));
     }
 
+    if key!=if retail {0x7496_538F} else {0x6A96_6E30} {
+        return Err(format!("unexpected edition import XOR: 0x{key:08X}"));
+    }
+    let retail_kernel=if retail{Some(crate::unsafedisc_retail_metadata::import_order(true)?)}else{None};
+    let retail_user=if retail{Some(crate::unsafedisc_retail_metadata::import_order(false)?)}else{None};
     let mut out=decoded_names.to_vec();
     let mut decoded_count=0usize;
     for t in &tables {
         let (name_rvas,order) = if t.kernel {
-            (&kernel_names[..],&KERNEL_ORDER[..])
+            (&kernel_names[..],retail_kernel.as_deref().unwrap_or(&KERNEL_ORDER[..]))
         } else {
-            (&user_names[..],&USER_ORDER[..])
+            (&user_names[..],retail_user.as_deref().unwrap_or(&USER_ORDER[..]))
         };
         let possible:HashSet<u32>=name_rvas.iter().copied().collect();
         let decrypted=t.source.iter().skip(1).map(|v|v^key).collect::<Vec<_>>();
