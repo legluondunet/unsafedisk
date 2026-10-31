@@ -4019,6 +4019,7 @@ fn help() {
 Usage:\n\
   unsafedisc-linux inspect --loader CRIMSON.EXE --icd CRIMSON.ICD \\\n\
       --dplayerx dplayerx.dll [--reference TESTME.EXE] [--reported-key 0x7496538F] [--layout] [--generic-inspect] [--checksum-research] [--sections] [--key-research] [--modifier-research] [--modifier-snapshot CS98-DLL-00.BIN] [--startup-research] [--attach-research] [--xref-research] [--literal-research] [--reference-audit] [--historical-selection] [--strings]\n\
+  unsafedisc-linux inspect-french-crypto --icd CRIMSON.ICD --reference TESTME.EXE --modifier-snapshot CS98-DLL-00.BIN\n\\
   unsafedisc-linux inspect-french-callsites --icd CRIMSON.ICD [--reference TESTME.EXE]\n\\
   unsafedisc-linux inspect-loader-key-slots --loader CRIMSON.EXE\n\\
   unsafedisc-linux inspect-import-codec --icd CRIMSON.ICD [--rebuild-tables] [--reference TESTME.EXE]\n\\
@@ -5738,6 +5739,90 @@ fn compare_unwrapped_cli() -> Result<()> {
 }
 
 
+// Falsifiable edition-specific hypothesis: the French pointer XOR is also
+// TEA key[0], while the remaining three key words and Win98 F1/F2 modifiers
+// are shared with the older retail edition. Strict input hashes required.
+fn inspect_french_crypto_hypothesis_cli() -> Result<()> {
+    let mut args=env::args().skip(2);
+    let mut icd_path:Option<PathBuf>=None;
+    let mut reference_path:Option<PathBuf>=None;
+    let mut snapshot_path:Option<PathBuf>=None;
+    while let Some(arg)=args.next(){
+        if arg=="--help" {
+            println!("Usage: unsafedisc-linux inspect-french-crypto --icd crimson.icd --reference testme.exe --modifier-snapshot CS98-DLL-00.BIN");
+            return Ok(());
+        }
+        let value=args.next().ok_or_else(||format!("missing value for {arg}"))?;
+        match arg.as_str() {
+            "--icd" if icd_path.is_none()=>icd_path=Some(PathBuf::from(value)),
+            "--reference" if reference_path.is_none()=>reference_path=Some(PathBuf::from(value)),
+            "--modifier-snapshot" if snapshot_path.is_none()=>snapshot_path=Some(PathBuf::from(value)),
+            _=>return Err(format!("unknown or repeated French crypto option: {arg}"))
+        }
+    }
+    let icd=read_original(&icd_path.ok_or("missing --icd")?,
+        ICD_LEN,unsafedisc_import_codec::FRENCH_ICD_SHA)?;
+    let reference=read_original(&reference_path.ok_or("missing --reference")?,
+        TESTME_LEN,TESTME_SHA)?;
+    let modifiers=load_verified_modifier_snapshot(
+        &snapshot_path.ok_or("missing --modifier-snapshot")?)?;
+    let original=parse_pe32(&icd)?;
+    let decoded=parse_pe32(&reference)?;
+    let (relocs,_)=pe_relocation_blocks(&icd,&original)?;
+    let key=[0x6A96_6E30u32,0xE9C7_914F,0xCF10_EA3F,0x82F5_DE2F];
+    println!("Falsifiable HYPOTHESIS: French TEA key[0]=0x6A966E30, remaining words inherited.");
+    println!("Win98 F1/F2 snapshot verified by exact SHA-256; no DLL executed.");
+    let mut mismatches_total=0usize;
+    for (name,frags,words,checked,excluded) in [
+        (b".text".as_slice(),48_149usize,440_422usize,1_855_489usize,246_972usize),
+        (b".data".as_slice(),321usize,42_018usize,168_072usize,3_960usize),
+    ] {
+        let section=original.section(name)?;
+        let plain_section=decoded.section(name)?;
+        if section.raw_offset!=plain_section.raw_offset ||
+           section.raw_len!=plain_section.raw_len ||
+           section.virtual_address!=plain_section.virtual_address ||
+           section.virtual_size!=plain_section.virtual_size {
+            return Err("French source/reference section PE geometry mismatch".into());
+        }
+        let extent=section.raw_len.min(section.virtual_size as usize);
+        let encrypted=icd.get(section.raw_offset..section.raw_offset+extent)
+            .ok_or("protected section truncated")?;
+        let plaintext=reference.get(section.raw_offset..section.raw_offset+extent)
+            .ok_or("reference section truncated")?;
+        let mut relocation_slots=Vec::new();
+        for block in &relocs {
+            for &entry in &block.highlow_offsets {
+                let site=block.page_rva.checked_add(u32::from(entry))
+                    .ok_or("HIGHLOW site overflow")?;
+                if site>=section.virtual_address &&
+                   site<section.virtual_address+extent as u32 {
+                    relocation_slots.push((site-section.virtual_address) as usize);
+                }
+            }
+        }
+        relocation_slots.sort_unstable();
+        let report=unsafedisc_candidate_forward::compare_text(
+            encrypted,plaintext,&relocation_slots,key,&modifiers)?;
+        let section_name=String::from_utf8_lossy(name);
+        println!("{section_name}: {} / {} non-HIGHLOW bytes matching; {} mismatches; fragments={} words={}",
+            report.matching_bytes,report.checked_bytes,report.differing_bytes,
+            report.fragments,report.complete_words);
+        if report.fragments!=frags || report.complete_words!=words ||
+           report.checked_bytes!=checked || report.excluded_relocation_bytes!=excluded {
+            return Err(format!("{section_name}: unexpected fragment/relocation geometry"));
+        }
+        mismatches_total+=report.differing_bytes;
+    }
+    if mismatches_total!=0 {
+        return Err(format!(
+            "French full TEA/F1/F2 hypothesis NOT verified: {mismatches_total} differing bytes. No decrypt claim."));
+    }
+    println!("French F1/F2+TEA HYPOTHESIS VALIDATED on all non-HIGHLOW .text/.data bytes.");
+    println!("No game EXE written. This does not validate remaining PE reconstruction.");
+    Ok(())
+}
+
 fn inspect_french_callsites_cli() -> Result<()> {
     let mut args=env::args().skip(2);
     let mut icd_path:Option<PathBuf>=None;
@@ -5965,6 +6050,10 @@ fn inspect_import_codec_cli() -> Result<()> {
 }
 
 fn main() {
+    if env::args().nth(1).as_deref()==Some("inspect-french-crypto") {
+        if let Err(e)=inspect_french_crypto_hypothesis_cli(){eprintln!("ERROR: {e}");process::exit(1);}
+        return;
+    }
     if env::args().nth(1).as_deref()==Some("inspect-french-callsites") {
         if let Err(e)=inspect_french_callsites_cli() {eprintln!("ERROR: {e}");process::exit(1);}
         return;
