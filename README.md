@@ -37,6 +37,28 @@ a compatibility assertion. Research flags such as `--strings`,
 `--key-research` and `--modifier-research` are prohibited in this mode.
 The legacy `inspect` behavior remains exact-SHA-gated.
 
+## Verified French SafeDisc import-name decoding
+
+The native Rust CLI can reconstruct **136 protected KERNEL32/USER32 API-name
+records** from the exact SHA-256 verified French `CRIMSON.ICD`, fully in
+memory, with no Windows 98 dependency:
+
+```sh
+./unsafedisc-linux inspect-import-codec --icd crimson.icd --reference testme.exe
+```
+
+The `--reference` option is optional, but with the owner-provided historical
+Win98 unSafeDisc 1.5.5 `TESTME.EXE` it verifies that the 2,234 modified
+API-name bytes match the known-good output exactly. It leaves 1,126
+additional `.idata` changes unrelated to these names.
+
+The recovered name transform is a running XOR with an initial byte `0xC1`;
+the two-byte encoded record header stores `name_length+1` and the first
+ASCII character XOR `0x3D`. Three bounded, validated regions in the
+exact French ICD are supported. This is **only a name decoder**, not an
+EXE unpacker, import-table rebuilder or SafeDisc removal utility.
+Files on disk are never modified. Other hashes/versions are rejected.
+
 ## Python v0.9 prototype (restored from the original archive)
 
 The separate **Crimson Skies unwrapping prototype v0.9** is preserved
