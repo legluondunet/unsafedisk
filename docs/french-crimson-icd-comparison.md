@@ -38,3 +38,21 @@ relaxing exact-hash restrictions of the historical reconstruction paths.
 Next research steps: inspect raw section-byte transformations; localize the
 2-byte reloc difference and 98-byte length delta; verify section and header
 differences. Do not extrapolate per-version keys from this match alone.
+
+## Follow-up offset-level findings
+
+Independent byte-level verification against the user's French ICD and its
+historical Windows 98 `TESTME.EXE` output:
+
+- The extra 98 bytes appended to the protected ICD occur after the PE section
+  raw extent. The tail contains an `NB10` CodeView-style marker and the ASCII
+  path `z:\\zipper\\CrimsonRun\\run\\Crimson.pdb`, plus other opaque bytes.
+  This should not be mistaken for 98 bytes of encrypted game code.
+- `.reloc` differs at **exactly two absolute file offsets**, `0x275FFD`
+  and `0x275FFE` (`00 00` in ICD, `27 60` in historical TESTME).
+- Header differences include PE offsets `0xF6`/`0xF7` and a large
+  human-readable marker beginning at offset `0x300` in the TESTME output.
+- `.rdata` and `.rsrc` are byte-identical across the two files.
+
+These observations do **not** demonstrate the encryption key, transform
+order, SafeDisc variant equivalence or native unwrapper correctness.
