@@ -19,14 +19,14 @@ pub struct ImportDecodeReport {
     pub total_record_bytes: usize,
 }
 
-fn decode_record(input: &[u8]) -> Result<Vec<u8>,String> {
+fn decode_record_with_seed(input: &[u8], seed:u8) -> Result<Vec<u8>,String> {
     if input.len()<5 {return Err("import record too short".into());}
     let length=input[0] as usize;
     if length<2 || length>128 || input.len()!=length+2 {
         return Err("invalid encoded import-name length".into());
     }
     let mut out=vec![0u8;input.len()];
-    let mut previous=0xC1u8;
+    let mut previous=seed;
     for i in 0..length {
         let current=input[i+2];
         out[i+2]=current^previous;
@@ -39,9 +39,22 @@ fn decode_record(input: &[u8]) -> Result<Vec<u8>,String> {
     Ok(out)
 }
 
+fn decode_record(input:&[u8])->Result<Vec<u8>,String>{
+    decode_record_with_seed(input,0xC1)
+}
+
 pub fn restore_import_names(
     original:&[u8], section_rva:u32, raw_start:usize, raw_len:usize,
 )->Result<ImportDecodeReport,String> {
+    restore_import_names_with_seed(original,section_rva,raw_start,raw_len,0xC1)
+}
+
+/// In the verified original retail edition the initial cipher byte is 0xDF;
+/// the French edition uses 0xC1. All other record layout checks are shared.
+pub fn restore_import_names_with_seed(
+    original:&[u8], section_rva:u32, raw_start:usize, raw_len:usize,seed:u8,
+)->Result<ImportDecodeReport,String> {
+    if !matches!(seed,0xC1|0xDF){return Err("unsupported import cipher seed".into());}
     let end=raw_start.checked_add(raw_len).ok_or("section extent overflow")?;
     let mut out=original.get(raw_start..end)
         .ok_or("section extends beyond file")?.to_vec();
@@ -58,7 +71,7 @@ pub fn restore_import_names(
             let record_end=pos.checked_add(2).and_then(|x|x.checked_add(len))
                 .ok_or("import record length overflow")?;
             if record_end>stop {return Err("import record extends beyond range".into());}
-            let decoded=decode_record(&out[pos..record_end])?;
+            let decoded=decode_record_with_seed(&out[pos..record_end],seed)?;
             changed+=out[pos..record_end].iter().zip(decoded.iter())
                 .filter(|(x,y)|x!=y).count();
             total_bytes+=decoded.len();
@@ -104,6 +117,12 @@ mod tests {
             expected.push(0);
             assert_eq!(decode_record(&raw).unwrap(),expected);
         }
+    }
+    #[test]
+    fn original_edition_seed_roundtrip(){
+        let raw=vec![0x09,0x51,0xB3,0xC0,0xB4,0xC6,0xA5,0xC8,0xB8,0xF9,0xF9];
+        assert_eq!(decode_record_with_seed(&raw,0xDF).unwrap(),b"\0\0lstrcmpA\0");
+        assert!(decode_record_with_seed(&raw,0xC1).is_err());
     }
     #[test]
     fn reject_corruption(){
