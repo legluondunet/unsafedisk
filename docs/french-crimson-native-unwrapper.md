@@ -156,3 +156,35 @@ was verified again using the system `sha256sum` and `cmp`.
 All implementation remains on the dedicated `unsafedisk` research
 branch/PR until owner validation. Do not merge `main` without explicit
 user approval.
+
+## German-labelled Crimson Skies 1.02 archive — verified 2026-11-01
+
+The user's `crimson_skies_de.7z` archive (2,095,879 bytes, SHA-256
+`4d8f5c5bdd92c767290d6c51d096398f348798b17ac1f9a6ad3685d0b6092a52`)
+contained exactly three SafeDisc files:
+
+| File | Size | SHA-256 |
+|---|---:|---|
+| `CRIMSON.EXE` | 344,851 | `675a3c768c3676a525240d365f6d225b2886f51cf81fd24c271ce1c0a8afa736` |
+| `CRIMSON.ICD` | 2,580,578 | `0e3b4724f045e0bedf7203cd40cdeb5b6e0b9a0bab78c3d04c278cb146e9833b` |
+| `dplayerx.dll` | 138,752 | `dc43dbae45a8bfc39299ab0d1d5dbc72302f3bc37faf7c3b41e8ffdf4c6838ff` |
+
+**All three files are byte-for-byte identical to the already supported
+original protected Crimson Skies 1.0.2.0 edition.** Thus this German-labelled
+disc is **not a third unique protected executable variant** based on these
+files; localization differences may reside in data outside the archive.
+
+Ran the release Rust Linux executable without any Win98 snapshot or DLL:
+
+```sh
+./unsafedisc-linux unwrap --loader CRIMSON.EXE --icd CRIMSON.ICD \
+  --output decoded_test.exe
+```
+
+The command detected `original`, reconstructed 136 import names and 245
+callsites, and produced **2,580,480 bytes**, SHA-256
+`43540fc97347210d6f4c10b77edbd4cdab1f03d57554d638223c2430a6c37d75`.
+An independent `cmp` against the owner's historical `testme.exe`
+returned **zero differing bytes**. Actual German-language gameplay
+and installation have **not** been tested.
+
