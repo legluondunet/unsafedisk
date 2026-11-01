@@ -1,3 +1,46 @@
+# Native Crimson Skies SafeDisc unwrap — standalone release candidate (2026-11-01)
+
+**Current status (supersedes the original French-only experiment documented below):**
+Both SHA-256-identified protected Crimson Skies 1.0.2.0 editions, original
+and French, are reconstructed using **one Rust command**, with no Windows 98
+capture, proprietary DLL execution, Wine, or external modifier file.
+
+```sh
+./unsafedisc-linux unwrap --loader CRIMSON.EXE --icd CRIMSON.ICD \
+  --output CRIMSON-UNWRAPPED.EXE
+```
+
+The 57 F1/F2 EAX arithmetic operations have been independently represented
+as native Rust operations with derived constants, **not proprietary DLL byte
+strings**. Exact historical Win98 modifier snapshot input remains optional:
+`--modifier-snapshot CS98-DLL-00.BIN` validates operation-by-operation
+equivalence and must match the original trusted snapshot SHA-256.
+
+**Validated on Linux using GitHub Actions-built Rust executables and both
+original protected editions:**
+- Original ICD `0e3b4724…146e9833b`, launcher `675a3c76…a8afa736`,
+  checksum `0x1B09633B`.
+- French ICD `f3fe7c1e…e7262eb`, launcher `cf9ec313…4712ae`,
+  checksum `0x5C03ECF6`.
+- In both cases, the new output exactly matches the **2,580,480-byte**
+  Windows 98 reference, SHA-256
+  `43540fc97347210d6f4c10b77edbd4cdab1f03d57554d638223c2430a6c37d75`
+  (verified using bytewise `cmp`).
+- The same exact output is achieved **without providing a reference file**.
+  Including `--reference testme.exe` adds an explicit bytewise check.
+- Existing output paths and corrupted protected ICD inputs are rejected;
+  a rejected input never creates a game executable.
+- GitHub Actions compilation and synthetic Rust tests succeeded on Linux
+  and Windows. **Gameplay stability is not yet tested.**
+
+The older research notes below document why a verified Win98 capture was
+initially required. That requirement is **no longer applicable** to
+`unwrap`; the exact original v1.0.2.0 SHA guards and version-specific
+import permutations still apply. This tool is not a generic SafeDisc
+unwrapper.
+
+---
+
 # Native French Crimson Skies unSafeDisc unwrap — validated 2026-10-31
 
 This document describes **one exact title/edition** under user-owned
