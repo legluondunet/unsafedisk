@@ -18,7 +18,9 @@ protection mechanisms may be subject to the legal penalties applicable
 to copyright infringement. In France, this warning is addressed by
 [Article L122-6-2 of the French Intellectual Property Code](https://www.legifrance.gouv.fr/codes/article_lc/LEGIARTI000006278921/).
 
-> Toute publicité ou notice d'utilisation relative aux moyens permettant la suppression ou la neutralisation de tout dispositif technique protégeant un logiciel doit mentionner que l'utilisation illicite de ces moyens est passible des sanctions prévues en cas de contrefaçon.
+**Avertissement (France) :** L'utilisation illicite de moyens visant
+à neutraliser une protection logicielle peut entraîner les sanctions
+prévues en matière de contrefaçon (article L122-6-2 du CPI).
 
 This notice does not establish that a particular use or distribution
 is authorized; the applicable law and the specific circumstances
