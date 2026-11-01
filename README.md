@@ -21,54 +21,52 @@ cargo test
 cargo build --release 
 ```
 
-## Native SafeDisc unwrap — French Crimson Skies 1.0.2.0 (verified)
+## Native standalone Crimson Skies SafeDisc unwrap — two editions verified
 
-**A native Rust executable now reconstructs an exact, verified PE32 EXE**
-from the owner's protected French Crimson Skies ICD. It runs on Linux or
-Windows, without running Wine, Windows 98, SafeDisc drivers, or the game's
-DLL code. The exact previously captured `CS98-DLL-00.BIN` image is still
-needed **as data** to interpret the two F1/F2 arithmetic modifiers.
+**The Rust `unsafedisc-linux unwrap` command reconstructs the original
+Crimson Skies 1.0.2.0 EXE from either of two exact protected editions.**
+It runs on Linux and Windows, requires **no Windows 98 memory dump,
+original SafeDisc DLL, Wine, or SafeDisc kernel driver**, and recognizes
+the edition through an exact SHA-256 match of the protected ICD.
 
 ```sh
-./unsafedisc-linux unwrap-french \
-  --loader crimson.exe \
-  --icd crimson.icd \
-  --modifier-snapshot CS98-DLL-00.BIN \
-  --output CRIMSON-NEW-UNWRAPPED.EXE
+./unsafedisc-linux unwrap \
+  --loader CRIMSON.EXE \
+  --icd CRIMSON.ICD \
+  --output CRIMSON-UNWRAPPED.EXE
 ```
 
-Use optional `--reference testme.exe` for an extra byte-by-byte check.
-All three inputs are SHA-256 verified against their known French
-edition/capture fingerprints. A different edition is **rejected**.
-The output path must not exist: `create_new` semantics prevent accidental
-overwrites, and malformed inputs cannot cause an output to be written.
-Before writing, the program verifies the complete reconstructed PE
-SHA-256 against the known historical Windows 98 output:
+You may optionally supply `--reference testme.exe` to verify equality
+against a historical unSafeDisc 1.5.5 output. `--modifier-snapshot
+CS98-DLL-00.BIN` is also **optional**: when supplied, the tool verifies
+that all 57 original F1/F2 arithmetic operations match the standalone
+implementation. Neither file is needed to generate an output.
 
-```text
-Size:   2,580,480 bytes
-SHA256: 43540fc97347210d6f4c10b77edbd4cdab1f03d57554d638223c2430a6c37d75
-```
+### Validated edition matrix
 
-**Local validation on the owner's exact French inputs:** generated a new
-EXE under Linux, compared it with the original Win98 unSafeDisc 1.5.5
-`TESTME.EXE` using `cmp`, and verified **2,580,480 / 2,580,480 bytes
-identical**. The source inputs remained unchanged. This is a verified
-**exact-version native unwrapping proof**, not generic SafeDisc
-decryption and not a demonstration of successful gameplay.
+| Protected edition | ICD SHA-256 (prefix) | Loader bytes | Result |
+|---|---|---:|---|
+| Original | `0e3b4724…` | 344,851 | Verified |
+| French | `f3fe7c1e…` | 344,925 | Verified |
 
-The transformation includes: restoring 136 encoded API names; inferring
-the edition's import XOR and reconstructing both ILT/IAT arrays using
-reference-guided per-edition ordering; repairing 245 rotated callsites;
-deriving the four TEA words from the native `.text` checksum and the
-launcher CRPE words; interpreting F1/F2 with the SHA-verified Win98 snapshot;
-and rebuilding historical 2001 PE header/padding details. Certain legacy
-output-style values are deliberately pinned to the known reference edition
-rather than claimed to be a recovered generic unSafeDisc formatting algorithm.
+For both editions, the independently generated output is precisely
+**2,580,480 bytes**, with SHA-256
+`43540fc97347210d6f4c10b77edbd4cdab1f03d57554d638223c2430a6c37d75`.
+Both were independently executed on the owner's actual protected inputs
+under Linux and checked byte-for-byte with their known Win98 output:
+**zero differing bytes**. The optional historical snapshot was also
+validated against the native arithmetic; all 57 operations matched.
 
-See [French native-unwrapper validation](docs/french-crimson-native-unwrapper.md)
-for independent checks and limitations. No protected game binaries or
-Win98 snapshots are shipped in the repository.
+The output path must **not exist**. SHA-256 gates on source files and
+the full reconstructed EXE are enforced before any write. The optional
+snapshot and reference are never bundled, nor are any original game binaries.
+This is an exact-version preservation tool, **not a generic SafeDisc
+decryptor**; actual gameplay and compatibility still need validation.
+
+See [native-unwrapper research](docs/french-crimson-native-unwrapper.md)
+for the underlying TEA/F1/F2, import, relocation, and legacy PE format
+proofs. The French-specific historical command `unwrap-french` remains
+as a compatibility alias for `unwrap`.
 
 ## Generic read-only inspection (other language editions)
 
@@ -108,7 +106,7 @@ exact French ICD are supported. This is **only a name decoder**, not an
 EXE unpacker, import-table rebuilder or SafeDisc removal utility.
 Files on disk are never modified. Other hashes/versions are rejected.
 
-### Full French import-section reconstruction (in memory)
+### Historical French import-section inspection (in memory)
 
 The next research stage extends the 136 verified API names to the entire
 `.idata` section of the exact French ICD:
@@ -130,8 +128,8 @@ The next research stage extends the 136 verified API names to the entire
   its fixed SHA-256 `c8674927a6a2f6c53330b9692dca084084cb5cfef9acc3ecaab1bb8a0cbd7534`.
   The optional historical reference verifies 0 remaining differing bytes.
 
-The `inspect-import-codec` command remains **read-only**, although the
-new separate `unwrap-french` command now assembles an exact-version EXE.
+The `inspect-import-codec` command remains **read-only**. The unified
+`unwrap` command now assembles an exact-version EXE.
 Both paths are fail-closed to the exact French ICD SHA-256.
 
 ### French executable code / TEA research (read-only)
@@ -143,8 +141,8 @@ relocation DWORDs** in `.text` can now be reconstructed in memory:
 ./unsafedisc-linux inspect-french-callsites --icd crimson.icd --reference testme.exe
 ```
 
-This restores only the selected relocated IAT pointers; the non-relocated
-game code is still encrypted. The tool validates the exact French input
+This read-only diagnostic restores only the selected relocated IAT pointers; the non-relocated
+game code is unchanged by this diagnostic. The separate `unwrap` command decrypts it. The tool validates the exact French input
 SHA-256 and the expected partially reconstructed `.text` SHA-256.
 
 The previous hypothesis that the French import XOR was the first TEA
