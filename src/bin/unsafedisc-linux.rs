@@ -4022,7 +4022,7 @@ fn help() {
 Usage:\n\
   unsafedisc-linux inspect --loader CRIMSON.EXE --icd CRIMSON.ICD \\\n\
       --dplayerx dplayerx.dll [--reference TESTME.EXE] [--reported-key 0x7496538F] [--layout] [--generic-inspect] [--checksum-research] [--sections] [--key-research] [--modifier-research] [--modifier-snapshot CS98-DLL-00.BIN] [--startup-research] [--attach-research] [--xref-research] [--literal-research] [--reference-audit] [--historical-selection] [--strings]\n\
-  unsafedisc-linux unwrap-french --loader CRIMSON.EXE --icd CRIMSON.ICD --modifier-snapshot CS98-DLL-00.BIN --output NEW.EXE [--reference TESTME.EXE]\n\\
+  unsafedisc-linux unwrap --loader CRIMSON.EXE --icd CRIMSON.ICD --modifier-snapshot CS98-DLL-00.BIN --output NEW.EXE [--reference TESTME.EXE]\n\\
   unsafedisc-linux inspect-french-tea-tail --icd CRIMSON.ICD --reference TESTME.EXE [--key K0,K1,K2,K3]\n\\
   unsafedisc-linux inspect-french-crypto --icd CRIMSON.ICD --loader CRIMSON.EXE --reference TESTME.EXE --modifier-snapshot CS98-DLL-00.BIN\n\\
   unsafedisc-linux inspect-french-callsites --icd CRIMSON.ICD [--reference TESTME.EXE]\n\\
@@ -5752,7 +5752,7 @@ fn compare_unwrapped_cli() -> Result<()> {
 // generated PE matches the independent historical SHA-256. Input files are
 // strictly pinned; output is create_new (no overwrites or symlink following).
 // Legacy cosmetics are explicitly reference-guided, not a generic algorithm.
-fn unwrap_french_cli() -> Result<()> {
+fn unwrap_cli() -> Result<()> {
     use std::io::Write;
     let mut args=env::args().skip(2);
     let mut loader:Option<PathBuf>=None;
@@ -5762,7 +5762,7 @@ fn unwrap_french_cli() -> Result<()> {
     let mut reference:Option<PathBuf>=None;
     while let Some(arg)=args.next(){
         if arg=="--help" {
-            println!("Usage: unsafedisc-linux unwrap-french --loader crimson.exe --icd crimson.icd --modifier-snapshot CS98-DLL-00.BIN --output CRIMSON-UNWRAPPED.EXE [--reference testme.exe]");
+            println!("Usage: unsafedisc-linux unwrap --loader crimson.exe --icd crimson.icd --modifier-snapshot CS98-DLL-00.BIN --output CRIMSON-UNWRAPPED.EXE [--reference testme.exe]");
             return Ok(());
         }
         let value=args.next().ok_or_else(||format!("missing value for {arg}"))?;
@@ -5772,7 +5772,7 @@ fn unwrap_french_cli() -> Result<()> {
             "--modifier-snapshot" if snap.is_none()=>snap=Some(PathBuf::from(value)),
             "--output" if output.is_none()=>output=Some(PathBuf::from(value)),
             "--reference" if reference.is_none()=>reference=Some(PathBuf::from(value)),
-            _=>return Err(format!("unknown or repeated unwrap-french argument {arg}"))
+            _=>return Err(format!("unknown or repeated unwrap argument {arg}"))
         }
     }
     let output=output.ok_or("missing --output")?;
@@ -5781,10 +5781,23 @@ fn unwrap_french_cli() -> Result<()> {
     }
     const FRENCH_LOADER_SHA:&str=
         "cf9ec31364e1893c21636f53bc9410d0e1aa49ee6c32a555cf3adab9df4712ae";
+    let icd_path=icd.ok_or("missing --icd")?;
+    let metadata=fs::metadata(&icd_path).map_err(|e|format!("{}: {e}",icd_path.display()))?;
+    if metadata.len()!=ICD_LEN as u64 {
+        return Err("unsupported protected ICD length".into());
+    }
+    let candidate=fs::read(&icd_path).map_err(|e|format!("{}: {e}",icd_path.display()))?;
+    let incoming_sha=sha256(&candidate);
+    let retail=match incoming_sha.as_str(){
+        ICD_SHA=>true,
+        unsafedisc_import_codec::FRENCH_ICD_SHA=>false,
+        _=>return Err(format!("unsupported protected ICD SHA-256: {incoming_sha}")),
+    };
+    let edition=if retail{"original"}else{"French"};
+    let ciphertext=candidate;
     let loader=read_original(&loader.ok_or("missing --loader")?,
-        344_925,FRENCH_LOADER_SHA)?;
-    let ciphertext=read_original(&icd.ok_or("missing --icd")?,
-        ICD_LEN,unsafedisc_import_codec::FRENCH_ICD_SHA)?;
+        if retail {LOADER_LEN} else {344_925},
+        if retail {LOADER_SHA} else {FRENCH_LOADER_SHA})?;
     let modifiers=load_verified_modifier_snapshot(
         &snap.ok_or("missing --modifier-snapshot")?)?;
     let original=parse_pe32(&ciphertext)?;
@@ -5796,7 +5809,7 @@ fn unwrap_french_cli() -> Result<()> {
     if original.entry_rva!=0x001F_7056 ||
        text.raw_offset!=0x1000 || text.raw_len!=2_105_344 ||
        idata.raw_len!=0x4000 || data.raw_len!=172_032 {
-        return Err("French PE section geometry differs from verified original".into());
+        return Err("Crimson PE section geometry differs from verified originals".into());
     }
     let text_end=text.raw_offset.checked_add(text.raw_len).ok_or("text range overflow")?;
     let text_bytes=ciphertext.get(text.raw_offset..text_end)
@@ -5810,22 +5823,28 @@ fn unwrap_french_cli() -> Result<()> {
         text_bytes,text.virtual_address,&text_blocks,text_extent,0)?;
     let corroboration=checksum_independent_relocation_walk(
         text_bytes,text.virtual_address,&text_blocks,text_extent)?;
-    if checksum!=0x5C03_ECF6 || corroboration.checksum!=checksum{
+    if checksum!=if retail {0x1B09_633B}else{0x5C03_ECF6} || corroboration.checksum!=checksum{
         return Err("French protected-code checksum mismatch".into());
     }
-    let names=unsafedisc_import_codec::restore_import_names(
-        &ciphertext,idata.virtual_address,idata.raw_offset,idata.raw_len)?;
+    let names=unsafedisc_import_codec::restore_import_names_for_seed(
+        &ciphertext,idata.virtual_address,idata.raw_offset,idata.raw_len,
+        if retail{0xDF}else{0xC1})?;
     let old_idata=ciphertext.get(idata.raw_offset..idata.raw_offset+idata.raw_len)
         .ok_or("original .idata outside file")?;
-    let imports=unsafedisc_french_import_tables::reconstruct(
-        old_idata,&names.reconstructed,idata.virtual_address)?;
+    let imports=unsafedisc_french_import_tables::reconstruct_for_edition(
+        old_idata,&names.reconstructed,idata.virtual_address,retail)?;
     if sha256(&imports.idata)!=unsafedisc_french_import_tables::EXPECTED_IDATA_SHA{
         return Err("French import reconstruction SHA-256 mismatch".into());
     }
     let (_,raw)=locate_raw_key(&loader,DLL_LEN)?;
     let key=construct_tea_candidate(imports.inferred_pointer_xor,
         checksum,original.entry_rva,raw);
-    if key!=[0x6A96_6E30,0xF7C7_7870,0xD110_DFA0,0x9CF5_E390]{
+    let expected_key=if retail {
+        [0x7496_538F,0xE9C7_914F,0xCF10_EA3F,0x82F5_DE2F]
+    }else{
+        [0x6A96_6E30,0xF7C7_7870,0xD110_DFA0,0x9CF5_E390]
+    };
+    if key!=expected_key{
         return Err("French TEA key does not match independently validated values".into());
     }
 
@@ -5855,10 +5874,15 @@ fn unwrap_french_cli() -> Result<()> {
     let nt=read_u32(&ciphertext,0x3C)? as usize;
     let image_base=read_u32(&ciphertext,nt+24+28)?;
     if image_base!=0x0040_0000{return Err("unexpected French image base".into());}
-    let callsites=unsafedisc_french_callsites::reconstruct(
+    let callsites=unsafedisc_french_callsites::reconstruct_version(
         &ciphertext,text.virtual_address,text.raw_offset,text.raw_len,
-        &highs,image_base,0x61FC7C,0x62039C,imports.inferred_pointer_xor)?;
-    if sha256(&callsites.text)!=unsafedisc_french_callsites::EXPECTED_PARTIAL_TEXT_SHA256{
+        &highs,image_base,0x61FC7C,0x62039C,imports.inferred_pointer_xor,retail)?;
+    let partial_sha=if retail{
+        unsafedisc_french_callsites::RETAIL_PARTIAL_TEXT_SHA256
+    }else{
+        unsafedisc_french_callsites::EXPECTED_PARTIAL_TEXT_SHA256
+    };
+    if sha256(&callsites.text)!=partial_sha{
         return Err("French callsite reconstruction SHA-256 mismatch".into());
     }
     let text_rebuilt=unsafedisc_candidate_forward::reconstruct_section(
@@ -5923,7 +5947,7 @@ fn unwrap_french_cli() -> Result<()> {
         }
         println!("Independent Windows 98 reference: byte-for-byte identical.");
     }
-    println!("Exact French inputs authenticated; code checksum 0x{checksum:08X}");
+    println!("Exact {edition} Crimson inputs authenticated; code checksum 0x{checksum:08X}");
     println!("TEA F1/F2 reconstruction: .text {} words, .data {} words",
         text_rebuilt.complete_words,data_rebuilt.complete_words);
     println!("Imports: {} API names, {} ILT/IAT entries and {} callsites restored",
@@ -5938,7 +5962,7 @@ fn unwrap_french_cli() -> Result<()> {
     }
     file.sync_all().map_err(|e|format!("output flush failed: {e}"))?;
     println!("CREATED: {}",output.display());
-    println!("Experimental exact French version only; gameplay not yet validated.");
+    println!("Exact known-version native unwrap; gameplay not yet validated.");
     Ok(())
 }
 
@@ -6376,8 +6400,8 @@ fn inspect_import_codec_cli() -> Result<()> {
 }
 
 fn main() {
-    if env::args().nth(1).as_deref()==Some("unwrap-french") {
-        if let Err(e)=unwrap_french_cli(){eprintln!("ERROR: {e}");process::exit(1);}
+    if matches!(env::args().nth(1).as_deref(),Some("unwrap")|Some("unwrap-french")) {
+        if let Err(e)=unwrap_cli(){eprintln!("ERROR: {e}");process::exit(1);}
         return;
     }
     if env::args().nth(1).as_deref()==Some("inspect-french-tea-tail") {
