@@ -4022,7 +4022,7 @@ fn help() {
 Usage:\n\
   unsafedisc-linux inspect --loader CRIMSON.EXE --icd CRIMSON.ICD \\\n\
       --dplayerx dplayerx.dll [--reference TESTME.EXE] [--reported-key 0x7496538F] [--layout] [--generic-inspect] [--checksum-research] [--sections] [--key-research] [--modifier-research] [--modifier-snapshot CS98-DLL-00.BIN] [--startup-research] [--attach-research] [--xref-research] [--literal-research] [--reference-audit] [--historical-selection] [--strings]\n\
-  unsafedisc-linux unwrap --loader CRIMSON.EXE --icd CRIMSON.ICD --modifier-snapshot CS98-DLL-00.BIN --output NEW.EXE [--reference TESTME.EXE]\n\\
+  unsafedisc-linux unwrap --loader CRIMSON.EXE --icd CRIMSON.ICD --output NEW.EXE [--modifier-snapshot CS98-DLL-00.BIN] [--reference TESTME.EXE]\n\\
   unsafedisc-linux inspect-french-tea-tail --icd CRIMSON.ICD --reference TESTME.EXE [--key K0,K1,K2,K3]\n\\
   unsafedisc-linux inspect-french-crypto --icd CRIMSON.ICD --loader CRIMSON.EXE --reference TESTME.EXE --modifier-snapshot CS98-DLL-00.BIN\n\\
   unsafedisc-linux inspect-french-callsites --icd CRIMSON.ICD [--reference TESTME.EXE]\n\\
@@ -5762,7 +5762,7 @@ fn unwrap_cli() -> Result<()> {
     let mut reference:Option<PathBuf>=None;
     while let Some(arg)=args.next(){
         if arg=="--help" {
-            println!("Usage: unsafedisc-linux unwrap --loader crimson.exe --icd crimson.icd --modifier-snapshot CS98-DLL-00.BIN --output CRIMSON-UNWRAPPED.EXE [--reference testme.exe]");
+            println!("Usage: unsafedisc-linux unwrap --loader crimson.exe --icd crimson.icd [--modifier-snapshot CS98-DLL-00.BIN] --output CRIMSON-UNWRAPPED.EXE [--reference testme.exe]");
             return Ok(());
         }
         let value=args.next().ok_or_else(||format!("missing value for {arg}"))?;
@@ -5798,8 +5798,14 @@ fn unwrap_cli() -> Result<()> {
     let loader=read_original(&loader.ok_or("missing --loader")?,
         if retail {LOADER_LEN} else {344_925},
         if retail {LOADER_SHA} else {FRENCH_LOADER_SHA})?;
-    let modifiers=load_verified_modifier_snapshot(
-        &snap.ok_or("missing --modifier-snapshot")?)?;
+    let modifiers=unsafedisc_modifier_snapshot::Pair::crimson_static();
+    if let Some(snapshot_path)=snap {
+        let observed=load_verified_modifier_snapshot(&snapshot_path)?;
+        if !observed.matches_static_sequence(){
+            return Err("Win98 snapshot's F1/F2 arithmetic differs from the standalone verified implementation".into());
+        }
+        println!("Optional historical snapshot: all 57 F1/F2 arithmetic operations verified.");
+    }
     let original=parse_pe32(&ciphertext)?;
     let (blocks,_)=pe_relocation_blocks(&ciphertext,&original)?;
     let text=original.section(b".text")?;
@@ -5962,7 +5968,7 @@ fn unwrap_cli() -> Result<()> {
     }
     file.sync_all().map_err(|e|format!("output flush failed: {e}"))?;
     println!("CREATED: {}",output.display());
-    println!("Exact known-version native unwrap; gameplay not yet validated.");
+    println!("Snapshot-free native unwrap; gameplay not yet validated.");
     Ok(())
 }
 
