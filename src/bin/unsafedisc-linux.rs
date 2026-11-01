@@ -2,8 +2,8 @@
 // Copyright (C) 2026 legluondunet
 // SPDX-License-Identifier: GPL-3.0-or-later
 //
-// Research stage: strictly read-only. No loader/DLL execution, no executable
-// reconstruction, no SafeDisc driver, and no Wine requirement.
+// Exact-version native PE reconstruction and read-only research commands.
+// No protected Windows code executes; no SafeDisc driver or Wine required.
 
 #[path = "../unsafedisc_retail_metadata.rs"]
 mod unsafedisc_retail_metadata;
@@ -4018,7 +4018,7 @@ struct Options {
 }
 
 fn help() {
-    println!("unSafeDisc Linux research port (native Rust, initial read-only stage)\n\
+    println!("unSafeDisc native Rust preservation / inspection tool\n\
 Usage:\n\
   unsafedisc-linux inspect --loader CRIMSON.EXE --icd CRIMSON.ICD \\\n\
       --dplayerx dplayerx.dll [--reference TESTME.EXE] [--reported-key 0x7496538F] [--layout] [--generic-inspect] [--checksum-research] [--sections] [--key-research] [--modifier-research] [--modifier-snapshot CS98-DLL-00.BIN] [--startup-research] [--attach-research] [--xref-research] [--literal-research] [--reference-audit] [--historical-selection] [--strings]\n\
@@ -4037,8 +4037,8 @@ The --key-research first word defaults to the exact-version 0x7496538F;\n\
 use --reported-key only to override it for controlled experiments.\n\
 Scope: exact SHA-256 verified Crimson Skies 1.0.2.0 SafeDisc 1.50.20 files.\n\\
 --generic-inspect bypasses exact hashes for bounded PE32 metadata only; cannot combine with research flags.\n\
-Reads only; NEVER executes the protected DLL, edits inputs, or generates an EXE.\n\
-Decrypt/unpack is NOT implemented yet.");
+Inspect commands are read-only. The native unwrap command creates only a NEW output EXE.\\n\\
+No protected DLL is executed; unsupported SafeDisc editions are rejected.");
 }
 
 fn parse_hex_u32(input: &str) -> Result<u32> {
@@ -5966,7 +5966,11 @@ fn unwrap_cli() -> Result<()> {
         let _=fs::remove_file(&output);
         return Err(format!("output write failed; incomplete file removed: {e}"));
     }
-    file.sync_all().map_err(|e|format!("output flush failed: {e}"))?;
+    if let Err(e)=file.sync_all(){
+        drop(file);
+        let _=fs::remove_file(&output);
+        return Err(format!("output flush failed; incomplete file removed: {e}"));
+    }
     println!("CREATED: {}",output.display());
     println!("Snapshot-free native unwrap; gameplay not yet validated.");
     Ok(())
