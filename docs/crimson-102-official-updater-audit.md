@@ -73,3 +73,62 @@ the **same exact 2,580,480-byte PE**, SHA-256
 
 No protected executable file, installer CAB, or commercial game data
 was committed to this repository: only metadata and SHA-256 values.
+
+## Installer instructions: compiled SETUPDATA resources, registry, and asset patch
+
+Further static inspection (2026-11-01) of the *same user-supplied official
+`crmsk102.exe`* identified the PE resource
+`SETUPBINARY/SETUPDATA/1033` (file offset `0x33DC8`, **2,337 bytes**).
+This is **structured binary installer configuration**, not a plaintext
+`.iss` or batch script. The resource's file records list
+`CRIMSON.EXE`, `CRIMSON.ICD`, and
+`gosdata\\assets\\CRIMPTCH.ROF` as three explicit game payloads,
+plus an installer-managed `readmeUSA.rtf`. The `setupenu.dll`
+is a setup support DLL. The file list agrees with the embedded CAB
+contents and does not list other game file replacements.
+
+The same compiled resource contains **two explicit registry directives**:
+
+1. `HKEY_LOCAL_MACHINE\\Software\\Microsoft\\Microsoft Games\\Crimson Skies\\1.0\\Version`
+   associated with the text value `1.02`.
+2. `HKEY_LOCAL_MACHINE\\SOFTWARE\\Microsoft\\DirectPlay\\Applications\\Crimson Skies\\Guid`
+   associated with installer variable `%DPLAYGUID`. This means
+   the setup handles a DirectPlay GUID entry; static metadata alone
+   does not fully distinguish an assignment from a read/repair
+   operation on an existing value.
+
+These are not exhaustive proof of every possible **generic setup engine**
+registry effect; the bootstrapper itself references standard Windows
+`RunOnce` and DirectX registry locations for potential reboot or
+legacy setup flows. The exact updater was deliberately **not executed**.
+
+**The third game file is not padding:**
+`CRIMPTCH.ROF` is a 797-byte game asset overlay. Its internal
+`ASSETS/SCRIPTS/AIRFRAME.SCRIPT` compressed entry (zlib beginning
+at ROF offset `0x7F`) independently inflates into **1,641 bytes of
+readable game scripting**. Its `gui_create`, `gui_init`, and
+`gui_mailbox` routines reference aircraft selection, descriptions,
+`@planeconstruction@`, and callbacks. Without the pre-patch game
+asset for comparison, which specific gameplay bug this script fixes
+is not conclusively attributable. The official readme describes
+multiplayer, stability, and UI improvements in v1.02.
+
+### Practical implication
+
+If a player already has the **exact v1.02 unwrapped executable**,
+the protected `CRIMSON.EXE` and `CRIMSON.ICD` shipped by the updater
+provide no executable code that was not already reconstructed.
+**However, the updater is not automatically redundant**: check for
+`gosdata/assets/CRIMPTCH.ROF` (SHA-256
+`7ae28cfb65645a3e22aadc64a68badc23e2543bc56356d599fb59375d9ebbefe`),
+the installed `Version` registry value, and any DirectPlay GUID
+registration needed for multiplayer. The setup's readme is
+documentation, not game-engine code.
+
+On 64-bit Windows the relevant 32-bit registry view can be inspected
+with `reg query "HKLM\\SOFTWARE\\Microsoft\\Microsoft Games\\Crimson Skies\\1.0" /v Version /reg:32`
+and an equivalent query for the `DirectPlay\\Applications\\Crimson Skies`
+`Guid` value. **Do not synthesize** a new `%DPLAYGUID` value based
+only on this report.
+
+No commercial ROF contents or protected EXE bytes are committed.
