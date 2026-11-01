@@ -5,6 +5,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use std::collections::HashSet;
 
+pub const RETAIL_PARTIAL_TEXT_SHA256: &str = "d717153d870b229d1a94aea11273c91e943ab6646da441a3d4b01cf6ff35c472";
 pub const EXPECTED_PARTIAL_TEXT_SHA256: &str =
     "8a4a1dc7865c0469644a038aa1ea539493305cd3232117aff83fdd03b33b6282";
 
@@ -27,25 +28,38 @@ pub fn reconstruct(
     highlow_sites:&HashSet<u32>, image_base:u32,
     kernel_iat_rva:u32, user_iat_rva:u32, xor_key:u32,
 )->Result<CallsiteRestore,String>{
+    reconstruct_version(original,text_rva,raw_start,raw_len,highlow_sites,
+        image_base,kernel_iat_rva,user_iat_rva,xor_key,false)
+}
+pub fn reconstruct_version(
+    original:&[u8],text_rva:u32,raw_start:usize,raw_len:usize,
+    highlow_sites:&HashSet<u32>,image_base:u32,
+    kernel_iat_rva:u32,user_iat_rva:u32,xor_key:u32,retail:bool,
+)->Result<CallsiteRestore,String>{
     if original.len()!=2_580_578 || raw_len!=2_105_344 ||
-        text_rva!=0x1000 || xor_key!=0x6A96_6E30 {
+        text_rva!=0x1000 || xor_key!=if retail {0x7496_538F}else{0x6A96_6E30} {
         return Err("unexpected edition/geometry or import key".into());
     }
     let end=raw_start.checked_add(raw_len).ok_or("text section end overflow")?;
     let mut output=original.get(raw_start..end)
         .ok_or("text section outside source ICD")?.to_vec();
-    let mut sites=Vec::new();
-    for item in include_str!("french_import_callsite_rvas.txt").split_whitespace() {
-        let site=u32::from_str_radix(item,16)
-            .map_err(|_|"invalid French callsite metadata")?;
-        if sites.last().is_some_and(|previous| site<=*previous) {
-            return Err("French callsite metadata not strictly ascending".into());
+    let sites=if retail {
+        crate::unsafedisc_retail_metadata::callsites()?
+    } else {
+        let mut sites=Vec::new();
+        for item in include_str!("french_import_callsite_rvas.txt").split_whitespace() {
+            let site=u32::from_str_radix(item,16)
+                .map_err(|_|"invalid French callsite metadata")?;
+            if sites.last().is_some_and(|prev|site<=*prev){
+                return Err("unordered French callsite metadata".into());
+            }
+            sites.push(site);
         }
-        sites.push(site);
-    }
-    if sites.len()!=245 || sites.iter().map(|&x|u64::from(x)).sum::<u64>()!=212_277_808 {
-        return Err("French callsite metadata integrity mismatch".into());
-    }
+        if sites.len()!=245 || sites.iter().map(|&v|u64::from(v)).sum::<u64>()!=212_277_808 {
+            return Err("French callsite metadata mismatch".into());
+        }
+        sites
+    };
 
     let kernel_va=image_base.checked_add(kernel_iat_rva)
         .ok_or("kernel IAT preferred address overflow")?;
@@ -85,7 +99,8 @@ pub fn reconstruct(
         corrected+=1;
         if is_kernel {kernel+=1;} else {user+=1;}
     }
-    if corrected!=245 || kernel!=183 || user!=62 {
+    let (nk,nu)=if retail {(182,63)}else{(183,62)};
+    if corrected!=245 || kernel!=nk || user!=nu {
         return Err(format!("unexpected restored site groups: kernel={kernel} user={user}"));
     }
     Ok(CallsiteRestore {
