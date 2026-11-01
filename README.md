@@ -2,6 +2,28 @@
 
 This standalone repository preserves independent SafeDisc research, native Rust and Python tools, and the legacy Crimson Skies patcher. These files were migrated from [`CrimsonSkiesFix`](https://github.com/legluondunet/CrimsonSkiesFix), which now focuses on its separate DirectDraw `ddraw.dll` project.
 
+
+## Legal notice — personal preservation research
+
+This repository is maintained for **private, personal research** into
+legacy SafeDisc protection, preservation, and software interoperability.
+It does not include or redistribute commercial games, protected game
+executables, decrypted game binaries, or proprietary SafeDisc DLLs.
+Users are responsible for complying with applicable copyright and
+anti-circumvention laws; lawful possession of a game is not, by itself,
+an unconditional authorization to bypass its copy protection.
+
+**Warning:** Unlawful use of tools that remove or neutralize software
+protection mechanisms may be subject to the legal penalties applicable
+to copyright infringement. In France, this warning is addressed by
+[Article L122-6-2 of the French Intellectual Property Code](https://www.legifrance.gouv.fr/codes/article_lc/LEGIARTI000006278921/).
+
+> Toute publicité ou notice d'utilisation relative aux moyens permettant la suppression ou la neutralisation de tout dispositif technique protégeant un logiciel doit mentionner que l'utilisation illicite de ces moyens est passible des sanctions prévues en cas de contrefaçon.
+
+This notice does not establish that a particular use or distribution
+is authorized; the applicable law and the specific circumstances
+still determine that question.
+
 ## Rust research
 
 - `src/bin/unsafedisc-linux.rs`: native Linux/Windows SafeDisc
