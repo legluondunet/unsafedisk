@@ -1,0 +1,123 @@
+name: One-off unSafeDisk maintenance cleanup
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirmation:
+        description: 'Type CLEAN to purge old Actions runs, caches and the merged branch'
+        required: true
+        type: string
+
+permissions:
+  actions: write
+  contents: write
+  pull-requests: read
+
+concurrency:
+  group: unsafedisk-one-off-maintenance
+  cancel-in-progress: false
+
+jobs:
+  cleanup:
+    if: inputs.confirmation == 'CLEAN'
+    name: Preserve latest builds, purge history and remove merged branch
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      GH_TOKEN: ${{ github.token }}
+      REPO: ${{ github.repository }}
+    steps:
+      - name: Validate repository, protected builds and open PR
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$REPO" == "legluondunet/unsafedisk" ]]
+          [[ "$GITHUB_REF" == "refs/heads/main" ]]
+          for run in 41320782694 41320782758; do
+            actual=$(gh api "repos/$REPO/actions/runs/$run" --jq '[.head_sha,.status,.conclusion] | join(" ")')
+            expected="f39d8ade9db1ef801ed0b26f4f263a856712f906 completed success"
+            [[ "$actual" == "$expected" ]] || {
+              echo "::error::Protected build $run changed or could not be verified: $actual"
+              exit 1
+            }
+          done
+          [[ "$(gh api "repos/$REPO/pulls/1" --jq '.merged')" == "true" ]]
+          [[ "$(gh api "repos/$REPO/pulls/2" --jq '.state')" == "open" ]]
+          [[ "$(gh api "repos/$REPO/pulls/2" --jq '.head.ref')" == "feature/generic-pe-readonly-inspection" ]]
+          gh api "repos/$REPO/git/ref/heads/feature/migrate-safedisc-research" >/dev/null
+
+          # Do not race another compilation or cleanup.
+          active_runs=$(gh api --paginate "repos/$REPO/actions/runs?per_page=100" --jq '.workflow_runs[] | select(.status != "completed") | .id')
+          while IFS= read -r run; do
+            [[ -z "$run" || "$run" == "$GITHUB_RUN_ID" ]] || {
+              echo "::error::Another run ($run) is active. Retry after it completes."
+              exit 1
+            }
+          done <<< "$active_runs"
+          echo "Validated: latest builds, main, open PR #2 and merged PR #1."
+
+      - name: Delete all GitHub Actions caches (including Rust/Cargo)
+        shell: bash
+        run: |
+          set -euo pipefail
+          cache_file=$(mktemp)
+          gh api --paginate "repos/$REPO/actions/caches?per_page=100" --jq '.actions_caches[].id' > "$cache_file"
+          count=0
+          while IFS= read -r cache_id; do
+            [[ -n "$cache_id" ]] || continue
+            gh api --method DELETE "repos/$REPO/actions/caches/$cache_id" >/dev/null
+            count=$((count + 1))
+          done < "$cache_file"
+          echo "Deleted $count caches."
+          echo "Caches removed: $count" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Delete obsolete completed runs and their artifacts
+        shell: bash
+        run: |
+          set -euo pipefail
+          runs_file=$(mktemp)
+          # Snapshot IDs before deleting; pagination during deletions can skip runs.
+          gh api --paginate "repos/$REPO/actions/runs?per_page=100" --jq '.workflow_runs[] | select(.status == "completed") | .id' > "$runs_file"
+          count=0
+          while IFS= read -r run_id; do
+            [[ -n "$run_id" ]] || continue
+            case "$run_id" in
+              41320782694|41320782758) continue ;;
+            esac
+            [[ "$run_id" == "$GITHUB_RUN_ID" ]] && continue
+            gh api --method DELETE "repos/$REPO/actions/runs/$run_id" >/dev/null
+            count=$((count + 1))
+          done < "$runs_file"
+          echo "Deleted $count completed runs (and their artifacts)."
+          echo "Old completed runs removed: $count" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Verify clean state and delete only the merged PR #1 branch
+        shell: bash
+        run: |
+          set -euo pipefail
+          remaining=$(gh api --paginate "repos/$REPO/actions/runs?per_page=100" --jq '.workflow_runs[] | select(.id != 41320782694 and .id != 41320782758) | .id' | grep -v -x "$GITHUB_RUN_ID" || true)
+          [[ -z "$remaining" ]] || {
+            echo "::error::Some runs remain: $remaining"
+            exit 1
+          }
+          remaining_caches=$(gh api --paginate "repos/$REPO/actions/caches?per_page=100" --jq '.actions_caches[].id')
+          [[ -z "$remaining_caches" ]] || {
+            echo "::error::Some caches remain: $remaining_caches"
+            exit 1
+          }
+          [[ "$(gh api "repos/$REPO/pulls/1" --jq '.merged')" == "true" ]]
+          [[ "$(gh api "repos/$REPO/pulls/2" --jq '.state')" == "open" ]]
+          open_on_old_branch=$(gh api --paginate "repos/$REPO/pulls?state=open&per_page=100" --jq '.[] | select(.head.ref == "feature/migrate-safedisc-research") | .number')
+          [[ -z "$open_on_old_branch" ]] || {
+            echo "::error::Unexpected open PR on branch to remove: $open_on_old_branch"
+            exit 1
+          }
+          gh api --method DELETE "repos/$REPO/git/refs/heads/feature/migrate-safedisc-research" >/dev/null
+          {
+            echo "### Final state"
+            echo "- Protected build runs: 41320782694 and 41320782758"
+            echo "- This maintenance run remains until deleted after completion"
+            echo "- GitHub Actions caches: 0"
+            echo "- Deleted merged branch: feature/migrate-safedisc-research"
+            echo "- Kept branches: main; feature/generic-pe-readonly-inspection (open PR #2)"
+          } >> "$GITHUB_STEP_SUMMARY"
