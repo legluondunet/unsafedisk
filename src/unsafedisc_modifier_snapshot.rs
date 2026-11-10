@@ -132,6 +132,41 @@ impl Pair {
         })
     }
 
+    /// Reconstructed, bounded EAX-only arithmetic for the verified Crimson
+    /// 1.0.2.0 modifier pair. This contains *operations and constants*, not
+    /// proprietary DLL machine-code bytes or any mapped Win98 memory image.
+    /// Both exact Crimson versions have independently matched these stages.
+    pub fn crimson_static() -> Self {
+        use Op::*;
+        let first=Modifier{ops:vec![
+            Nop,Ror(130),Add(0x07a8510f),Add(0x12c60fdd),
+            Add(0x5988263e),Xor(0x0f716218),Ror(96),Add(0x5d5b4dff),
+            Rol(160),Rol(83),Sub(0x78091744),Rol(177),Rol(128),
+            Sub(0x5644466d),Sub(0x20d25f2d),Ror(100),
+            Xor(0x65467529),Ror(204),Xor(0x536c74d1),
+            Xor(0x00ed7185),Add(0x74611839),Xor(0x22cc5dad),
+            Sub(0x607a2148),Rol(203),
+        ]};
+        let second=Modifier{ops:vec![
+            Add(0x211e0b7f),Add(0x0c633d1c),Sub(0x05cd18ac),
+            Ror(61),Rol(226),Rol(147),Rol(32),Dec,Rol(155),Dec,
+            Ror(138),Ror(142),Inc,Rol(80),Add(0x5988263e),Inc,
+            Xor(0x09f36160),Rol(255),Inc,Sub(0x03f05a53),
+            Neg,Ror(227),Xor(0x105f5644),Xor(0x6e3a20d2),
+            Dec,Inc,Xor(0x1faa478b),Xor(0x00ed7185),
+            Inc,Dec,Rol(5),Rol(251),Inc,
+        ]};
+        Self{first,second}
+    }
+    /// When the user still provides a historical Win98 capture, require
+    /// the original arithmetic operation sequence to be *identical*
+    /// to the snapshot-free implementation, rather than comparing only
+    /// several synthetic probe inputs.
+    pub fn matches_static_sequence(&self)->bool {
+        let reference=Self::crimson_static();
+        self.first.ops==reference.first.ops && self.second.ops==reference.second.ops
+    }
+
     pub fn index_mask(i:u32) -> u32 {
         (i<<24)|(i<<16)|(i<<8)|i
     }
@@ -152,6 +187,28 @@ impl Pair {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn crimson_arithmetic_matches_verified_win98_vectors() {
+        let pair=Pair::crimson_static();
+        assert_eq!(pair.first.operations(),24);
+        assert_eq!(pair.second.operations(),33);
+        for (input,f1,f2,extra0,extra256) in [
+            (0u32,0x8BD9_668C,0xF01C_8BF1,0xC293_E587,0x32A3_7588),
+            (1,0x2BD9_668D,0xF01C_8E71,0xC293_E437,0x32A3_7438),
+            (0x1234_5678,0x514D_C13F,0x160B_DBAC,0x8B7C_2B0C,0x38CC_BB0D),
+            (0xDEAD_BEEF,0x57C4_CE69,0x58BF_1342,0xDCC4_420D,0x4E37_520E),
+            (u32::MAX,0x0BD9_668D,0xF01C_8B71,0xC293_E447,0x55C3_5448),
+        ]{
+            assert_eq!(pair.first.forward(input),f1);
+            assert_eq!(pair.second.forward(input),f2);
+            assert_eq!(pair.extra_word(input,0),extra0);
+            assert_eq!(pair.extra_word(input,256),extra256);
+            assert_eq!(pair.inverse_extra_word(extra0,0),input);
+            assert_eq!(pair.inverse_extra_word(extra256,256),input);
+        }
+        assert!(pair.matches_static_sequence());
+    }
 
     fn toy_pair() -> Pair {
         let mut image=vec![0u8;END_RVA];

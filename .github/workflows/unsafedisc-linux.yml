@@ -1,4 +1,4 @@
-name: Experimental native unSafeDisc CLI (Linux and Windows)
+name: Native unSafeDisc unwrap / inspect (Linux and Windows)
 
 on:
   push:
@@ -23,7 +23,7 @@ permissions:
 
 jobs:
   linux-x86_64:
-    name: Linux x86_64 - research CLI
+    name: Linux x86_64 - native unwrap and inspect
     runs-on: ubuntu-24.04
     defaults:
       run:
@@ -42,6 +42,7 @@ jobs:
       - name: Smoke test CLI
         run: |
           ./target/release/unsafedisc-linux --help
+          ./target/release/unsafedisc-linux unwrap --help
           if ./target/release/unsafedisc-linux unpack; then
             echo "ERROR: unsupported unpack command unexpectedly succeeded"
             exit 1
@@ -55,12 +56,12 @@ jobs:
       - name: Upload experimental Linux executable
         uses: actions/upload-artifact@v4
         with:
-          name: unsafedisc-linux-x86_64-inspect-only
+          name: unsafedisc-linux-x86_64
           path: target/release/unsafedisc-linux
           if-no-files-found: error
 
   windows-x86_64:
-    name: Windows x86_64 - research CLI
+    name: Windows x86_64 - native unwrap and inspect
     runs-on: windows-2022
     defaults:
       run:
@@ -83,6 +84,10 @@ jobs:
           if ($LASTEXITCODE -ne 0) {
             throw "Windows CLI --help failed"
           }
+          & .\target\release\unsafedisc-linux.exe unwrap --help
+          if ($LASTEXITCODE -ne 0) {
+            throw "Windows unwrap --help failed"
+          }
           # GitHub Actions' PowerShell wrapper normally treats a native
           # command's nonzero exit status as a job failure. Here that
           # failure is exactly what we are testing.
@@ -101,6 +106,6 @@ jobs:
       - name: Upload experimental Windows executable
         uses: actions/upload-artifact@v4
         with:
-          name: unsafedisc-windows-x86_64-inspect-only
+          name: unsafedisc-windows-x86_64
           path: target/release/unsafedisc-linux.exe
           if-no-files-found: error

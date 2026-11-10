@@ -140,9 +140,85 @@ pub fn compare_text(
     Ok(audit)
 }
 
+
+#[derive(Debug)]
+pub struct ReconstructedSection {
+    pub bytes:Vec<u8>,
+    pub fragments:usize,
+    pub complete_words:usize,
+    pub excluded_relocation_bytes:usize,
+}
+
+/// Reconstruct a section from SHA-verified protected input, retaining all
+/// HIGHLOW bytes unchanged. The caller separately restores import callsites
+/// that occupy relocation DWORDs. This function writes *only in memory*.
+/// Caller must check the complete PE output SHA-256 before file creation.
+pub fn reconstruct_section(
+    encrypted:&[u8], relocation_slots:&[usize],
+    key:[u32;4],pair:&Pair,
+)->Result<ReconstructedSection,String> {
+    let mut blocked=vec![false;encrypted.len()];
+    let mut previous_end=0usize;
+    for &pos in relocation_slots {
+        let end=pos.checked_add(4).ok_or("relocation position overflow")?;
+        if end>encrypted.len() || pos<previous_end {
+            return Err("unsorted, overlapping or unbounded HIGHLOW positions".into());
+        }
+        blocked[pos..end].fill(true);
+        previous_end=end;
+    }
+    let mut output=encrypted.to_vec();
+    let mut fragments=0usize;
+    let mut complete_words=0usize;
+    let mut processed=0usize;
+    for (page_index,page) in blocked.chunks(4096).enumerate() {
+        let page_start=page_index.checked_mul(4096)
+            .ok_or("page start overflow")?;
+        let mut cursor=0usize;
+        while cursor<page.len() {
+            if page[cursor]{cursor+=1;continue;}
+            let begin=cursor;
+            while cursor<page.len() && !page[cursor]{cursor+=1;}
+            let first=page_start+begin;
+            let last=page_start+cursor;
+            let decoded=forward_fragment(&encrypted[first..last],key,pair)?;
+            output[first..last].copy_from_slice(&decoded);
+            fragments+=usize::from(last-first>=4);
+            complete_words+=(last-first)/4;
+            processed+=last-first;
+        }
+    }
+    let excluded_relocation_bytes=relocation_slots.len()
+        .checked_mul(4).ok_or("relocation excluded count overflow")?;
+    if processed+excluded_relocation_bytes!=output.len() {
+        return Err("reconstruction failed to partition section".into());
+    }
+    Ok(ReconstructedSection{
+        bytes:output,fragments,complete_words,excluded_relocation_bytes
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn section_reconstruction_matches_independent_fragment_iteration() {
+        let pair=synthetic_pair();
+        let key=[1,2,3,4];
+        let input=(0..8209usize).map(|i|(i.wrapping_mul(23)^0xB3) as u8)
+            .collect::<Vec<_>>();
+        let slots=[4093usize,4103,5001,8189];
+        let report=reconstruct_section(&input,&slots,key,&pair).unwrap();
+        assert_eq!(report.excluded_relocation_bytes,16);
+        assert_eq!(report.bytes.len(),input.len());
+        assert_eq!(compare_text(&input,&report.bytes,&slots,key,&pair).unwrap().differing_bytes,0);
+        for &site in &slots {
+            assert_eq!(&report.bytes[site..site+4],&input[site..site+4]);
+        }
+        assert!(reconstruct_section(&input,&[4095,4093],key,&pair).is_err());
+    }
+
+
 
     fn synthetic_pair()->Pair {
         let mut image=vec![0u8;super::super::unsafedisc_modifier_snapshot::END_RVA];
