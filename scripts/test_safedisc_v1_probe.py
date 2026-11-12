@@ -101,6 +101,27 @@ class ProbeTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "minimum_words"):
             probe.four_byte_lane_profile(bytes(16), 0)
 
+    def test_provenance_warns_for_opaque_icd_and_dll(self):
+        loader = probe.profile_bytes(fixture(), "loader")
+        icd = probe.profile_bytes(b"opaque ICD bytes", "icd")
+        dll = probe.profile_bytes(b"opaque DLL bytes", "dplayerx")
+        result = probe.provenance_cautions([loader, icd, dll])
+        self.assertTrue(result["provenance_not_verified"])
+        self.assertFalse(result["corruption_asserted"])
+        codes = [(item["role"], item["code"]) for item in result["cautions"]]
+        self.assertIn(("icd", "no_pe32_at_file_start"), codes)
+        self.assertIn(("dplayerx", "no_pe32_at_file_start"), codes)
+        self.assertIn(("loader", "historical_wrapper_section_layout_differs"), codes)
+
+    def test_provenance_does_not_flag_root_pe_as_opaque(self):
+        loader = probe.profile_bytes(fixture(), "loader")
+        icd = probe.profile_bytes(fixture(), "icd")
+        dll = probe.profile_bytes(fixture(), "dplayerx")
+        result = probe.provenance_cautions([loader, icd, dll])
+        self.assertFalse(any(item["code"] == "no_pe32_at_file_start"
+                             for item in result["cautions"]))
+        self.assertFalse(result["corruption_asserted"])
+
     def test_limit(self):
         with self.assertRaisesRegex(ValueError, "16 MiB"):
             probe.profile_bytes(b"X" * (probe.MAX_BYTES + 1), "icd")
