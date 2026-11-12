@@ -460,6 +460,78 @@ non-PE `RAYMAN2.ICD` and `dplayerx.dll` as directly loadable
 Windows binaries, or asserting they are bad/corrupt without
 checking the physical CD and installation stages.
 
+## Reproducible original-CD vs original-installation comparison
+
+A new cross-platform, standard-library-only, read-only helper,
+[`scripts/compare_safedisc_stages.py`](../scripts/compare_safedisc_stages.py),
+tests the most important unresolved hypothesis: **whether the original
+installer transforms or substitutes the ICD and companion DLL**.
+
+Keep separate directories containing (1) the files extracted from the
+original CD and (2) the files copied from the **unmodified original
+game installation**, before any Rayman2Fix patching. The directories
+may be on Linux or Windows, and this diagnostic does not require
+Wine, the game's EXE to be runnable, or a mounted CD at inspection time.
+
+```sh
+python scripts/compare_safedisc_stages.py \
+  --cd-root "/path/to/original-CD-root" \
+  --installed-root "/path/to/original-install-folder"
+python -m unittest discover -s scripts -p 'test_compare_safedisc_stages.py'
+```
+
+The JSON output reports root-level `rayman2.exe`, `rayman2.icd`,
+`dplayerx.dll`, and `dxplayerx.dll` **separately**. For each file,
+the result is `identical`, `different`, `cd_only`,
+`installed_only`, or `absent_both`, with any present file's actual
+name, size and SHA-256. An `alias_discrepancy`-style flag highlights
+the distinct DLL spellings, **without treating them as interchangeable**.
+No original files or proprietary data are copied into the repository
+or changed. Nine synthetic local regression tests pass.
+
+**Interpretation constraints:**
+
+- Two matching SHA-256 hashes establish equality between the *two
+  user-supplied roots*, not that either root is a genuine CD copy.
+- Missing original-install files may be installer-only media auxiliaries:
+  they are not automatically corrupt.
+- A `different` result establishes a transformation or version
+  mismatch, but does not reveal how it occurred.
+- This tool checks only the specified root directories; it does not
+  recursively inspect a disc/installation or reconstruct the original
+  installer. Directory contents should first be obtained from the
+  owner's authentic, same-edition installation.
+
+### Primary-source version clue
+
+A [2002 SafeDisc FAQ by a Wine developer]
+(https://www.winehq.org/pipermail/wine-devel/2002-April/005861.html)
+explicitly identifies **165,888-byte `dplayerx.dll` as SafeDisc 1.35.0**,
+the exact size of the owner-supplied Rayman 2 companion file. This is
+**strong independent support for the 1.35 classification**, alongside
+the Wine Rayman 2 bug report. It does not by itself confirm that
+this particular opaque file is a correct *installed* DLL or recover
+any decryption keys.
+
+### Random-stream hypotheses excluded (limited checks)
+
+For both 31-bit word streams (big-endian ICD and little-endian DLL),
+read-only numerical tests found no support for:
+
+- The classic **glibc `random()` additive recurrence** with lags
+  3 and 31 (output (x_i) must equal the two lagged outputs plus
+  a 0-or-1 carry modulo (2^{31})); first 15,000 eligible values
+  fail immediately in both files.
+- A single affine recurrence `x[n+1] = a*x[n]+c (mod 2^31)`
+  throughout the stream. The first three words may suggest a
+  candidate when a difference is odd, but it does not reproduce
+  subsequent values; a simple LCG is not established.
+
+These *negative controls* only reject those specific generator
+models; they do not show the content is encrypted, random, or fake.
+The observed 31-bit constraint, ordinary PE absence and unanswered
+file provenance are still the principal research evidence.
+
 ## Next research milestones
 
 1. Identify and document the protected loader's format and the specific
