@@ -19,6 +19,25 @@ MULTIPLIER = 16_807
 INVERSE = pow(MULTIPLIER, -1, MODULUS)
 
 
+def repeated_salt_triplets(words: tuple[int, ...]) -> int:
+    """Count consecutive 3-word windows matching *some* fixed XOR salt.
+
+    Derive a salt independently from each adjacent pair and compare
+    consecutive inferred salts. A full-stream test would miss rare
+    embedded short segments; this test can identify them without
+    assuming the first word is in the segment.
+    """
+    if len(words) < 3:
+        return 0
+    previous = words[0] ^ ((words[1] * INVERSE) % MODULUS)
+    matches = 0
+    for i in range(1, len(words) - 1):
+        current = words[i] ^ ((words[i + 1] * INVERSE) % MODULUS)
+        matches += current == previous
+        previous = current
+    return matches
+
+
 def analyse(data: bytes, endian: str) -> dict:
     if endian not in ("little", "big"):
         raise ValueError("endianness must be little or big")
@@ -46,6 +65,7 @@ def analyse(data: bytes, endian: str) -> dict:
         for i in range(count - 1)
     )
     complete = matched == count - 1
+    local_triplets = repeated_salt_triplets(words)
     return {
         "sha256": hashlib.sha256(data).hexdigest(),
         "size_bytes": len(data),
@@ -56,6 +76,8 @@ def analyse(data: bytes, endian: str) -> dict:
         "candidate_xor_salt": f"0x{salt:08X}",
         "matching_transitions": matched,
         "total_transitions": count - 1,
+        "consecutive_three_word_windows_matching_a_local_salt": local_triplets,
+        "three_word_windows_examined": count - 2,
         "full_recurrence_match": complete,
         "algorithm_asserted": complete,
         "algorithm": "masked Park-Miller MINSTD mod 2^31-1" if complete else None,
