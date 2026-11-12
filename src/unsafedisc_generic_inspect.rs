@@ -196,13 +196,13 @@ fn render_report(role: &str, display: &str, bytes: &[u8], details: bool) -> Stri
     if role == "dplayerx" && parse_pe32(bytes).is_err() {
         writeln!(
             out,
-            "  CAUTION: this DLL is not directly loadable as an x86 PE32 image; check CD versus installed bytes before interpreting its cryptographic role"
+            "  INFO: this companion file has no plain loadable PE32 image at offset 0; it may be encoded, synthetic or another protection resource; not evidence of corruption"
         ).unwrap();
     }
     if role == "icd" && parse_pe32(bytes).is_err() {
         writeln!(
             out,
-            "  CAUTION: this ICD is not directly launchable as an x86 PE32 image in its present on-disk form; installation-stage transformations are unverified"
+            "  INFO: an opaque ICD can be an encrypted or synthetic protection resource; the lack of an MZ header alone is not evidence of corruption"
         ).unwrap();
     }
     if details {
@@ -412,13 +412,13 @@ mod tests {
         assert!(report.contains("Non-PE32/opaque input"));
         assert!(report.contains("First 4 bytes: 7F A2 11 9D"));
         assert!(report.contains("SHA-256: "));
-        assert!(report.contains("CAUTION: this ICD is not directly launchable"));
+        assert!(report.contains("INFO: an opaque ICD"));
     }
 
     #[test]
     fn opaque_dll_receives_nonfatal_provenance_caution() {
         let report = render_report("dplayerx", "synthetic.dll", b"not MZ", false);
-        assert!(report.contains("CAUTION: this DLL is not directly loadable"));
+        assert!(report.contains("INFO: this companion file"));
         assert!(report.contains("Non-PE32/opaque input"));
     }
 
