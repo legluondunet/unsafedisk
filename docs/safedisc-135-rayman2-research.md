@@ -687,6 +687,69 @@ protected/unprotected EXEs already held privately by the owner, and
 study the role of these synthetic files. Do **not** attempt to decrypt
 these particular PRNG bytes as if they contained executable code.
 
+## Static call-path lead: PRNG-based x86 trampoline (2026-11-13)
+
+Independently disassembled the exact **protected** `Rayman2.exe`
+(SHA-256 `7927a106ac4f2244e304e57c196170f6cfb311af87ddf59eb6e6c48b9bb0d5e3`)
+with GNU binutils, without executing it:
+
+```sh
+objdump -d -M intel --start-address=0x450C5A \
+  --stop-address=0x450D03 Rayman2.exe
+```
+
+Key x86 instructions from the protected EXE's `.text`:
+
+| VA | Observation |
+|---|---|
+| `0x450C5A` | Load PRNG state from `0x510BF0` |
+| `0x450C65` | XOR state with `0x075BD924` |
+| `0x450C70` | Multiply by `0x41A7` (16807) |
+| `0x450CA9` | Signed division by `0x455` to select an offset |
+| `0x450CAD` | Add buffer base `0x510EA0` to offset register |
+| `0x450CB3` | Store opcode `68` (`PUSH imm32`) in that buffer |
+| `0x450CC2` | Store opcode `C3` (`RET`) five bytes later |
+| `0x450CC8` | Store the 32-bit immediate after `PUSH` |
+| `0x450CF6` | Indirect `CALL ESI` to the constructed stub |
+
+The sequence creates and calls a six-byte **`PUSH immediate; RET`**
+trampoline, plausibly for runtime control-flow obfuscation. In other
+words, the generator is used in at least one executable-code
+construction path; **we have not established a call path which writes
+either of the observed ICD/DLL files**. Do not conflate the
+mathematically established stream encoding with the unproven
+on-disc-file producer.
+
+Separately, [PCGamingWiki's Rayman 2 entry]
+(https://www.pcgamingwiki.com/wiki/Rayman_2) records that the
+retail release contains **dummy/junk files** in addition to SafeDisc.
+This strengthens the *possible* interpretation of these two
+completely reproducible streams as protection-related filler, but
+does **not** authenticate their specific disc roles.
+
+**Bounded stream comparison:** the correct offset+1 little-endian
+ICD stream has **170,891 unique states**; the offset+0 little-endian
+DLL stream has **41,472 unique states**, and their observed sets
+have **zero overlap**. The next state after the ICD's last is
+`0x11F38C41`, not the DLL seed `0x0030FBEC`; the next state after
+the DLL's last is `0x1D99DDE9`, not the ICD seed `0x6EE4C08A`.
+This excludes immediate concatenation or overlap **in the observed
+ranges** only; it is not a general proof that the seeds are unrelated.
+
+## Validation boundary: full byte coverage versus complete words
+
+The Python `--auto-align` mode and the native Rust generic inspector
+now require every byte after an optional 0–3-byte prefix to be accounted
+for by complete reconstructed PRNG words. A file ending in additional,
+unexplained bytes can still have a 100% matching **word recurrence**,
+but **cannot** be advertised as a verified whole-file match.
+
+A new synthetic Python regression test and native Rust tests cover
+the partial-tail negative case. The **local Python mirror passes 47
+unit tests**; Rust code remains **uncompiled** because no Rust
+toolchain is available in the current execution environment.
+The Crimson Skies exact-hash-gated decoder remains unchanged.
+
 ## Next research milestones
 
 1. Verify the original disc and unmodified installer outputs, keeping
