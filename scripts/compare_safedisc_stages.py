@@ -35,12 +35,22 @@ def inventory(root: Path) -> dict[str, dict]:
                 raise ValueError(f"refusing non-regular or oversized: {item.name}")
             hasher = hashlib.sha256()
             read_count = 0
-            with open(item.path, "rb") as handle:
+            flags = os.O_RDONLY | getattr(os, "O_BINARY", 0) | getattr(os, "O_NOFOLLOW", 0)
+            fd = os.open(item.path, flags)
+            with os.fdopen(fd, "rb") as handle:
+                opened = os.fstat(handle.fileno())
+                if not stat.S_ISREG(opened.st_mode) or opened.st_size > MAX_INPUT_BYTES:
+                    raise ValueError(f"file changed type or size: {item.name}")
+                if (opened.st_dev, opened.st_ino) != (info.st_dev, info.st_ino):
+                    raise ValueError(f"file replaced during opening: {item.name}")
                 while chunk := handle.read(1024 * 1024):
                     read_count += len(chunk)
                     if read_count > MAX_INPUT_BYTES:
                         raise ValueError(f"oversized while reading: {item.name}")
                     hasher.update(chunk)
+                finished = os.fstat(handle.fileno())
+                if (finished.st_size, finished.st_mtime_ns) != (opened.st_size, opened.st_mtime_ns):
+                    raise ValueError(f"file modified while reading: {item.name}")
             if read_count != info.st_size:
                 raise ValueError(f"file changed during reading: {item.name}")
             result[normalized] = {
