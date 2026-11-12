@@ -155,6 +155,22 @@ an auxiliary/filler explanation for the two deterministic samples.
 See [Rayman 2 SafeDisc 1.35 research](docs/safedisc-135-rayman2-research.md)
 for the complete proof, limits, and next steps.
 
+**Regression and safety status (13 Nov 2026):** The Rust generic
+inspector now has **golden SHA-256 tests** that regenerate both PRNG
+streams in memory using only seeds and arithmetic (no bundled game
+files). File input is limited to 16 MiB and is read through an open
+file handle with size/modification checks and Unix device/inode
+verification. The original CD/installation comparator also refuses
+to compare a directory against itself.
+
+Locally, **49 Python mirror tests pass**. Rust has **not yet been
+compiled**: `cargo`/`rustc` are unavailable in the working
+environment. Before merging the stacked draft PRs, run:
+
+```sh
+cargo test --bin unsafedisc-linux
+```
+
 The optional Python 3 read-only research tools expose reproducible JSON without
 executing or decrypting protected files:
 
