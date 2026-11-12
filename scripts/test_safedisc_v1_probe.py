@@ -68,7 +68,10 @@ class ProbeTests(unittest.TestCase):
             original = Path(d) / "original"
             original.write_bytes(b"opaque")
             link = Path(d) / "link"
-            link.symlink_to(original)
+            try:
+                link.symlink_to(original)
+            except (OSError, NotImplementedError):
+                self.skipTest("creating symlinks is not permitted on this Windows runner")
             with self.assertRaisesRegex(ValueError, "symlink"):
                 probe.profile_file(link, "icd")
 
