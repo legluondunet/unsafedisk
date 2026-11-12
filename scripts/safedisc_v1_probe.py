@@ -107,8 +107,14 @@ def four_byte_lane_profile(data: bytes, minimum_words: int = 256) -> dict:
             high_bit_counts[lane] += bool(data[off + lane] & 0x80)
     zero_high_bit_lanes = ([lane for lane, total in enumerate(high_bit_counts)
                             if total == 0] if word_count >= minimum_words else [])
-    hint = ("31-bit big-endian candidate" if zero_high_bit_lanes == [0]
-            else "31-bit little-endian candidate" if zero_high_bit_lanes == [3]
+    # A clear high-bit lane cannot establish the true word boundary:
+    # lane 0 could be BE at offset 0 OR LE at offset 1; lane 3 could
+    # be LE at offset 0 OR BE at offset 3. Verify a complete recurrence
+    # over every byte offset before labeling an encoding.
+    hint = ("ambiguous (lane 0: BE offset 0 or LE offset 1)"
+            if zero_high_bit_lanes == [0]
+            else "ambiguous (lane 3: LE offset 0 or BE offset 3)"
+            if zero_high_bit_lanes == [3]
             else "none or ambiguous")
     return {
         "complete_four_byte_groups": word_count,
