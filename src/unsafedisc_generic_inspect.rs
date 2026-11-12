@@ -4,6 +4,7 @@
 
 use std::fmt::Write as _;
 use std::fs;
+use std::io::Read;
 use std::path::Path;
 
 use super::{parse_pe32, sha256, Result, MAX_INPUT_LEN};
@@ -254,21 +255,61 @@ fn render_report(role: &str, display: &str, bytes: &[u8], details: bool) -> Stri
     out
 }
 
+// Always enforce the cap against the *opened file*, not only pathname
+// metadata: a selected file can change between stat() and read().
+// Use only stdlib for cross-platform Windows/Wine/Linux builds.
+fn read_bounded_input(path: &Path) -> Result<Vec<u8>> {
+    let before = fs::symlink_metadata(path)
+        .map_err(|error| format!("{}: {error}", path.display()))?;
+    if before.file_type().is_symlink() || !before.is_file() || before.len() > MAX_INPUT_LEN {
+        return Err(format!(
+            "refusing symlink/non-regular or oversized file: {}",
+            path.display()
+        ));
+    }
+
+    let mut file = fs::File::open(path)
+        .map_err(|error| format!("{}: {error}", path.display()))?;
+    let opened = file.metadata()
+        .map_err(|error| format!("{}: {error}", path.display()))?;
+    if !opened.is_file() || opened.len() > MAX_INPUT_LEN || opened.len() != before.len() {
+        return Err(format!("file changed type or size during opening: {}", path.display()));
+    }
+
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::MetadataExt;
+        if before.dev() != opened.dev() || before.ino() != opened.ino() {
+            return Err(format!("file identity changed during opening: {}", path.display()));
+        }
+    }
+
+    let mut bytes = Vec::new();
+    {
+        let mut bounded = (&mut file).take(MAX_INPUT_LEN + 1);
+        bounded.read_to_end(&mut bytes)
+            .map_err(|error| format!("{}: {error}", path.display()))?;
+    }
+
+    let finished = file.metadata()
+        .map_err(|error| format!("{}: {error}", path.display()))?;
+    if bytes.len() as u64 != opened.len()
+        || finished.len() != opened.len()
+        || bytes.len() as u64 > MAX_INPUT_LEN
+    {
+        return Err(format!("file changed size while reading: {}", path.display()));
+    }
+    if let (Ok(start), Ok(end)) = (opened.modified(), finished.modified()) {
+        if start != end {
+            return Err(format!("file modified while reading: {}", path.display()));
+        }
+    }
+    Ok(bytes)
+}
+
 pub fn inspect_inputs(inputs: [(&str, &Path); 3], details: bool) -> Result<()> {
     for (role, path) in inputs {
-        let meta = fs::symlink_metadata(path)
-            .map_err(|error| format!("{}: {error}", path.display()))?;
-        if meta.file_type().is_symlink() || !meta.is_file() || meta.len() > MAX_INPUT_LEN {
-            return Err(format!(
-                "refusing symlink/non-regular or oversized file: {}",
-                path.display()
-            ));
-        }
-        let bytes = fs::read(path)
-            .map_err(|error| format!("{}: {error}", path.display()))?;
-        if bytes.len() as u64 > MAX_INPUT_LEN {
-            return Err(format!("file exceeded maximum input size: {}", path.display()));
-        }
+        let bytes = read_bounded_input(path)?;
         validate_role_bytes(role, &bytes)
             .map_err(|error| format!("{}: {error}", path.display()))?;
         print!("{}", render_report(role, &path.display().to_string(), &bytes, details));
@@ -396,6 +437,32 @@ mod tests {
         assert_eq!(masked_minstd_probe(&bytes, true, 0), None);
         bytes.push(0x29);
         assert_eq!(masked_minstd_probe(&bytes, true, 1), None);
+    }
+
+    #[test]
+    fn bounded_file_read_rejects_oversized_input_without_loading_it() {
+        use std::time::{SystemTime, UNIX_EPOCH};
+        let nonce = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
+        let directory = std::env::temp_dir().join(format!(
+            "unsafedisc-generic-{}-{nonce}", std::process::id()
+        ));
+        fs::create_dir(&directory).unwrap();
+
+        let normal = directory.join("normal.icd");
+        fs::write(&normal, b"synthetic test bytes").unwrap();
+        assert_eq!(read_bounded_input(&normal).unwrap(), b"synthetic test bytes");
+
+        let oversized = directory.join("oversized.icd");
+        fs::File::create(&oversized).unwrap().set_len(MAX_INPUT_LEN + 1).unwrap();
+        assert!(read_bounded_input(&oversized).is_err());
+
+        #[cfg(unix)]
+        {
+            let link = directory.join("link.icd");
+            std::os::unix::fs::symlink(&normal, &link).unwrap();
+            assert!(read_bounded_input(&link).is_err());
+        }
+        fs::remove_dir_all(&directory).unwrap();
     }
 
     #[test]
