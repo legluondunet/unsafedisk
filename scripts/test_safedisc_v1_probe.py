@@ -81,8 +81,8 @@ class ProbeTests(unittest.TestCase):
         le = b"".join(w.to_bytes(4, "little") for w in words)
         self.assertEqual(probe.four_byte_lane_profile(be)["always_clear_high_bit_lanes"], [0])
         self.assertEqual(probe.four_byte_lane_profile(le)["always_clear_high_bit_lanes"], [3])
-        self.assertEqual(probe.four_byte_lane_profile(be)["word_order_hint"], "31-bit big-endian candidate")
-        self.assertEqual(probe.four_byte_lane_profile(le)["word_order_hint"], "31-bit little-endian candidate")
+        self.assertEqual(probe.four_byte_lane_profile(be)["word_order_hint"], "ambiguous (lane 0: BE offset 0 or LE offset 1)")
+        self.assertEqual(probe.four_byte_lane_profile(le)["word_order_hint"], "ambiguous (lane 3: LE offset 0 or BE offset 3)")
 
     def test_stray_high_bit_disproves_candidate(self):
         words = [((i * 0x10203041) & 0x7FFFFFFF) for i in range(256)]
