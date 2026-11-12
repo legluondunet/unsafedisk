@@ -601,6 +601,16 @@ python scripts/safedisc_prng_recurrence.py RAYMAN2.ICD --endian big
 python -m unittest discover -s scripts -p 'test_safedisc_prng_recurrence.py'
 ```
 
+The Rust `inspect --generic-inspect --layout` diagnostic also now
+checks this full masked-MINSTD recurrence in both byte orders. It
+reports a **verified match only when at least 256 complete words**
+satisfy **every** transition, including the independently derived
+XOR salt. Two additional synthetic Rust tests cover a 512-word
+little-endian positive case, one-bit corruption, wrong byte order,
+minimum sample length, and a big-endian positive case with a
+partial trailing byte. This new Rust branch is **not yet compiled**,
+so those tests are pending Rust toolchain availability.
+
 The read-only script derives a **candidate** constant from the first
 two words via the modular inverse of 16807 and validates **every**
 following word. It never writes files. Six synthetic tests check
