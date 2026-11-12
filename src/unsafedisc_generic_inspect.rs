@@ -46,6 +46,21 @@ fn full_block_entropy_range(bytes: &[u8]) -> Option<(usize, f64, f64)> {
     }
 }
 
+// Describe four-byte groups from offset zero without guessing a cipher.
+// A consistent zero high-bit lane suggests a 31-bit representation.
+fn four_byte_high_bit_lanes(bytes: &[u8]) -> (usize, [usize; 4], usize) {
+    let mut chunks = bytes.chunks_exact(4);
+    let mut counts = [0usize; 4];
+    let mut full_words = 0usize;
+    for word in &mut chunks {
+        for (lane, byte) in word.iter().enumerate() {
+            counts[lane] += usize::from(byte & 0x80 != 0);
+        }
+        full_words += 1;
+    }
+    (full_words, counts, chunks.remainder().len())
+}
+
 fn hex_prefix(bytes: &[u8], max_len: usize) -> String {
     bytes
         .iter()
@@ -145,6 +160,22 @@ fn render_report(role: &str, display: &str, bytes: &[u8], details: bool) -> Stri
                 "  4 KiB block entropy: {blocks} full blocks; min={min:.4}, max={max:.4} bits/byte (descriptive only)"
             ).unwrap();
         }
+        let (full_words, high_counts, trailing) = four_byte_high_bit_lanes(bytes);
+        writeln!(
+            out,
+            "  Four-byte high-bit counts ({} complete groups, {} trailing bytes): [{}, {}, {}, {}] (descriptive only)",
+            full_words, trailing, high_counts[0], high_counts[1], high_counts[2], high_counts[3]
+        ).unwrap();
+        if full_words >= 256 {
+            let zero_high_bit_lanes: Vec<usize> = (0..4)
+                .filter(|&lane| high_counts[lane] == 0)
+                .collect();
+            match zero_high_bit_lanes.as_slice() {
+                [0] => writeln!(out, "  Candidate 31-bit big-endian word layout (not confirmed encryption)").unwrap(),
+                [3] => writeln!(out, "  Candidate 31-bit little-endian word layout (not confirmed encryption)").unwrap(),
+                _ => {}
+            }
+        }
         writeln!(out, "  First {} bytes: {}", bytes.len().min(32), hex_prefix(bytes, 32)).unwrap();
     }
     out
@@ -206,6 +237,30 @@ mod tests {
         assert!(validate_role_bytes("loader", b"MZcorrupt").is_err());
         assert!(validate_role_bytes("icd", b"opaque").is_ok());
         assert!(validate_role_bytes("dplayerx", b"opaque").is_ok());
+    }
+
+    #[test]
+    fn high_bit_word_lanes_and_trailing_bytes() {
+        let mut big = Vec::new();
+        let mut little = Vec::new();
+        for i in 0u32..256 {
+            let word = i.wrapping_mul(0x1020_3041) & 0x7FFF_FFFF;
+            big.extend_from_slice(&word.to_be_bytes());
+            little.extend_from_slice(&word.to_le_bytes());
+        }
+        let (n_big, big_lanes, tail_big) = four_byte_high_bit_lanes(&big);
+        assert_eq!((n_big, tail_big), (256, 0));
+        assert_eq!(big_lanes[0], 0);
+        assert!(big_lanes[1..].iter().all(|&count| count > 0));
+
+        little.push(0xFF); // Partial tail must not skew full-word analysis
+        let (n_little, little_lanes, tail_little) = four_byte_high_bit_lanes(&little);
+        assert_eq!((n_little, tail_little), (256, 1));
+        assert_eq!(little_lanes[3], 0);
+        assert!(little_lanes[..3].iter().all(|&count| count > 0));
+
+        little[3] |= 0x80;
+        assert_eq!(four_byte_high_bit_lanes(&little).1[3], 1);
     }
 
     #[test]
