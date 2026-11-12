@@ -532,6 +532,25 @@ models; they do not show the content is encrypted, random, or fake.
 The observed 31-bit constraint, ordinary PE absence and unanswered
 file provenance are still the principal research evidence.
 
+## Historic wrapper version-marker check — negative result
+
+The same [2002 Wine FAQ]
+(https://www.winehq.org/pipermail/wine-devel/2002-April/005861.html)
+documents a historical wrapper marker, ASCII `BoG_ *90.0&!!  Yy>`
+followed by two zero bytes, optionally three zero DWORDs, and
+then three unsigned version integers. The literal 20-byte marker
+`42 6F 47 5F 20 2A 39 30 2E 30 26 21 21 20 20 59 79 3E 00 00`
+and the shorter `BoG_` prefix were searched in the exact uploaded
+`Rayman2.exe`, `RAYMAN2.ICD` and `dplayerx.dll`: **zero
+matches in all three**. No version number can be extracted by this
+particular signature on the currently available bytes.
+
+This **negative marker check does not rule out SafeDisc 1.35**.
+It could reflect a different wrapper family, an encoded/encrypted
+header, or a distinct installation stage. It is another reason to
+avoid claiming a generic version detector based solely on literal
+signatures.
+
 ## Next research milestones
 
 1. Identify and document the protected loader's format and the specific
