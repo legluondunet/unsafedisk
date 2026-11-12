@@ -73,12 +73,16 @@ fn hex_prefix(bytes: &[u8], max_len: usize) -> String {
 // Empirical masked Park-Miller MINSTD recurrence proof. Never interpret
 // success as SafeDisc identification, DLL code or executable decryption.
 // Require >=256 words: fitting just the first transition is trivial.
-fn masked_minstd_probe(bytes: &[u8], little_endian: bool) -> Option<(u32, usize, usize)> {
+fn masked_minstd_probe(bytes: &[u8], little_endian: bool, offset: usize) -> Option<(u32, usize, usize)> {
     const MOD: u64 = 2_147_483_647;
     const MULT: u64 = 16_807;
     const MULT_INVERSE: u64 = 1_407_677_000; // 16807 * inverse == 1 (mod 2^31-1)
 
-    let mut chunks = bytes.chunks_exact(4);
+    let payload = bytes.get(offset..)?;
+    if offset > 3 {
+        return None;
+    }
+    let mut chunks = payload.chunks_exact(4);
     let words = chunks.len();
     if words < 256 {
         return None;
@@ -111,7 +115,7 @@ fn masked_minstd_probe(bytes: &[u8], little_endian: bool) -> Option<(u32, usize,
         }
         previous = actual;
     }
-    Some((salt, words - 1, bytes.len() % 4))
+    Some((salt, words - 1, payload.len() % 4))
 }
 
 // Count superficial MZ signatures separately from structurally valid PE32
@@ -232,12 +236,14 @@ fn render_report(role: &str, display: &str, bytes: &[u8], details: bool) -> Stri
                 _ => {}
             }
         }
-        for (byte_order, little) in [("little-endian", true), ("big-endian", false)] {
-            if let Some((salt, transitions, trailing)) = masked_minstd_probe(bytes, little) {
-                writeln!(
-                    out,
-                    "  VERIFIED masked Park-Miller 31-bit recurrence ({byte_order}): {transitions}/{transitions} transitions; XOR salt=0x{salt:08X}; trailing bytes={trailing}; NOT evidence of a decryptable DLL"
-                ).unwrap();
+        for offset in 0..4 {
+            for (byte_order, little) in [("little-endian", true), ("big-endian", false)] {
+                if let Some((salt, transitions, trailing)) = masked_minstd_probe(bytes, little, offset) {
+                    writeln!(
+                        out,
+                        "  VERIFIED masked Park-Miller 31-bit recurrence ({byte_order}, offset +{offset}): {transitions}/{transitions} transitions; XOR salt=0x{salt:08X}; prefix bytes={offset}; trailing bytes={trailing}; deterministic data, NOT a decoded executable"
+                    ).unwrap();
+                }
             }
         }
         writeln!(out, "  First {} bytes: {}", bytes.len().min(32), hex_prefix(bytes, 32)).unwrap();
@@ -336,15 +342,15 @@ mod tests {
             bytes.extend_from_slice(&state.to_le_bytes());
             state = (((state ^ salt) as u64 * 16_807) % 2_147_483_647) as u32;
         }
-        assert_eq!(masked_minstd_probe(&bytes, true), Some((salt, 511, 0)));
-        assert_eq!(masked_minstd_probe(&bytes, false), None);
+        assert_eq!(masked_minstd_probe(&bytes, true, 0), Some((salt, 511, 0)));
+        assert_eq!(masked_minstd_probe(&bytes, false, 0), None);
         bytes[101] ^= 1;
-        assert_eq!(masked_minstd_probe(&bytes, true), None);
+        assert_eq!(masked_minstd_probe(&bytes, true, 0), None);
     }
 
     #[test]
     fn masked_minstd_requires_sufficient_words() {
-        assert_eq!(masked_minstd_probe(&vec![0u8; 255 * 4], true), None);
+        assert_eq!(masked_minstd_probe(&vec![0u8; 255 * 4], true, 0), None);
         let mut bytes = Vec::new();
         let salt = 0x1234_5678u32;
         let mut state = 0x0123_4567u32;
@@ -353,7 +359,23 @@ mod tests {
             state = (((state ^ salt) as u64 * 16_807) % 2_147_483_647) as u32;
         }
         bytes.push(0x29);
-        assert_eq!(masked_minstd_probe(&bytes, false), Some((salt, 255, 1)));
+        assert_eq!(masked_minstd_probe(&bytes, false, 0), Some((salt, 255, 1)));
+    }
+
+    #[test]
+    fn shifted_little_endian_recovers_synthetic_icd_stream() {
+        let salt = 0x075B_D924u32;
+        let mut state = 0x6EE4_C08Au32;
+        let mut bytes = vec![0x5B];
+        for _ in 0..512 {
+            bytes.extend_from_slice(&state.to_le_bytes());
+            state = (((state ^ salt) as u64 * 16_807) % 2_147_483_647) as u32;
+        }
+        assert_eq!(masked_minstd_probe(&bytes, true, 1), Some((salt, 511, 0)));
+        assert_eq!(masked_minstd_probe(&bytes, false, 0), None);
+        assert_eq!(masked_minstd_probe(&bytes, true, 0), None);
+        bytes[101] ^= 1;
+        assert_eq!(masked_minstd_probe(&bytes, true, 1), None);
     }
 
     #[test]
