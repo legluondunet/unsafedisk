@@ -92,18 +92,18 @@ for the underlying TEA/F1/F2, import, relocation, and legacy PE format
 proofs. The French-specific historical command `unwrap-french` remains
 as a compatibility alias for `unwrap`.
 
-## Generic read-only inspection (other language editions)
+## Generic read-only inspection (unknown protected editions)
 
-For a different SafeDisc edition, for example the French Crimson Skies files:
+For a different SafeDisc edition, for example retail CD Rayman 2:
 
 ```sh
 unsafedisc-linux inspect --generic-inspect \\
-  --loader crimson.exe --icd crimson.icd --dplayerx dplayerx.dll \\
+  --loader Rayman2.exe --icd RAYMAN2.ICD --dplayerx dplayerx.dll \\
   --layout --sections
 ```
 
 Prints sizes, SHA-256, Shannon entropy, PE32 entry points and section
-metadata where a valid PE32 exists. For opaque on-disk ICD or DLL data
+metadata where a valid PE32 exists. With --layout it also reports 4 KiB\nblock entropy ranges and a bounded hex prefix. For opaque on-disk ICD or DLL data
 without an MZ header, it reports the file without rejecting the whole
 inspection. This is **not** decryption, unpacking, an encryption verdict or
 a compatibility assertion. Research flags such as `--strings`,
