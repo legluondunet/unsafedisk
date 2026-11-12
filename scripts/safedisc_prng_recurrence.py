@@ -25,8 +25,8 @@ def analyse(data: bytes, endian: str) -> dict:
     if len(data) > MAX_INPUT:
         raise ValueError("input exceeds 16 MiB")
     count = len(data) // 4
-    if count < 3:
-        raise ValueError("need at least three complete 32-bit words")
+    if count < 256:
+        raise ValueError("need at least 256 complete 32-bit words for a reliable recurrence identity")
     fmt = ("<" if endian == "little" else ">") + f"{count}I"
     words = struct.unpack(fmt, data[:count * 4])
     out_of_range = sum(value >= MODULUS for value in words)
