@@ -105,10 +105,14 @@ def analyse_alignments(data: bytes) -> dict:
                     continue
                 raise
             checked += 1
-            if result["full_recurrence_match"]:
+            # A perfect full-word recurrence can still leave unexplained
+            # trailing bytes. Only claim a complete-file match if every
+            # input byte, apart from the explicit prefix, regenerates.
+            if result["whole_file_reconstructible_from_prefix_and_seed"]:
                 matches.append(result)
     return {"tested_alignments": checked,
             "full_match_count": len(matches),
+            "match_definition": "exact complete-file in-memory regeneration",
             "matches": matches,
             "automatic_file_authentication": False}
 
