@@ -42,8 +42,10 @@ class RecurrenceTests(unittest.TestCase):
         self.assertFalse(analyse(blob, "little")["full_recurrence_match"])
 
     def test_short_input_and_invalid_endian_fail(self):
-        with self.assertRaisesRegex(ValueError, "at least three|enough"):
+        with self.assertRaisesRegex(ValueError, "at least 256"):
             analyse(b"\x00" * 8, "little")
+        with self.assertRaisesRegex(ValueError, "at least 256"):
+            analyse(stream(0x30FBEC, 0x075BD924, 255, "little"), "little")
         with self.assertRaisesRegex(ValueError, "endian"):
             analyse(b"\x00" * 12, "middle")
 
