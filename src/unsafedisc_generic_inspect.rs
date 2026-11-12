@@ -27,6 +27,25 @@ fn shannon_entropy(bytes: &[u8]) -> f64 {
         .sum()
 }
 
+// Compare equal-size 4 KiB blocks to avoid mistaking a short tail for a
+// meaningful low-entropy region. This is not an encryption detector.
+fn full_block_entropy_range(bytes: &[u8]) -> Option<(usize, f64, f64)> {
+    let mut count = 0usize;
+    let mut min = f64::INFINITY;
+    let mut max = 0.0f64;
+    for block in bytes.chunks_exact(4096) {
+        let entropy = shannon_entropy(block);
+        min = min.min(entropy);
+        max = max.max(entropy);
+        count += 1;
+    }
+    if count == 0 {
+        None
+    } else {
+        Some((count, min, max))
+    }
+}
+
 fn hex_prefix(bytes: &[u8], max_len: usize) -> String {
     bytes
         .iter()
@@ -78,6 +97,12 @@ fn render_report(role: &str, display: &str, bytes: &[u8], details: bool) -> Stri
     }
 
     if details {
+        if let Some((blocks, min, max)) = full_block_entropy_range(bytes) {
+            writeln!(
+                out,
+                "  4 KiB block entropy: {blocks} full blocks; min={min:.4}, max={max:.4} bits/byte (descriptive only)"
+            ).unwrap();
+        }
         writeln!(out, "  First {} bytes: {}", bytes.len().min(32), hex_prefix(bytes, 32)).unwrap();
     }
     out
@@ -116,6 +141,19 @@ mod tests {
         assert_eq!(shannon_entropy(&[0xAA; 256]), 0.0);
         let balanced: Vec<u8> = (0..=255).map(|n| n as u8).collect();
         assert!((shannon_entropy(&balanced) - 8.0).abs() < 1e-12);
+    }
+
+    #[test]
+    fn block_entropy_profile_ignores_partial_tail() {
+        assert_eq!(full_block_entropy_range(&[]), None);
+        assert_eq!(full_block_entropy_range(&[0xDD; 4095]), None);
+        let mut data = vec![0u8; 4096];
+        data.extend((0..=255).cycle().take(4096).map(|n| n as u8));
+        data.extend_from_slice(&[0xFF; 37]);
+        let (blocks, min, max) = full_block_entropy_range(&data).unwrap();
+        assert_eq!(blocks, 2);
+        assert_eq!(min, 0.0);
+        assert!((max - 8.0).abs() < 1e-12);
     }
 
     #[test]
