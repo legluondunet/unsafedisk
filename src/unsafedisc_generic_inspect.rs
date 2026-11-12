@@ -231,8 +231,8 @@ fn render_report(role: &str, display: &str, bytes: &[u8], details: bool) -> Stri
                 .filter(|&lane| high_counts[lane] == 0)
                 .collect();
             match zero_high_bit_lanes.as_slice() {
-                [0] => writeln!(out, "  Candidate 31-bit big-endian word layout (not confirmed encryption)").unwrap(),
-                [3] => writeln!(out, "  Candidate 31-bit little-endian word layout (not confirmed encryption)").unwrap(),
+                [0] => writeln!(out, "  High-bit lane 0 clear: ambiguous (big-endian at offset 0 OR little-endian at offset 1); verify full recurrence below").unwrap(),
+                [3] => writeln!(out, "  High-bit lane 3 clear: ambiguous (little-endian at offset 0 OR big-endian at offset 3); verify full recurrence below").unwrap(),
                 _ => {}
             }
         }
