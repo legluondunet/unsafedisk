@@ -2,6 +2,65 @@
 
 Status: **read-only classification implemented; native unwrapping not implemented.**
 
+## Verified breakthrough — BOTH uploaded opaque files are exact masked-MINSTD streams
+
+**2026-11-12 correction:** Earlier research incorrectly interpreted the ICD as
+big-endian words starting at byte zero. Scanning all **four offsets and both
+endiannesses** exposes the only valid whole-stream alignment: the ICD's
+actual 31-bit words start **after one leading byte**, in **little-endian**.
+
+Both user-supplied files satisfy the **identical** masked Park–Miller recurrence:
+
+```text
+next = 16807 * (current XOR 0x075BD924) mod 2147483647
+```
+
+| Exact sample | Leading bytes | First 31-bit word | Words | Exact transitions |
+|---|---|---|---:|---:|
+| `RAYMAN2.ICD` | `5B` (1 byte) | `0x6EE4C08A` | 170,891 | **170,890 / 170,890** |
+| `dplayerx.dll` | none | `0x0030FBEC` | 41,472 | **41,471 / 41,471** |
+
+With the one-byte ICD prefix preserved, independently regenerating **all
+683,565 ICD bytes** from its first word and the recurrence produces an
+**identical SHA-256**:
+`4daeae51ded23687fccecd5046dd366b1c083d4931af0a381a0ad0b64bd3d1a6`.
+The corresponding full 165,888-byte DLL regeneration also matches
+`0d5160b1b123636e03a09ae00714f0ff66bbdd759a3f2b639734ecaa487018ee`.
+Both are exact **byte-for-byte** verifications; no game bytes are stored.
+
+Each supplied file is fully specified by a short prefix (if present),
+one 31-bit seed, the common constant, and its length. Such a stream
+cannot represent an **arbitrary independently encoded PE executable or
+DLL payload** without additional information. This strongly suggests
+synthetic filler or another protection-related PRNG artifact, but its
+actual role/origin on the CD remains unverified. This **does not**
+establish that a separately installed ICD is absent or that the genuine
+game cannot be restored from other user-owned files.
+
+**Reproduce using the read-only Python tool, without writing outputs:**
+
+```sh
+python scripts/safedisc_prng_recurrence.py RAYMAN2.ICD --auto-align
+python scripts/safedisc_prng_recurrence.py dplayerx.dll --auto-align
+# or explicitly: --endian little --offset 1 (ICD), --offset 0 (DLL)
+python -m unittest discover -s scripts -p 'test_*.py'
+```
+
+The Rust inspector now scans all **eight** word-layout candidates, but this
+new Rust code is **not yet compiled or tested**. The corresponding
+Python auto-alignment implementation passed eight synthetic tests and
+both genuine-sample SHA-256 regeneration checks locally.
+
+**Supersession:** Earlier claims that the ICD did not follow masked
+MINSTD, that its final byte `0x29` was an unaligned tail, or that
+big-endian offset-zero words represented its native encoding are
+**incorrect**. At offset +1 the last byte belongs to the **last
+little-endian word**, and every ICD transition matches.
+Earlier negative generator tests using the wrong word alignment are
+not evidence about the correct stream.
+
+
+
 The user reports that [Redump disc 47594](https://redump.org/disc/47594/)
 identifies the disc as SafeDisc **1.35.000**. Independently, a
 [Wine bug report from 24 December 2009](https://list.winehq.org/hyperkitty/list/wine-bugs%40list.winehq.org/thread/PBMSSMOUG42FC3AE5YDT7WPIEDJIBKC5/)
@@ -303,9 +362,9 @@ nonoverlapping groups of four bytes from file offset zero:
 Every single ICD byte at offsets \`0, 4, 8, ...\` is below \`0x80\`;
 the other three lanes use all eight bits. Every single companion DLL
 byte at offsets \`3, 7, 11, ...\` is below \`0x80\`; its other lanes
-use all eight bits. The lone last byte of the ICD is \`0x29\` and is
-excluded from complete-word statistics.
+use all eight bits. The byte at the end of the ICD is \`0x29\`; under the **correct offset +1** word layout it is part of the last word, **not** an extra trailing byte.
 
+**Historical offset-zero lane observation (not the ICD's actual word layout):**
 Interpreting those four-byte groups as integer words yields **31-bit,
 nonnegative values** when ICD words are read as big-endian and when DLL
 words are read as little-endian. The byte-order interpretation is a
@@ -512,7 +571,12 @@ the Wine Rayman 2 bug report. It does not by itself confirm that
 this particular opaque file is a correct *installed* DLL or recover
 any decryption keys.
 
-### Random-stream hypotheses excluded (limited checks)
+### Earlier negative generator checks (wrong ICD alignment; superseded)
+
+These were performed on the initial big-endian offset-zero ICD word
+layout, now known to be **incorrect** for the PRNG stream. They do not
+refute masked MINSTD at offset +1 in little-endian order.
+
 
 For both 31-bit word streams (big-endian ICD and little-endian DLL),
 read-only numerical tests found no support for:
@@ -586,23 +650,24 @@ protection auxiliary, or a substituted extraction-stage component
 is **not yet established**. The filename and matching historic
 DLL size are not sufficient to assign a functional DLL role.
 
-**Crucial negative control:** The same masked MINSTD recurrence does
-**not** fit `RAYMAN2.ICD` when its complete words are read as
-big-endian. The first two words give a candidate XOR salt of
-`0x346A8C66`, but **only 1 of 170,890** transitions matches
-this fitted constant. No known-plaintext bytes, decoder, or
-decrypted game executable have been obtained from the ICD.
+**Corrected ICD result:** The old big-endian offset-zero test
+returned only one forced transition because it used a **wrong word
+alignment**. With one prefix byte and little-endian words, the ICD
+matches **170,890 of 170,890 transitions**, and its full byte content
+regenerates exactly. This proves the uploaded ICD bytes are a
+deterministic PRNG stream; it does **not** reconstruct a commercial PE.
 
 ### Reproduce this result without running DRM code
 
 ```sh
-python scripts/safedisc_prng_recurrence.py dplayerx.dll --endian little
-python scripts/safedisc_prng_recurrence.py RAYMAN2.ICD --endian big
+python scripts/safedisc_prng_recurrence.py dplayerx.dll --auto-align
+python scripts/safedisc_prng_recurrence.py RAYMAN2.ICD --auto-align
 python -m unittest discover -s scripts -p 'test_safedisc_prng_recurrence.py'
 ```
 
 The Rust `inspect --generic-inspect --layout` diagnostic also now
-checks this full masked-MINSTD recurrence in both byte orders. It
+checks this full masked-MINSTD recurrence in all four offsets and
+both byte orders. It
 reports a **verified match only when at least 256 complete words**
 satisfy **every** transition, including the independently derived
 XOR salt. Two additional synthetic Rust tests cover a 512-word
@@ -617,23 +682,26 @@ following word. It never writes files. Six synthetic tests check
 positive little/big-endian streams, wrong byte order, bit-flip
 negative controls, arbitrary opaque input, and input validation.
 
-This finding **supersedes the earlier assumption** that the uploaded
-`dplayerx.dll` may itself be an ordinary encrypted loadable
-Windows DLL. Continue independent ICD research and optionally compare
-CD/installation copies; do **not** attempt to decrypt synthetic PRNG
-output as if it contained executable code.
+This finding now applies to **both supplied files**, not just
+`dplayerx.dll`. Neither byte stream contains an arbitrary independently
+encoded Windows PE without another source of information. Research
+should locate/verify the genuine installed game data, compare the
+protected/unprotected EXEs already held privately by the owner, and
+study the role of these synthetic files. Do **not** attempt to decrypt
+these particular PRNG bytes as if they contained executable code.
 
 ## Next research milestones
 
-1. Identify and document the protected loader's format and the specific
-   SafeDisc version using reproducible evidence, with no execution of
-   unknown binaries or protected DLL code in the inspector.
-2. Map the encrypted/compressed container boundaries and decode transforms
-   from primary evidence, rather than reusing unverified title-specific
-   Crimson Skies offsets and keys.
-3. Reconstruct PE sections, imports, entry points and metadata and validate
-   independently against legitimate user-owned references where available.
-4. Keep the existing Crimson Skies hashes and output checks intact; test
-   Windows and Wine gameplay only after a sound reconstruction is produced.
+1. Verify the original disc and unmodified installer outputs, keeping
+   `dplayerx.dll` and `dxplayerx.dll` distinctly identified.
+2. Trace the exact game's file-production and loading logic to establish
+   **why** the two on-disc files are masked-MINSTD streams and whether
+   actual protected payloads exist elsewhere.
+3. Compare the owner's hash-pinned protected and independently acquired
+   unprotected Rayman 2 EXEs without distributing proprietary binaries.
+4. Preserve Crimson Skies exact-hash reconstruction tests and run
+   Rust compilation/tests on Linux and Windows when toolchain and
+   budget permit; do not merge draft PRs prematurely.
 
-**No generic SafeDisc 1.35 decryption is claimed at this stage.**
+**Neither synthetic PRNG stream has been decrypted into game code.
+No generic SafeDisc 1.35 decryption is claimed.**
