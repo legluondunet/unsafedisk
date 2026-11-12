@@ -142,6 +142,18 @@ fn render_report(role: &str, display: &str, bytes: &[u8], details: bool) -> Stri
         }
     }
 
+    if role == "dplayerx" && parse_pe32(bytes).is_err() {
+        writeln!(
+            out,
+            "  CAUTION: this DLL is not directly loadable as an x86 PE32 image; check CD versus installed bytes before interpreting its cryptographic role"
+        ).unwrap();
+    }
+    if role == "icd" && parse_pe32(bytes).is_err() {
+        writeln!(
+            out,
+            "  CAUTION: this ICD is not directly launchable as an x86 PE32 image in its present on-disk form; installation-stage transformations are unverified"
+        ).unwrap();
+    }
     if details {
         let (mz_count, pe_offsets) = embedded_pe32_candidates(bytes);
         writeln!(
@@ -277,6 +289,14 @@ mod tests {
         assert!(report.contains("Non-PE32/opaque input"));
         assert!(report.contains("First 4 bytes: 7F A2 11 9D"));
         assert!(report.contains("SHA-256: "));
+        assert!(report.contains("CAUTION: this ICD is not directly launchable"));
+    }
+
+    #[test]
+    fn opaque_dll_receives_nonfatal_provenance_caution() {
+        let report = render_report("dplayerx", "synthetic.dll", b"not MZ", false);
+        assert!(report.contains("CAUTION: this DLL is not directly loadable"));
+        assert!(report.contains("Non-PE32/opaque input"));
     }
 
     #[test]
