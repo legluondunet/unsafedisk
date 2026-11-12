@@ -429,6 +429,37 @@ SHA-256 and size, and compare which stage actually contains valid
 PE images before selecting any decryptor. Do not copy proprietary
 binaries into this repository.
 
+## Cross-check against the separate Rayman2Fix repository
+
+The owner's separate `legluondunet/Rayman2Fix` source
+[`docs/architecture.md`](https://github.com/legluondunet/Rayman2Fix/blob/main/docs/architecture.md)
+records the expected SHA-256 of its **protected retail Rayman 2 EXE**
+as `7927a106ac4f2244e304e57c196170f6cfb311af87ddf59eb6e6c48b9bb0d5e3`.
+This matches our exact uploaded `Rayman2.exe` hash. A separate
+SHA-256-pinned *unprotected* executable is used for actual launch by
+Rayman2Fix. Thus, this sample's protected-EXE identity is
+**corroborated by the owner's own independent project**, even though
+the provenance of its paired ICD/DLL still requires verification.
+
+The Rayman2Fix CD extraction documentation explicitly warns that
+**raw ISO extraction is not necessarily equivalent to installed game
+files**, including possible transformation of content by the
+original installer. The project's root-exclusion list includes a
+file named **`dxplayerx.dll`**, whereas the uploaded research
+sample is named **`dplayerx.dll`**. These two spellings differ
+(the former has an additional `x` immediately after `d`).
+We must **not silently equate them**: inspect the original CD file
+listing and the actual installation receipt before deciding
+whether the supplied 165,888-byte sample is the intended SafeDisc
+auxiliary file. File extension and user-visible name alone are
+insufficient provenance evidence.
+
+The current evidence supports analyzing the known protected
+`Rayman2.exe` as genuine. It does **not** support treating the
+non-PE `RAYMAN2.ICD` and `dplayerx.dll` as directly loadable
+Windows binaries, or asserting they are bad/corrupt without
+checking the physical CD and installation stages.
+
 ## Next research milestones
 
 1. Identify and document the protected loader's format and the specific
