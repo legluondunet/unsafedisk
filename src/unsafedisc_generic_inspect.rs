@@ -55,6 +55,37 @@ fn hex_prefix(bytes: &[u8], max_len: usize) -> String {
         .join(" ")
 }
 
+// Count superficial MZ signatures separately from structurally valid PE32
+// images. Random encrypted/compressed bytes can contain accidental "MZ".
+// On an embedded image, section file offsets must be relative to its MZ.
+fn embedded_pe32_candidates(bytes: &[u8]) -> (usize, Vec<usize>) {
+    let mut mz_count = 0usize;
+    let mut valid_offsets = Vec::new();
+    for (offset, pair) in bytes.windows(2).enumerate() {
+        if pair != b"MZ" {
+            continue;
+        }
+        mz_count += 1;
+        if parse_pe32(&bytes[offset..]).is_ok() {
+            valid_offsets.push(offset);
+        }
+    }
+    (mz_count, valid_offsets)
+}
+
+// A protected loader must remain an ordinary x86 PE32; auxiliary ICD and
+// DLL inputs are allowed to be opaque. Do not mask an invalid loader as
+// a successful generic inspection.
+fn validate_role_bytes(role: &str, bytes: &[u8]) -> Result<()> {
+    if role == "loader" {
+        parse_pe32(bytes)
+            .map(|_| ())
+            .map_err(|reason| format!("invalid x86 PE32 loader: {reason}"))
+    } else {
+        Ok(())
+    }
+}
+
 // Pure formatter so synthetic tests need no proprietary file fixtures.
 fn render_report(role: &str, display: &str, bytes: &[u8], details: bool) -> String {
     let mut out = String::new();
@@ -97,6 +128,17 @@ fn render_report(role: &str, display: &str, bytes: &[u8], details: bool) -> Stri
     }
 
     if details {
+        let (mz_count, pe_offsets) = embedded_pe32_candidates(bytes);
+        writeln!(
+            out,
+            "  MZ sequences: {mz_count}; structurally valid PE32 images: {} (not evidence of decryption)",
+            pe_offsets.len()
+        ).unwrap();
+        if !pe_offsets.is_empty() {
+            let offsets = pe_offsets.iter().map(|offset| format!("0x{offset:X}"))
+                .collect::<Vec<_>>().join(", ");
+            writeln!(out, "  PE32 file offsets: {offsets}").unwrap();
+        }
         if let Some((blocks, min, max)) = full_block_entropy_range(bytes) {
             writeln!(
                 out,
@@ -123,6 +165,8 @@ pub fn inspect_inputs(inputs: [(&str, &Path); 3], details: bool) -> Result<()> {
         if bytes.len() as u64 > MAX_INPUT_LEN {
             return Err(format!("file exceeded maximum input size: {}", path.display()));
         }
+        validate_role_bytes(role, &bytes)
+            .map_err(|error| format!("{}: {error}", path.display()))?;
         print!("{}", render_report(role, &path.display().to_string(), &bytes, details));
     }
     println!(
@@ -157,6 +201,22 @@ mod tests {
     }
 
     #[test]
+    fn invalid_loader_fails_closed_but_opaque_data_is_valid() {
+        assert!(validate_role_bytes("loader", b"not a PE").is_err());
+        assert!(validate_role_bytes("loader", b"MZcorrupt").is_err());
+        assert!(validate_role_bytes("icd", b"opaque").is_ok());
+        assert!(validate_role_bytes("dplayerx", b"opaque").is_ok());
+    }
+
+    #[test]
+    fn random_mz_without_pe_header_is_not_a_pe_candidate() {
+        let bytes = b"noiseMZnoiseMZnoise";
+        let (mz, pe_offsets) = embedded_pe32_candidates(bytes);
+        assert_eq!(mz, 2);
+        assert!(pe_offsets.is_empty());
+    }
+
+    #[test]
     fn opaque_icd_is_inspectable_without_pe_header() {
         let report = render_report("icd", "synthetic.icd", &[0x7F, 0xA2, 0x11, 0x9D], true);
         assert!(report.contains("Non-PE32/opaque input"));
@@ -188,7 +248,10 @@ mod tests {
         data[0x188..0x18C].copy_from_slice(&0x200u32.to_le_bytes());
         data[0x18C..0x190].copy_from_slice(&0x200u32.to_le_bytes());
         let report = render_report("loader", "synthetic.exe", &data, true);
+        assert!(validate_role_bytes("loader", &data).is_ok());
         assert!(report.contains("PE32 x86 entry RVA: 0x00001000; sections: 1"));
         assert!(report.contains(".text: RVA=0x00001000"));
+        assert!(report.contains("structurally valid PE32 images: 1"));
+        assert!(report.contains("PE32 file offsets: 0x0"));
     }
 }
