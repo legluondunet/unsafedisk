@@ -70,6 +70,50 @@ fn hex_prefix(bytes: &[u8], max_len: usize) -> String {
         .join(" ")
 }
 
+// Empirical masked Park-Miller MINSTD recurrence proof. Never interpret
+// success as SafeDisc identification, DLL code or executable decryption.
+// Require >=256 words: fitting just the first transition is trivial.
+fn masked_minstd_probe(bytes: &[u8], little_endian: bool) -> Option<(u32, usize, usize)> {
+    const MOD: u64 = 2_147_483_647;
+    const MULT: u64 = 16_807;
+    const MULT_INVERSE: u64 = 1_407_677_000; // 16807 * inverse == 1 (mod 2^31-1)
+
+    let mut chunks = bytes.chunks_exact(4);
+    let words = chunks.len();
+    if words < 256 {
+        return None;
+    }
+    let decode = |part: &[u8]| -> u32 {
+        let word: [u8; 4] = part.try_into().unwrap();
+        if little_endian {
+            u32::from_le_bytes(word)
+        } else {
+            u32::from_be_bytes(word)
+        }
+    };
+    let first = decode(chunks.next()?);
+    let second = decode(chunks.next()?);
+    if first as u64 >= MOD || second as u64 >= MOD {
+        return None;
+    }
+    let salt = first ^ (((second as u64 * MULT_INVERSE) % MOD) as u32);
+    if ((first ^ salt) as u64 * MULT) % MOD != second as u64 {
+        return None;
+    }
+    let mut previous = second;
+    for word in chunks {
+        let actual = decode(word);
+        if actual as u64 >= MOD {
+            return None;
+        }
+        if (((previous ^ salt) as u64 * MULT) % MOD) as u32 != actual {
+            return None;
+        }
+        previous = actual;
+    }
+    Some((salt, words - 1, bytes.len() % 4))
+}
+
 // Count superficial MZ signatures separately from structurally valid PE32
 // images. Random encrypted/compressed bytes can contain accidental "MZ".
 // On an embedded image, section file offsets must be relative to its MZ.
@@ -188,6 +232,14 @@ fn render_report(role: &str, display: &str, bytes: &[u8], details: bool) -> Stri
                 _ => {}
             }
         }
+        for (byte_order, little) in [("little-endian", true), ("big-endian", false)] {
+            if let Some((salt, transitions, trailing)) = masked_minstd_probe(bytes, little) {
+                writeln!(
+                    out,
+                    "  VERIFIED masked Park-Miller 31-bit recurrence ({byte_order}): {transitions}/{transitions} transitions; XOR salt=0x{salt:08X}; trailing bytes={trailing}; NOT evidence of a decryptable DLL"
+                ).unwrap();
+            }
+        }
         writeln!(out, "  First {} bytes: {}", bytes.len().min(32), hex_prefix(bytes, 32)).unwrap();
     }
     out
@@ -273,6 +325,35 @@ mod tests {
 
         little[3] |= 0x80;
         assert_eq!(four_byte_high_bit_lanes(&little).1[3], 1);
+    }
+
+    #[test]
+    fn masked_minstd_matches_all_words_and_rejects_one_bit_corruption() {
+        let mut bytes = Vec::new();
+        let salt = 0x075B_D924u32;
+        let mut state = 0x0030_FBECu32;
+        for _ in 0..512 {
+            bytes.extend_from_slice(&state.to_le_bytes());
+            state = (((state ^ salt) as u64 * 16_807) % 2_147_483_647) as u32;
+        }
+        assert_eq!(masked_minstd_probe(&bytes, true), Some((salt, 511, 0)));
+        assert_eq!(masked_minstd_probe(&bytes, false), None);
+        bytes[101] ^= 1;
+        assert_eq!(masked_minstd_probe(&bytes, true), None);
+    }
+
+    #[test]
+    fn masked_minstd_requires_sufficient_words() {
+        assert_eq!(masked_minstd_probe(&vec![0u8; 255 * 4], true), None);
+        let mut bytes = Vec::new();
+        let salt = 0x1234_5678u32;
+        let mut state = 0x0123_4567u32;
+        for _ in 0..256 {
+            bytes.extend_from_slice(&state.to_be_bytes());
+            state = (((state ^ salt) as u64 * 16_807) % 2_147_483_647) as u32;
+        }
+        bytes.push(0x29);
+        assert_eq!(masked_minstd_probe(&bytes, false), Some((salt, 255, 1)));
     }
 
     #[test]
