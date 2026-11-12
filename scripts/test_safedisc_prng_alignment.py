@@ -49,6 +49,17 @@ class AlignmentTests(unittest.TestCase):
         self.assertTrue(result["full_recurrence_match"])
         self.assertFalse(result["whole_file_reconstructible_from_prefix_and_seed"])
 
+    def test_auto_alignment_requires_every_byte_accounted_for(self):
+        complete = make_stream()
+        extra = complete + b"\x29"
+        report = analyse(extra, "little", 0)
+        self.assertTrue(report["full_recurrence_match"])
+        self.assertFalse(report["whole_file_reconstructible_from_prefix_and_seed"])
+        scan = analyse_alignments(extra)
+        self.assertEqual(scan["tested_alignments"], 8)
+        self.assertEqual(scan["full_match_count"], 0)
+        self.assertEqual(scan["match_definition"], "exact complete-file in-memory regeneration")
+
     def test_short_rejected(self):
         with self.assertRaisesRegex(ValueError, "at least 256"):
             analyse(make_stream(n=255), "little")
