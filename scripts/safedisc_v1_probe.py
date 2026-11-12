@@ -189,7 +189,10 @@ def provenance_cautions(records: list[dict]) -> dict:
                             "and customized layouts may differ."
                 })
     return {
-        "provenance_not_verified": bool(cautions),
+        # File-format checks do NOT authenticate the originating disc,
+        # even when all three files happen to be valid PE32 binaries.
+        "provenance_not_verified": True,
+        "structural_cautions_present": bool(cautions),
         "corruption_asserted": False,
         "cautions": cautions,
     }
