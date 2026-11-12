@@ -3,9 +3,13 @@
 Status: **read-only classification implemented; native unwrapping not implemented.**
 
 The user reports that [Redump disc 47594](https://redump.org/disc/47594/)
-identifies this disc as SafeDisc **1.35.000**. This is a hypothesis to validate
-against the protected loader and the specific uploaded files; the tool does
-not infer a SafeDisc version from a filename, file size, or entropy.
+identifies the disc as SafeDisc **1.35.000**. Independently, a
+[Wine bug report from 24 December 2009](https://list.winehq.org/hyperkitty/list/wine-bugs%40list.winehq.org/thread/PBMSSMOUG42FC3AE5YDT7WPIEDJIBKC5/)
+is titled **"SafeDisc v1.35.000 and Rayman 2"**, corroborating that
+this protection version was used for *a* Rayman 2 PC edition. That
+does **not** authenticate the exact protected files supplied here.
+The tool does not infer a SafeDisc version from a filename, file
+size or entropy.
 
 ## Owner-supplied inputs, identified by SHA-256 only
 
@@ -382,6 +386,48 @@ Further work must first validate the file-pair relationship and
 reconstruct a trustworthy PE/header stage before inferring an import
 table or deriving a TEA key. No game binary, DLL, decrypted output
 or proprietary component is copied into the repository.
+
+## Critical input provenance / structural consistency gate
+
+Before attempting to decode the ICD, verify whether the three uploaded files
+come from the **same original installation stage** and whether they are the
+actual protected components, rather than CD-resident placeholders, scrambled
+data or incorrectly extracted files.
+
+A [contemporary SafeDisc 1 write-up by a Wine developer (April 2002)]
+(https://www.winehq.org/pipermail/wine-devel/2002-April/005861.html)
+documents a wrapper with `.text`, `.txt` and `.txt2` sections, which
+creates the ICD as a suspended Windows process, then loads
+`dplayerx.dll` to decode it. This architecture normally requires a
+loadable PE header on those executable images at the point they are
+passed to the Windows loader.
+
+Our exact owner-supplied files show a **structural discrepancy**:
+
+| Component | Actual format | Why this matters |
+|---|---|---|
+| `Rayman2.exe` | x86 PE32 with `.text`, `.rdata`, `.data` | Does not have the exact `.txt/.txt2` section layout described for one historic SafeDisc 1 variant; not proof it is wrong |
+| `RAYMAN2.ICD` | no `MZ` or valid PE32 header at offset zero | Cannot be launched directly as a Windows process in its present on-disk form |
+| `dplayerx.dll` | no `MZ` or valid PE32 header at offset zero | Cannot be loaded directly by ordinary Windows `LoadLibrary` in its present form |
+
+These discrepancies **do not prove corruption**: version-specific
+preprocessing, an unusual CD layout, or a different install-time
+representation are possible. The last two files are also systematically
+constrained to 31-bit words, unlike normal PE files. The evidence
+does justify suspending speculative TEA-key search until provenance
+is established.
+
+The stand-alone Python probe now writes a `structural_consistency`
+diagnostic with `corruption_asserted: false`, including separate
+`no_pe32_at_file_start` cautions and the historical-wrapper
+layout difference. Two synthetic tests exercise those cautions.
+
+**Next concrete verification**: obtain both the CD-image extraction
+and the post-installation copies of `Rayman2.exe`, `RAYMAN2.ICD`
+and `dplayerx.dll` from the **same edition**, record each file's
+SHA-256 and size, and compare which stage actually contains valid
+PE images before selecting any decryptor. Do not copy proprietary
+binaries into this repository.
 
 ## Next research milestones
 
