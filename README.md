@@ -102,11 +102,16 @@ unsafedisc-linux inspect --generic-inspect \\
   --layout --sections
 ```
 
-Prints sizes, SHA-256, PE32 entry points and section metadata, without using
-game-specific keys or offsets. This is **not** decryption, unpacking or
+Prints sizes, SHA-256, Shannon entropy, PE32 entry points and section
+metadata where a valid PE32 exists. For opaque on-disk ICD or DLL data
+without an MZ header, it reports the file without rejecting the whole
+inspection. This is **not** decryption, unpacking, an encryption verdict or
 a compatibility assertion. Research flags such as `--strings`,
 `--key-research` and `--modifier-research` are prohibited in this mode.
 The legacy `inspect` behavior remains exact-SHA-gated.
+
+See [Rayman 2 SafeDisc 1.35 research](docs/safedisc-135-rayman2-research.md)
+for a second set of original protected inputs and planned work.
 
 ## Verified French SafeDisc import-name decoding
 
