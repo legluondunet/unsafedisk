@@ -91,6 +91,17 @@ import and export structure; describing it as “only an encrypted stub”
 would go beyond these findings. Its actual protected launch sequence
 must be traced before planning a decoder.
 
+### Candidate protected-loader cross-reference (unconfirmed)
+
+At image VA `0x00447C0C`, the executable compares an in-memory DOS
+signature to `0x5A4D` (`MZ`), and at `0x00447C18` compares the PE
+signature to `0x00004550` (`PE\\0\\0`). It then tests bytes
+matching `KERNEL32.DLL` (case folding). At `0x00447D47`, a nearby
+routine reads `FS:[0x30]` (Windows process environment block).
+These locations are **research leads only**, and may belong to game
+runtime code rather than SafeDisc. No key or protected payload boundary
+is derived from them.
+
 ### Reproducibility
 
 On a system with GNU binutils:
@@ -99,7 +110,7 @@ On a system with GNU binutils:
 sha256sum Rayman2.exe RAYMAN2.ICD dplayerx.dll
 file Rayman2.exe RAYMAN2.ICD dplayerx.dll
 objdump -x Rayman2.exe
-objdump -d -M intel --start-address=0x447000 --stop-address=0x447100 Rayman2.exe
+objdump -d -M intel --start-address=0x447BE0 --stop-address=0x447E20 Rayman2.exe
 ```
 
 `objdump` emits the executable's image-base addresses rather than
