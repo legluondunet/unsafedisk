@@ -41,7 +41,11 @@ class TestStageComparison(unittest.TestCase):
     def test_reject_symlink(self):
         with tempfile.TemporaryDirectory() as d:
             root=Path(d); real=root/"real";real.write_bytes(b"sample")
-            folder=root/"disc";folder.mkdir();(folder/"rayman2.icd").symlink_to(real)
+            folder=root/"disc";folder.mkdir()
+            try:
+                (folder/"rayman2.icd").symlink_to(real)
+            except (OSError, NotImplementedError):
+                self.skipTest("creating symlinks is not permitted on this Windows runner")
             with self.assertRaisesRegex(ValueError,"symlink"):
                 inventory(folder)
 
