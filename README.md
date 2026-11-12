@@ -134,6 +134,19 @@ authenticate these exact bytes.
 See [Rayman 2 SafeDisc 1.35 research](docs/safedisc-135-rayman2-research.md)
 for a second set of original protected inputs and planned work.
 
+**Rayman 2 SafeDisc 1.35 research discovery:** the entire owner-supplied
+165,888-byte `dplayerx.dll` is exactly reproducible from its first
+31-bit word by a masked Park–Miller generator, with constants found
+independently in the supplied Rayman 2 EXE. This does **not** mean the
+ICD can be decoded in the same way: it fails the same complete
+recurrence check. See the detailed proof in
+[the Rayman 2 research notes](docs/safedisc-135-rayman2-research.md).
+
+```sh
+python scripts/safedisc_prng_recurrence.py dplayerx.dll --endian little
+python scripts/safedisc_prng_recurrence.py RAYMAN2.ICD --endian big
+```
+
 The optional Python 3 read-only research tools expose reproducible JSON without
 executing or decrypting protected files:
 
