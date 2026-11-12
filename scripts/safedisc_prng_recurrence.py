@@ -85,6 +85,8 @@ def analyse(data: bytes, endian: str, offset: int = 0) -> dict:
             "matching_transitions": matched,
             "total_transitions": count - 1,
             "matching_local_three_word_windows": repeated_salt_triplets(words),
+            # Keep the original research field for existing callers/tests.
+            "consecutive_three_word_windows_matching_a_local_salt": repeated_salt_triplets(words),
             "three_word_windows_examined": count - 2,
             "full_recurrence_match": complete,
             "whole_file_reconstructible_from_prefix_and_seed": full_rebuild,
