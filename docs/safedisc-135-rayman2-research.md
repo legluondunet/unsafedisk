@@ -181,6 +181,36 @@ recognizable dedicated SafeDisc loader without further trace analysis.
 The relationship between this PE and the encrypted ICD is **not yet
 established**.
 
+## Independent reproducible research probe (Python 3)
+
+The repository includes `scripts/safedisc_v1_probe.py`. It is a separate
+**read-only, standard-library-only** verifier of the PE32/magic/entropy
+observations, not a decryptor or SafeDisc recognizer. It requires the
+user's own files; none are bundled:
+
+```sh
+python scripts/safedisc_v1_probe.py \
+  --loader Rayman2.exe \
+  --icd RAYMAN2.ICD \
+  --dplayerx dplayerx.dll
+python -m unittest discover -s scripts -p 'test_safedisc_v1_probe.py'
+```
+
+The first command prints machine-readable JSON to standard output;
+it does not write any output file. It records explicit
+`decryption_attempted: false` and `safedisc_version_asserted: false`
+rather than suggesting a successful unwrap.
+
+**Offline validation:** all seven synthetic Python unit tests passed
+locally, and the standalone probe was executed against the original
+user-supplied Rayman 2 files with the expected three SHA-256 signatures,
+2/16/4 total `MZ` occurrences and 1/0/0 structurally valid PE
+candidates. The pre-change Rust binary was also run against those files:
+it reached the ICD and failed with `ERROR: not an MZ executable`, as
+expected. The **new** Rust implementation has *not* been compiled or
+executed yet because no Rust compiler is available in the working
+container, and GitHub Actions billing is exhausted.
+
 ## Next research milestones
 
 1. Identify and document the protected loader's format and the specific
