@@ -15,6 +15,31 @@ def make_stream(seed=0x0030FBEC, salt=0x075BD924, n=512,
 
 
 class AlignmentTests(unittest.TestCase):
+    def test_owner_reference_sha256_from_generators_only(self):
+        # Hashes are reference diagnostics; all bytes are generated
+        # in memory from seeds, not copied from proprietary files.
+        import hashlib
+
+        samples = [
+            (
+                make_stream(seed=0x6EE4C08A, n=170_891, prefix=b"\x5b"),
+                "4daeae51ded23687fccecd5046dd366b1c083d4931af0a381a0ad0b64bd3d1a6",
+                1,
+            ),
+            (
+                make_stream(seed=0x0030FBEC, n=41_472),
+                "0d5160b1b123636e03a09ae00714f0ff66bbdd759a3f2b639734ecaa487018ee",
+                0,
+            ),
+        ]
+        for blob, expected_sha, expected_offset in samples:
+            self.assertEqual(hashlib.sha256(blob).hexdigest(), expected_sha)
+            matches = analyse_alignments(blob)["matches"]
+            self.assertEqual(len(matches), 1)
+            self.assertEqual(matches[0]["offset_bytes"], expected_offset)
+            self.assertEqual(matches[0]["endianness"], "little")
+            self.assertTrue(matches[0]["whole_file_reconstructible_from_prefix_and_seed"])
+
     def test_dll_offset_zero(self):
         result = analyse(make_stream(), "little", 0)
         self.assertTrue(result["whole_file_reconstructible_from_prefix_and_seed"])
