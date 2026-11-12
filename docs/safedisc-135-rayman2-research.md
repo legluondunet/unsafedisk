@@ -532,24 +532,24 @@ models; they do not show the content is encrypted, random, or fake.
 The observed 31-bit constraint, ordinary PE absence and unanswered
 file provenance are still the principal research evidence.
 
-## Historic wrapper version-marker check — negative result
+## Corrected version-marker interpretation: `BoG_` belongs to SafeDisc 2+
 
-The same [2002 Wine FAQ]
-(https://www.winehq.org/pipermail/wine-devel/2002-April/005861.html)
-documents a historical wrapper marker, ASCII `BoG_ *90.0&!!  Yy>`
-followed by two zero bytes, optionally three zero DWORDs, and
-then three unsigned version integers. The literal 20-byte marker
-`42 6F 47 5F 20 2A 39 30 2E 30 26 21 21 20 20 59 79 3E 00 00`
-and the shorter `BoG_` prefix were searched in the exact uploaded
-`Rayman2.exe`, `RAYMAN2.ICD` and `dplayerx.dll`: **zero
-matches in all three**. No version number can be extracted by this
-particular signature on the currently available bytes.
+The `BoG_ *90.0&!!  Yy>` signature is documented as a **SafeDisc 2**
+version marker, notably by
+[CD Media World — SafeDisc v2](https://www.cdmediaworld.com/hardware/cdrom/cd_protections_safedisc_v2.shtml)
+and [Gravure-News (2004)](https://www.gravure-news.com/article/identification-manuelle-des-protections-2-2.php).
+It is **not an appropriate version gate for SafeDisc 1.35**.
+Earlier research notes incorrectly treated it as a generic
+SafeDisc 1 wrapper marker; this section supersedes those notes.
 
-This **negative marker check does not rule out SafeDisc 1.35**.
-It could reflect a different wrapper family, an encoded/encrypted
-header, or a distinct installation stage. It is another reason to
-avoid claiming a generic version detector based solely on literal
-signatures.
+The literal `BoG_` prefix and its longer 20-byte sequence were absent
+from all three supplied Rayman 2 files, as previously measured.
+**That absence is expected for this SafeDisc 1 investigation and
+should not be cited as evidence of a malformed, wrong-version or
+transformed file.** It does not distinguish original CD bytes from
+installed bytes, and cannot be used to determine this edition's
+version. Do not add `BoG_` as a required signature for the 1.35
+decoder or inspector.
 
 ## Next research milestones
 
