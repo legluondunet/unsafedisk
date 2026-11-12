@@ -80,6 +80,19 @@ Measured per-file whole-byte Shannon entropy:
 | `RAYMAN2.ICD` | 7.953942 | `5B 8A C0 E4 6E BF 24 2F 01 6C CE B5 6A 5A B0 3A` |
 | `dplayerx.dll` | 7.952524 | `EC FB 30 00 46 7C B8 0A 0D CC 7E 5C 7E 65 90 5F` |
 
+For equal-length 4 KiB blocks (discarding the final incomplete block),
+the entropy profiles are:
+
+| Opaque file | Full 4 KiB blocks | Min. block entropy | Max. block entropy |
+|---|---:|---:|---:|
+| `RAYMAN2.ICD` | 166 | 7.893266 | 7.927141 |
+| `dplayerx.dll` | 40 | 7.894593 | 7.917976 |
+
+No low-entropy 4 KiB region stands out in either file. This does
+**not** distinguish encryption from compression or establish cipher
+boundaries. The new `--generic-inspect --layout` report prints this
+profile for any sufficiently large input.
+
 The ICD is `0xA6E2D` bytes long (not a round PE alignment size),
 and the opaque DLL is `0x28800` bytes long. Neither begins with `MZ`
 or contains a `PE\\0\\0` signature. A plain `dplayerx.dll` import
