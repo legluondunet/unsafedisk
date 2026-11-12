@@ -92,6 +92,34 @@ def scan_pe_candidates(data: bytes) -> tuple[int, list[dict]]:
     return hits, candidates
 
 
+def four_byte_lane_profile(data: bytes, minimum_words: int = 256) -> dict:
+    """Measure high bits in complete 4-byte groups from file offset zero.
+
+    A missing top bit in one lane suggests 31-bit word encoding, but does
+    not identify a cryptographic algorithm or prove the data are words.
+    """
+    if minimum_words < 1:
+        raise ValueError("minimum_words must be positive")
+    word_count, trailing = divmod(len(data), 4)
+    high_bit_counts = [0, 0, 0, 0]
+    for off in range(0, word_count * 4, 4):
+        for lane in range(4):
+            high_bit_counts[lane] += bool(data[off + lane] & 0x80)
+    zero_high_bit_lanes = ([lane for lane, total in enumerate(high_bit_counts)
+                            if total == 0] if word_count >= minimum_words else [])
+    hint = ("31-bit big-endian candidate" if zero_high_bit_lanes == [0]
+            else "31-bit little-endian candidate" if zero_high_bit_lanes == [3]
+            else "none or ambiguous")
+    return {
+        "complete_four_byte_groups": word_count,
+        "trailing_bytes_not_examined": trailing,
+        "high_bit_set_counts_by_byte_lane": high_bit_counts,
+        "always_clear_high_bit_lanes": zero_high_bit_lanes,
+        "word_order_hint": hint,
+        "note": "Descriptive only; not proof of encryption or a decoder",
+    }
+
+
 def profile_bytes(data: bytes, role: str) -> dict:
     if len(data) > MAX_BYTES:
         raise ValueError("file exceeds 16 MiB limit")
@@ -116,6 +144,7 @@ def profile_bytes(data: bytes, role: str) -> dict:
         "mz_occurrences": mz_hits,
         "valid_pe32_candidates": candidates,
         "crpe_occurrences": data.count(b"CRPE\0\0"),
+        "four_byte_lanes": four_byte_lane_profile(data),
     }
 
 
