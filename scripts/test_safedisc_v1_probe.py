@@ -121,6 +121,8 @@ class ProbeTests(unittest.TestCase):
         self.assertFalse(any(item["code"] == "no_pe32_at_file_start"
                              for item in result["cautions"]))
         self.assertFalse(result["corruption_asserted"])
+        self.assertTrue(result["provenance_not_verified"])
+        self.assertTrue(result["structural_cautions_present"])
 
     def test_limit(self):
         with self.assertRaisesRegex(ValueError, "16 MiB"):
