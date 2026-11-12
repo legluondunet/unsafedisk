@@ -72,6 +72,35 @@ class ProbeTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "symlink"):
                 probe.profile_file(link, "icd")
 
+    def test_31bit_byte_lane_orders(self):
+        words = [((i * 0x10203041) & 0x7FFFFFFF) for i in range(256)]
+        be = b"".join(w.to_bytes(4, "big") for w in words)
+        le = b"".join(w.to_bytes(4, "little") for w in words)
+        self.assertEqual(probe.four_byte_lane_profile(be)["always_clear_high_bit_lanes"], [0])
+        self.assertEqual(probe.four_byte_lane_profile(le)["always_clear_high_bit_lanes"], [3])
+        self.assertEqual(probe.four_byte_lane_profile(be)["word_order_hint"], "31-bit big-endian candidate")
+        self.assertEqual(probe.four_byte_lane_profile(le)["word_order_hint"], "31-bit little-endian candidate")
+
+    def test_stray_high_bit_disproves_candidate(self):
+        words = [((i * 0x10203041) & 0x7FFFFFFF) for i in range(256)]
+        data = bytearray(b"".join(w.to_bytes(4, "little") for w in words))
+        data[3] |= 0x80
+        self.assertNotIn(3, probe.four_byte_lane_profile(data)["always_clear_high_bit_lanes"])
+
+    def test_lane_profile_ignores_trailing_byte(self):
+        words = [((i * 0x10203041) & 0x7FFFFFFF) for i in range(256)]
+        data = b"".join(w.to_bytes(4, "little") for w in words) + b"\xff"
+        profile = probe.four_byte_lane_profile(data)
+        self.assertEqual(profile["trailing_bytes_not_examined"], 1)
+        self.assertEqual(profile["complete_four_byte_groups"], 256)
+        self.assertEqual(profile["always_clear_high_bit_lanes"], [3])
+
+    def test_short_and_zero_data_do_not_infer_word_order(self):
+        self.assertEqual(probe.four_byte_lane_profile(b"")["word_order_hint"], "none or ambiguous")
+        self.assertEqual(probe.four_byte_lane_profile(bytes(100))["word_order_hint"], "none or ambiguous")
+        with self.assertRaisesRegex(ValueError, "minimum_words"):
+            probe.four_byte_lane_profile(bytes(16), 0)
+
     def test_limit(self):
         with self.assertRaisesRegex(ValueError, "16 MiB"):
             probe.profile_bytes(b"X" * (probe.MAX_BYTES + 1), "icd")
