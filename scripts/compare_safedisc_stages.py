@@ -104,6 +104,10 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--installed-root", type=Path, required=True)
     args = parser.parse_args(argv)
     try:
+        # Comparing a directory against itself would give misleading
+        # "identical" results without an independent install reference.
+        if args.cd_root.samefile(args.installed_root):
+            raise ValueError("CD and installed roots refer to the same directory")
         report = compare_records(inventory(args.cd_root), inventory(args.installed_root))
     except (OSError, ValueError) as error:
         parser.exit(1, f"ERROR: {error}\n")
