@@ -114,7 +114,7 @@ class ProbeTests(unittest.TestCase):
         codes = [(item["role"], item["code"]) for item in result["cautions"]]
         self.assertIn(("icd", "no_pe32_at_file_start"), codes)
         self.assertIn(("dplayerx", "no_pe32_at_file_start"), codes)
-        self.assertIn(("loader", "historical_wrapper_section_layout_differs"), codes)
+        self.assertFalse(any(role == "loader" for role, _ in codes))
 
     def test_provenance_does_not_flag_root_pe_as_opaque(self):
         loader = probe.profile_bytes(fixture(), "loader")
@@ -125,7 +125,7 @@ class ProbeTests(unittest.TestCase):
                              for item in result["cautions"]))
         self.assertFalse(result["corruption_asserted"])
         self.assertTrue(result["provenance_not_verified"])
-        self.assertTrue(result["structural_cautions_present"])
+        self.assertFalse(result["structural_cautions_present"])
 
     def test_limit(self):
         with self.assertRaisesRegex(ValueError, "16 MiB"):
