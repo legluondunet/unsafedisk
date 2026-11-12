@@ -550,6 +550,69 @@ installed bytes, and cannot be used to determine this edition's
 version. Do not add `BoG_` as a required signature for the 1.35
 decoder or inspector.
 
+## Breakthrough: full DPLAYERX byte stream is a deterministic PRNG (2026-11-12)
+
+**Verified against the owner-supplied 165,888-byte `dplayerx.dll`**
+(SHA-256 `0d5160b1b123636e03a09ae00714f0ff66bbdd759a3f2b639734ecaa487018ee`).
+Interpret its content as 41,472 little-endian, nonnegative 31-bit words.
+Let `x[0] = 0x0030FBEC`. The **entire file** satisfies:
+
+```text
+x[i + 1] = (16807 * (x[i] XOR 0x075BD924)) mod 2147483647
+```
+
+All **41,471 of 41,471** adjacent transitions match, with **zero
+exceptions**. Regenerating the 165,888 bytes *entirely from this first
+word plus the fixed XOR/multiplier/modulus* produced an **exact
+byte-for-byte copy** in memory with the original SHA-256. No real
+protected game bytes are included in the repository.
+
+This is not an arbitrary fitted one-step equation: the XOR constant
+`0x075BD924` and the classic Park–Miller constants `16807` and
+`0x7FFFFFFF` appear directly in **the supplied protected
+`Rayman2.exe` executable code**, including x86 instructions around
+image VA **`0x00450C5A` to `0x00450CA3`**. That routine applies
+an XOR to a stored state, multiplies by `0x41A7`, reduces modulo
+`0x7FFFFFFF`, and stores the result. Its immediate callers and
+its relationship to on-disc file creation are not yet established.
+
+**Consequence:** these particular bytes of `dplayerx.dll` are
+entirely determined by the PRNG seed and public generator constants;
+they cannot additionally encode an arbitrary unknown 165,888-byte
+Windows PE/DLL payload without other information. This is strong
+evidence of **synthetic/pseudorandom content**, not a conventional
+encrypted PE. Whether this file is deliberate disc filler, a
+protection auxiliary, or a substituted extraction-stage component
+is **not yet established**. The filename and matching historic
+DLL size are not sufficient to assign a functional DLL role.
+
+**Crucial negative control:** The same masked MINSTD recurrence does
+**not** fit `RAYMAN2.ICD` when its complete words are read as
+big-endian. The first two words give a candidate XOR salt of
+`0x346A8C66`, but **only 1 of 170,890** transitions matches
+this fitted constant. No known-plaintext bytes, decoder, or
+decrypted game executable have been obtained from the ICD.
+
+### Reproduce this result without running DRM code
+
+```sh
+python scripts/safedisc_prng_recurrence.py dplayerx.dll --endian little
+python scripts/safedisc_prng_recurrence.py RAYMAN2.ICD --endian big
+python -m unittest discover -s scripts -p 'test_safedisc_prng_recurrence.py'
+```
+
+The read-only script derives a **candidate** constant from the first
+two words via the modular inverse of 16807 and validates **every**
+following word. It never writes files. Six synthetic tests check
+positive little/big-endian streams, wrong byte order, bit-flip
+negative controls, arbitrary opaque input, and input validation.
+
+This finding **supersedes the earlier assumption** that the uploaded
+`dplayerx.dll` may itself be an ordinary encrypted loadable
+Windows DLL. Continue independent ICD research and optionally compare
+CD/installation copies; do **not** attempt to decrypt synthetic PRNG
+output as if it contained executable code.
+
 ## Next research milestones
 
 1. Identify and document the protected loader's format and the specific
