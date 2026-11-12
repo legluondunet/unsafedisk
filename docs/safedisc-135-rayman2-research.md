@@ -130,6 +130,57 @@ objdump -d -M intel --start-address=0x447BE0 --stop-address=0x447E20 Rayman2.exe
 raw file offsets. The `--start-address` range above is for preliminary
 static code inspection, not an exploit or validated key schedule.
 
+## Additional validation: accidental signatures are not PE files
+
+A bounded read-only scan was performed on each owner-supplied input. Every
+`MZ` sequence was checked as a possible start of a **structurally valid
+x86 PE32** with a DOS header pointer, PE signature, bounded optional header
+and section table. Merely counting `MZ` in high-entropy bytes is misleading.
+
+| File | `MZ` occurrences anywhere | Structurally valid PE32 candidates | Candidate offsets |
+|---|---:|---:|---|
+| `Rayman2.exe` | 2 | 1 | `0x0` |
+| `RAYMAN2.ICD` | 16 | 0 | none |
+| `dplayerx.dll` | 4 | 0 | none |
+
+The extra `MZ` match in the EXE occurs within executable instructions, not
+a second embedded image. None of the 20 `MZ` matches in the opaque inputs
+passes PE32 structural checks. This is **not** evidence that decrypted PE
+code is absent; the expected protected ICD is not meant to be a plain PE.
+
+The generic Rust inspector now displays these two distinct counts with
+`--layout`. It also **rejects a corrupt/non-PE loader** instead of silently
+calling it an opaque successful inspection; only ICD and companion DLL
+inputs are allowed to lack a PE header. These are read-only diagnostics
+with synthetic tests; compilation and execution of the new Rust code
+remain pending.
+
+## Historical variant clue from original SafeDisc documentation
+
+[CD Media World, *SafeDisc protection/version reference*]
+(https://www.cdmediaworld.com/hardware/cdrom/cd_protections_safedisc.shtml)
+catalogues a **165,888-byte `DPLAYERX.DLL`** as an early **r2**
+family and **138,752 bytes** as a later **r4** family. Our Rayman 2
+sample is 165,888 bytes while the previously validated Crimson Skies
+sample is 138,752 bytes. This suggests **different protection families**
+and a reason not to reuse the Crimson-specific loader/DLL assumptions.
+
+This is a historical third-party classification based on **DLL size**,
+not authenticated version metadata: it does **not** independently verify
+SafeDisc `1.35.000` or prove that all files of equal size share a
+decryption algorithm. The observed file size should be stored as
+descriptive data, **not** used as an authorization to decrypt.
+
+In particular, the Rayman 2 EXE contains a normal PE32 import table,
+a `MainWinf.exe` export-name field with 110 exported ordinals, and
+game-related strings (including `Please insert the CD`). Its entry
+RVA `0x5FCC0` begins with what looks like C runtime initialization
+rather than an obviously isolated SafeDisc entry stub. This is
+important counterevidence against treating the entire EXE as a
+recognizable dedicated SafeDisc loader without further trace analysis.
+The relationship between this PE and the encrypted ICD is **not yet
+established**.
+
 ## Next research milestones
 
 1. Identify and document the protected loader's format and the specific
