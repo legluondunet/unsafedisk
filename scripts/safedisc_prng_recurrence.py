@@ -69,6 +69,7 @@ def analyse(data: bytes, endian: str, offset: int = 0) -> dict:
         for i in range(count - 1)
     )
     complete = matched == count - 1
+    local_triplets = repeated_salt_triplets(words)
     full_rebuild = False
     if complete and len(payload) % 4 == 0:
         # Independent forward regeneration; compare the complete byte array
@@ -84,9 +85,9 @@ def analyse(data: bytes, endian: str, offset: int = 0) -> dict:
             "candidate_xor_salt": f"0x{salt:08X}",
             "matching_transitions": matched,
             "total_transitions": count - 1,
-            "matching_local_three_word_windows": repeated_salt_triplets(words),
+            "matching_local_three_word_windows": local_triplets,
             # Keep the original research field for existing callers/tests.
-            "consecutive_three_word_windows_matching_a_local_salt": repeated_salt_triplets(words),
+            "consecutive_three_word_windows_matching_a_local_salt": local_triplets,
             "three_word_windows_examined": count - 2,
             "full_recurrence_match": complete,
             "whole_file_reconstructible_from_prefix_and_seed": full_rebuild,
