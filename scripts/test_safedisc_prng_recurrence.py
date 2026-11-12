@@ -22,6 +22,27 @@ class RecurrenceTests(unittest.TestCase):
         self.assertEqual(result["matching_transitions"], 511)
         self.assertEqual(result["total_transitions"], 511)
 
+    def test_global_recurrence_contains_every_local_three_word_window(self):
+        blob = stream(0x30FBEC, 0x075BD924, 512, "little")
+        report = analyse(blob, "little")
+        self.assertEqual(
+            report["consecutive_three_word_windows_matching_a_local_salt"], 510
+        )
+        self.assertEqual(report["three_word_windows_examined"], 510)
+
+    def test_detects_short_embedded_run_in_otherwise_unrelated_words(self):
+        import random
+        generator = random.Random(0x53534644)
+        words = [generator.randrange(1, MODULUS) for _ in range(512)]
+        insert = stream(0x30FBEC, 0x075BD924, 8, "little")
+        words[100:108] = struct.unpack("<8I", insert)
+        blob = struct.pack("<512I", *words)
+        report = analyse(blob, "little")
+        self.assertFalse(report["full_recurrence_match"])
+        self.assertEqual(
+            report["consecutive_three_word_windows_matching_a_local_salt"], 6
+        )
+
     def test_big_endian_recurrence_and_partial_tail(self):
         blob = stream(0x123456, 0x246810, 512, "big") + b"\x29"
         result = analyse(blob, "big")
