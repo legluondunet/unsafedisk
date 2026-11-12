@@ -119,6 +119,18 @@ complete four-byte groups. This exposed a strong 31-bit representation
 candidate in the Rayman 2 ICD/DLL samples; it is **not** an available
 decryptor, verified cipher or automatic SafeDisc version detector.
 
+**Provenance check before decoding:** The three owner-supplied Rayman 2
+files are not yet authenticated as a directly runnable SafeDisc pair:
+the ICD and companion DLL have no PE32 header at byte zero, and the
+known protected EXE uses `.text/.rdata/.data`, rather than the
+`.text/.txt/.txt2` layout described for an earlier SafeDisc 1 wrapper.
+These observations are **cautions, not a corruption verdict**.
+The Python JSON `structural_consistency` output and the Rust inspector
+report them read-only. Compare source CD and original installed-file
+hashes before attempting any decryption. Independent Wine history
+confirms that Rayman 2 editions used SafeDisc 1.35.000, but does not
+authenticate these exact bytes.
+
 See [Rayman 2 SafeDisc 1.35 research](docs/safedisc-135-rayman2-research.md)
 for a second set of original protected inputs and planned work.
 
