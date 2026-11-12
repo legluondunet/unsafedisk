@@ -54,7 +54,7 @@ fn four_byte_high_bit_lanes(bytes: &[u8]) -> (usize, [usize; 4], usize) {
     let mut full_words = 0usize;
     for word in &mut chunks {
         for (lane, byte) in word.iter().enumerate() {
-            counts[lane] += usize::from(byte & 0x80 != 0);
+            counts[lane] += usize::from((*byte & 0x80) != 0);
         }
         full_words += 1;
     }
