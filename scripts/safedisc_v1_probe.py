@@ -163,13 +163,13 @@ def provenance_cautions(records: list[dict]) -> dict:
     by_role = {entry["role"]: entry for entry in records}
     cautions = []
     for role, explanation in (
-        ("icd", "The ICD has no directly runnable PE32 at offset zero. "
-                "Historical SafeDisc v1 descriptions start the ICD as a suspended "
-                "Windows process; check installed versus disc-extracted bytes."),
-        ("dplayerx", "DPLAYERX.DLL has no loadable PE32 at offset zero. "
-                     "A normal Windows LoadLibrary cannot directly load these "
-                     "on-disk bytes; check whether they require a preparation "
-                     "stage or were obtained from a different installation.")
+        ("icd", "No plain PE32 at offset zero; this is normal for an "
+                "encrypted SafeDisc ICD or a synthetic protection file "
+                "and does not imply damaged media."),
+        ("dplayerx", "No directly loadable PE32 at offset zero; the "
+                     "file may be encoded, generated or a protection "
+                     "resource. Its name does not prove that these "
+                     "specific bytes are an executable DLL.")
     ):
         entry = by_role.get(role)
         if entry is None:
@@ -180,20 +180,10 @@ def provenance_cautions(records: list[dict]) -> dict:
             cautions.append({"role": role, "code": "no_pe32_at_file_start",
                              "note": explanation})
 
-    loader = by_role.get("loader")
-    if loader:
-        root = next((item for item in loader.get("valid_pe32_candidates", [])
-                     if item["offset"] == "0x0"), None)
-        if root:
-            names = {section["name"] for section in root["sections"]}
-            if not {".txt", ".txt2"}.issubset(names):
-                cautions.append({
-                    "role": "loader",
-                    "code": "historical_wrapper_section_layout_differs",
-                    "note": "Loader lacks .txt/.txt2 sections described in "
-                            "a historical Wine SafeDisc v1 write-up; versions "
-                            "and customized layouts may differ."
-                })
+    # Do not require .txt/.txt2 sections: those names describe only one
+    # historically studied SafeDisc wrapper variant and are NOT a
+    # universal SafeDisc 1.35 validity or provenance requirement.
+
     return {
         # File-format checks do NOT authenticate the originating disc,
         # even when all three files happen to be valid PE32 binaries.
