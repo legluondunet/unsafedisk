@@ -364,30 +364,26 @@ the other three lanes use all eight bits. Every single companion DLL
 byte at offsets \`3, 7, 11, ...\` is below \`0x80\`; its other lanes
 use all eight bits. The byte at the end of the ICD is \`0x29\`; under the **correct offset +1** word layout it is part of the last word, **not** an extra trailing byte.
 
-**Historical offset-zero lane observation (not the ICD's actual word layout):**
-Interpreting those four-byte groups as integer words yields **31-bit,
-nonnegative values** when ICD words are read as big-endian and when DLL
-words are read as little-endian. The byte-order interpretation is a
-**hypothesis about representation, not confirmed original byte order or
-cipher mechanics**. In particular, the file sizes differ and this does
-not establish a common encoding between the ICD and DLL, nor show how
-the game executable could be reconstructed.
+**Corrected interpretation:** the high-bit-lane count by itself is
+**ambiguous**. A clear lane 0 at file offset zero fits either a
+big-endian word starting at zero **or** a little-endian word starting at
+offset one. The full mathematical recurrence and exact regeneration
+identify the second interpretation for the ICD. The DLL uses
+little-endian words starting at zero.
 
-This exact high-bit restriction is much stronger evidence of **structured
-encoded data** than whole-file Shannon entropy, and it would be
-extremely unlikely for uniformly random independent bytes. It does not
-prove encryption; compression, 31-bit pseudo-random values or a custom
-container can also produce such a restriction.
+The earlier statement that the files had **three shared 31-bit values**
+used *incorrectly aligned* ICD words; it is withdrawn. Comparing the
+correctly aligned streams gives **no common words** between all
+170,891 ICD states and all 41,472 DLL states. The words within each
+file are also distinct. Neither file is the other's immediately
+following segment: the successor of the ICD's last state is
+`0x11F38C41` (not the DLL seed `0x0030FBEC`), while the successor
+of the DLL's last state is `0x1D99DDE9` (not the ICD seed
+`0x6EE4C08A`). These are bounded **observations**, not proof
+that the generator seeds are unrelated globally.
 
-Simple negative checks:
-
-- The full-word values are not explained by one constant affine
-  recurrence \`next = a * current + c mod 2^31\` (a candidate derived
-  from early values fails on subsequent words in both files).
-- There are only **three matching 31-bit integer values** across the
-  two files, close to the approximately **3.3** random collisions
-  expected from their stream lengths under independent uniform values;
-  this is **not** evidence of a shared keystream.
+The full-file PRNG demonstration at the beginning of this document
+supersedes weaker entropy and speculative cipher classifications.
 
 **Reproduce without executing a protected binary:**
 
@@ -564,12 +560,12 @@ or changed. Nine synthetic local regression tests pass.
 
 A [2002 SafeDisc FAQ by a Wine developer]
 (https://www.winehq.org/pipermail/wine-devel/2002-April/005861.html)
-explicitly identifies **165,888-byte `dplayerx.dll` as SafeDisc 1.35.0**,
-the exact size of the owner-supplied Rayman 2 companion file. This is
-**strong independent support for the 1.35 classification**, alongside
-the Wine Rayman 2 bug report. It does not by itself confirm that
-this particular opaque file is a correct *installed* DLL or recover
-any decryption keys.
+associates a **165,888-byte `dplayerx.dll`** with SafeDisc 1.35.0.
+The owner-supplied Rayman 2 file has exactly this size, but is
+**demonstrably a deterministic PRNG byte stream, not a loadable DLL**.
+Its size should therefore **not** be treated as independent proof of
+this exact file's version or authenticity. A separate Wine report
+links a Rayman 2 edition to SafeDisc 1.35.000.
 
 ### Earlier negative generator checks (wrong ICD alignment; superseded)
 
@@ -592,8 +588,8 @@ read-only numerical tests found no support for:
 
 These *negative controls* only reject those specific generator
 models; they do not show the content is encrypted, random, or fake.
-The observed 31-bit constraint, ordinary PE absence and unanswered
-file provenance are still the principal research evidence.
+These older, alignment-dependent negative results are superseded
+by the exact two-file masked-MINSTD reconstruction.
 
 ## Corrected version-marker interpretation: `BoG_` belongs to SafeDisc 2+
 
@@ -672,9 +668,10 @@ reports a **verified match only when at least 256 complete words**
 satisfy **every** transition, including the independently derived
 XOR salt. Two additional synthetic Rust tests cover a 512-word
 little-endian positive case, one-bit corruption, wrong byte order,
-minimum sample length, and a big-endian positive case with a
-partial trailing byte. This new Rust branch is **not yet compiled**,
-so those tests are pending Rust toolchain availability.
+minimum sample length, and explicit **rejection of partial
+trailing bytes** as a claim of complete-file reconstruction. This
+new Rust branch is **not yet compiled**, so those tests are pending
+Rust toolchain availability.
 
 The read-only script derives a **candidate** constant from the first
 two words via the modular inverse of 16807 and validates **every**
