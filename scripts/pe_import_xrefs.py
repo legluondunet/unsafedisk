@@ -72,11 +72,12 @@ def rva_file_offset(headers:dict, rva:int, length:int, data_len:int) -> int:
 
 
 def cstr(data:bytes, headers:dict, rva:int, limit:int=256) -> str:
-    off = rva_file_offset(headers,rva,1,len(data))
     b=bytearray()
     for i in range(limit):
-        rva_file_offset(headers,rva+i,1,len(data))
-        ch=data[off+i]
+        # Adjacent RVAs may map to disjoint raw file ranges when the
+        # string crosses a section boundary.
+        off = rva_file_offset(headers, rva+i, 1, len(data))
+        ch = data[off]
         if ch == 0:
             return b.decode('ascii','backslashreplace')
         b.append(ch)
