@@ -399,6 +399,50 @@ mod tests {
     }
 
     #[test]
+    fn rayman2_masked_minstd_golden_sha256_without_proprietary_fixtures() {
+        // These hashes come from owner-supplied, separately verified samples.
+        // Only numeric PRNG parameters and expected hashes are in source:
+        // no commercial executable, encrypted payload or binary fixture.
+        const SALT: u32 = 0x075B_D924;
+        const MOD: u64 = 2_147_483_647;
+        const MULT: u64 = 16_807;
+        let samples = [
+            (
+                "icd",
+                0x6EE4_C08Au32,
+                170_891usize,
+                Some(0x5Bu8),
+                "4daeae51ded23687fccecd5046dd366b1c083d4931af0a381a0ad0b64bd3d1a6",
+            ),
+            (
+                "dplayerx",
+                0x0030_FBECu32,
+                41_472usize,
+                None,
+                "0d5160b1b123636e03a09ae00714f0ff66bbdd759a3f2b639734ecaa487018ee",
+            ),
+        ];
+        for (label, initial_state, count, prefix, expected_sha) in samples {
+            let mut bytes = Vec::with_capacity(prefix.is_some() as usize + count * 4);
+            if let Some(prefix) = prefix {
+                bytes.push(prefix);
+            }
+            let mut state = initial_state;
+            for _ in 0..count {
+                bytes.extend_from_slice(&state.to_le_bytes());
+                state = (((state ^ SALT) as u64 * MULT) % MOD) as u32;
+            }
+            let offset = usize::from(prefix.is_some());
+            assert_eq!(
+                masked_minstd_probe(&bytes, true, offset),
+                Some((SALT, count - 1, 0)),
+                "{label} complete recurrence must match"
+            );
+            assert_eq!(sha256(&bytes), expected_sha, "{label} exact output SHA-256");
+        }
+    }
+
+    #[test]
     fn random_mz_without_pe_header_is_not_a_pe_candidate() {
         let bytes = b"noiseMZnoiseMZnoise";
         let (mz, pe_offsets) = embedded_pe32_candidates(bytes);
