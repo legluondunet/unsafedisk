@@ -114,6 +114,11 @@ a compatibility assertion. Research flags such as `--strings`,
 `--key-research` and `--modifier-research` are prohibited in this mode.
 The legacy `inspect` behavior remains exact-SHA-gated.
 
+The `--layout` report also prints per-position high-bit counts in
+complete four-byte groups. This exposed a strong 31-bit representation
+candidate in the Rayman 2 ICD/DLL samples; it is **not** an available
+decryptor, verified cipher or automatic SafeDisc version detector.
+
 See [Rayman 2 SafeDisc 1.35 research](docs/safedisc-135-rayman2-research.md)
 for a second set of original protected inputs and planned work.
 
