@@ -211,6 +211,51 @@ expected. The **new** Rust implementation has *not* been compiled or
 executed yet because no Rust compiler is available in the working
 container, and GitHub Actions billing is exhausted.
 
+## Read-only IAT cross-reference map (2026-11-12)
+
+A second standard-library-only tool, `scripts/pe_import_xrefs.py`, parses
+the original **loader EXE's** bounded x86 PE32 import directory and looks
+for the byte-level x86 opcode patterns `FF 15 <IAT VA>` (indirect
+`CALL`) and `FF 25 <IAT VA>` (indirect `JMP`) in executable sections.
+It does **not** execute any input, attempt decryption, or claim the
+patterns are reachable instructions. Seven additional **synthetic**
+unit tests validate PE header and import-bound checks.
+
+Results on the owner's SHA-256-verified `Rayman2.exe`:
+
+- **163 imported API entries** across **7 DLLs**:
+  `DINPUT.dll`, `GDI32.dll`, `KERNEL32.dll`, `MSVCRT.dll`,
+  `SHELL32.dll`, `USER32.dll`, `WINMM.dll`.
+- **424 direct IAT CALL/JMP byte-pattern candidates**, across
+  **154 import targets**. These are candidate static references, not a
+  full executable call graph.
+
+| Imported Win32 function | IAT VA | Candidate direct-call VAs |
+|---|---|---|
+| `CreateFileA` | `0x0049C058` | `0x00450C16`, `0x0045486F` |
+| `ReadFile` | `0x0049C04C` | `0x0044CFB7`, `0x0044D5F7`, `0x0044F897`, `0x004510AE`, `0x004512DA`, `0x0045497F` |
+| `GetFileSize` | `0x0049C040` | `0x00454847` |
+| `LoadLibraryA` | `0x0049C084` | `0x00421889`, `0x0045894F`, `0x00458B1E`, `0x004590EE`, `0x00459323` |
+| `GetProcAddress` | `0x0049C088` | `0x00455D29`, `0x00458A02` |
+
+```sh
+python scripts/pe_import_xrefs.py Rayman2.exe > import-xrefs.json
+python -m unittest discover -s scripts -p 'test_pe_import_xrefs.py'
+```
+
+**Follow-up candidates:** `CreateFileA` appears at `0x450C16`
+in a routine which also contains indirect calls through computed
+function pointers and writes pseudorandom-looking bytes into a buffer;
+another direct file-open pattern occurs at `0x45486F`. At
+`0x44EC50` and `0x44F18C`, code references a
+`CDROM not found!` string (VA `0x4A2270`) near file-open
+handling. These routines must be traced using valid instruction boundaries
+before claiming they implement CD checking or a SafeDisc stage.
+The executable entry VA `0x45FCC0` begins with an ordinary-looking
+SEH/C-runtime prologue; neither this nor file I/O proves that this
+EXE is only a protected stub. A full call graph and ICD decoding
+remain **unsolved**.
+
 ## Next research milestones
 
 1. Identify and document the protected loader's format and the specific
