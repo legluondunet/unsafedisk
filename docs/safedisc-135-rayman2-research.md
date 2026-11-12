@@ -284,6 +284,68 @@ evidence. The branch above suggests that a universal 1.x implementation
 should **identify its applicable algorithmic path**, not merely
 rename hard-coded Crimson Skies constants.
 
+## Strong four-byte lane constraint (2026-11-12)
+
+An independent whole-file scan of the owner's exact SHA-256-verified Rayman 2
+inputs discovered a previously unrecognized **bit-level invariant**. Using
+nonoverlapping groups of four bytes from file offset zero:
+
+| Input | Complete groups | High-bit=1 counts, lanes 0/1/2/3 | Leftover bytes |
+|---|---:|---|---:|
+| \`Rayman2.exe\` | 169,088 | 73,986 / 74,194 / 71,483 / 71,432 | 0 |
+| \`RAYMAN2.ICD\` | **170,891** | **0** / 85,432 / 85,193 / 85,523 | **1** |
+| \`dplayerx.dll\` | **41,472** | 20,636 / 20,735 / 20,654 / **0** | 0 |
+
+Every single ICD byte at offsets \`0, 4, 8, ...\` is below \`0x80\`;
+the other three lanes use all eight bits. Every single companion DLL
+byte at offsets \`3, 7, 11, ...\` is below \`0x80\`; its other lanes
+use all eight bits. The lone last byte of the ICD is \`0x29\` and is
+excluded from complete-word statistics.
+
+Interpreting those four-byte groups as integer words yields **31-bit,
+nonnegative values** when ICD words are read as big-endian and when DLL
+words are read as little-endian. The byte-order interpretation is a
+**hypothesis about representation, not confirmed original byte order or
+cipher mechanics**. In particular, the file sizes differ and this does
+not establish a common encoding between the ICD and DLL, nor show how
+the game executable could be reconstructed.
+
+This exact high-bit restriction is much stronger evidence of **structured
+encoded data** than whole-file Shannon entropy, and it would be
+extremely unlikely for uniformly random independent bytes. It does not
+prove encryption; compression, 31-bit pseudo-random values or a custom
+container can also produce such a restriction.
+
+Simple negative checks:
+
+- The full-word values are not explained by one constant affine
+  recurrence \`next = a * current + c mod 2^31\` (a candidate derived
+  from early values fails on subsequent words in both files).
+- There are only **three matching 31-bit integer values** across the
+  two files, close to the approximately **3.3** random collisions
+  expected from their stream lengths under independent uniform values;
+  this is **not** evidence of a shared keystream.
+
+**Reproduce without executing a protected binary:**
+
+\`\`\`sh
+python scripts/safedisc_v1_probe.py \
+  --loader Rayman2.exe --icd RAYMAN2.ICD --dplayerx dplayerx.dll
+python -m unittest discover -s scripts -p 'test_safedisc_v1_probe.py'
+\`\`\`
+
+The JSON \`four_byte_lanes\` member reports the group count, ignored
+tail, per-lane high-bit counts, and a cautious representation hint.
+The Rust \`inspect --generic-inspect --layout\` report now contains
+the corresponding read-only high-bit counts. Synthetic tests cover
+opposite byte orders, lone high-bit bit-flips and partial tails.
+The new Rust code still requires compilation validation; no protected
+file is distributed.
+
+**Next decoding research:** determine how the 31-bit restrictions arise
+from the historic SafeDisc 1.x loader and DLL processing stages. Do not
+discard the bit or blindly reinterpret words as compressed PE code.
+
 ## Next research milestones
 
 1. Identify and document the protected loader's format and the specific
