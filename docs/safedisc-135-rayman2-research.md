@@ -736,6 +736,39 @@ the DLL's last is `0x1D99DDE9`, not the ICD seed `0x6EE4C08A`.
 This excludes immediate concatenation or overlap **in the observed
 ranges** only; it is not a general proof that the seeds are unrelated.
 
+## Protected EXE file-I/O and obfuscated indirect calls
+
+Further offline static audit of the original hash-identified
+`Rayman2.exe` (`objdump -d -M intel`):
+
+- **73** disassembled `XOR reg,0x075BD924` immediate instructions
+  occur in the executable (raw disassembly matches, not a count of
+  dynamically reachable functions). This is substantial evidence that
+  the masked PRNG is a **reused runtime mechanism**, not solely a
+  single CD-file-generation helper.
+- At `0x450A80`–`0x450C32`, an apparent file-open wrapper uses the
+  PRNG to select an offset within a buffer at `0x510EA0`. It writes
+  a short executable stub and invokes it indirectly. A separate
+  branch invokes the imported **`CreateFileA` at `0x450C16`**
+  (IAT VA `0x0049C058`).
+- At `0x450C40`–`0x450D86`, a neighboring wrapper builds
+  `PUSH imm32; RET` and calls it at `0x450CF6`. The alternate
+  branch calls **`CloseHandle` at `0x450D6F`**
+  (IAT VA `0x0049C0E0`).
+- The EXE's imports additionally contain `WriteFile`
+  (direct call candidate `0x4549BF`). This is generic Windows
+  file I/O; no direct reference to the ICD or fake DLL has been
+  established, and these observations **do not** prove creation
+  of either on-disc PRNG stream.
+- Case-insensitive readable-string search finds no literal
+  `RAYMAN2.ICD`, `dplayerx.dll` or `dxplayerx.dll` in the
+  supplied protected EXE.
+
+**Interpretation:** the obfuscated runtime Win32 calls provide a
+concrete target for further control-flow reconstruction. Do not
+confuse a widely reused PRNG with evidence that the game
+executes or decrypts these two CD-resident synthetic files.
+
 ## Validation boundary: full byte coverage versus complete words
 
 The Python `--auto-align` mode and the native Rust generic inspector
