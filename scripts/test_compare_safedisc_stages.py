@@ -68,6 +68,15 @@ class TestStageComparison(unittest.TestCase):
             root=Path(d);(root/"sub").mkdir();(root/"sub"/"rayman2.icd").write_bytes(b"a")
             self.assertEqual(inventory(root), {})
 
+    def test_cli_rejects_same_root(self):
+        with tempfile.TemporaryDirectory() as directory:
+            import contextlib, io
+            with contextlib.redirect_stderr(io.StringIO()) as errors:
+                with self.assertRaises(SystemExit) as exited:
+                    main(["--cd-root", directory, "--installed-root", directory])
+            self.assertEqual(exited.exception.code, 1)
+            self.assertIn("same directory", errors.getvalue())
+
     def test_cli_success_read_only(self):
         with tempfile.TemporaryDirectory() as d:
             a,b=Path(d)/"cd",Path(d)/"installed";a.mkdir();b.mkdir()
