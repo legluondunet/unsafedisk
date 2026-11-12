@@ -131,7 +131,9 @@ using the **same XOR salt** `0x075BD924`:
 | `dplayerx.dll` | +0 / little-endian | `0x0030FBEC` | 41,471 / 41,471 |
 
 **Every byte of both files was regenerated in memory**, with exact
-SHA-256 matches. The initial big-endian offset-zero reading of ICD was
+SHA-256 matches. The auto-align mode now explicitly **rejects matches
+with unexplained trailing bytes**; a complete-word recurrence is not
+sufficient to claim whole-file regeneration. The initial big-endian offset-zero reading of ICD was
 **incorrect**; its final byte is part of the last little-endian word.
 These specific files are reproducible PRNG data, not independently
 encoded arbitrary PE executable/DLL payloads. Their **role and
@@ -142,6 +144,13 @@ discovery is **not** SafeDisc 1.35 executable decryption.
 python scripts/safedisc_prng_recurrence.py RAYMAN2.ICD --auto-align
 python scripts/safedisc_prng_recurrence.py dplayerx.dll --auto-align
 ```
+
+The two streams have no shared 31-bit state in their sampled ranges
+and do not follow one another immediately. This does **not** prove
+their seeds are globally independent, only that these two specific
+byte ranges are distinct. PCGamingWiki documents junk/dummy files
+on retail Rayman 2 discs; that context supports—but does **not prove**—
+an auxiliary/filler explanation for the two deterministic samples.
 
 See [Rayman 2 SafeDisc 1.35 research](docs/safedisc-135-rayman2-research.md)
 for the complete proof, limits, and next steps.
