@@ -117,6 +117,19 @@ The legacy `inspect` behavior remains exact-SHA-gated.
 See [Rayman 2 SafeDisc 1.35 research](docs/safedisc-135-rayman2-research.md)
 for a second set of original protected inputs and planned work.
 
+The optional Python 3 read-only research tools expose reproducible JSON without
+executing or decrypting protected files:
+
+```sh
+python scripts/safedisc_v1_probe.py --loader Rayman2.exe --icd RAYMAN2.ICD --dplayerx dplayerx.dll
+python scripts/pe_import_xrefs.py Rayman2.exe
+python -m unittest discover -s scripts -p 'test_*.py'
+```
+
+`pe_import_xrefs.py` maps PE32 static imports and candidate `FF 15`/`FF 25`
+IAT references in executable sections; the results are byte-pattern
+candidates, **not** proof that the instructions execute or belong to SafeDisc.
+
 ## Verified French SafeDisc import-name decoding
 
 The native Rust CLI can reconstruct **136 protected KERNEL32/USER32 API-name
