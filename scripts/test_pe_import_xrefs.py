@@ -73,6 +73,17 @@ class ImportTests(unittest.TestCase):
         self.assertEqual(result['import_count'],0)
         self.assertEqual(result['references'],[])
 
+    def test_virtual_adjacent_sections_with_disjoint_raw_offsets(self):
+        # Metadata may be contiguous in virtual memory but not in the file.
+        data = bytearray(0x400)
+        data[0x200:0x202] = b"AB"
+        data[0x300:0x302] = b"C\0"
+        headers = {"sections": [
+            {"rva": 0x2000, "raw_off": 0x200, "raw_size": 2},
+            {"rva": 0x2002, "raw_off": 0x300, "raw_size": 2},
+        ]}
+        self.assertEqual(p.cstr(data, headers, 0x2000), "ABC")
+
     def test_name_unterminated_rejected(self):
         data=bytearray(fixture())
         data[0x470:0x700]=b'K'*0x290
