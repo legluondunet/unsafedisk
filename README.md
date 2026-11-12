@@ -140,12 +140,22 @@ executing or decrypting protected files:
 ```sh
 python scripts/safedisc_v1_probe.py --loader Rayman2.exe --icd RAYMAN2.ICD --dplayerx dplayerx.dll
 python scripts/pe_import_xrefs.py Rayman2.exe
+python scripts/compare_safedisc_stages.py --cd-root "/path/to/original/CD" --installed-root "/path/to/original/install"
 python -m unittest discover -s scripts -p 'test_*.py'
 ```
 
 `pe_import_xrefs.py` maps PE32 static imports and candidate `FF 15`/`FF 25`
 IAT references in executable sections; the results are byte-pattern
 candidates, **not** proof that the instructions execute or belong to SafeDisc.
+
+`compare_safedisc_stages.py` compares sizes and SHA-256 for root-level
+`rayman2.exe`, `rayman2.icd`, `dplayerx.dll`, and
+`dxplayerx.dll` between independently supplied CD-extraction and
+original-installation folders. It refuses ambiguous names and symlinks;
+missing or changed files do not automatically mean corruption.
+A 2002 Wine developer FAQ associates the **165,888-byte**
+`dplayerx.dll` with SafeDisc **1.35.0**, but actual source authenticity
+and any needed install-time transformation remain unverified.
 
 ## Verified French SafeDisc import-name decoding
 
