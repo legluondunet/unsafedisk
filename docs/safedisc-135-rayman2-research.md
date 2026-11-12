@@ -256,6 +256,34 @@ SEH/C-runtime prologue; neither this nor file I/O proves that this
 EXE is only a protected stub. A full call graph and ICD decoding
 remain **unsolved**.
 
+## Historical unSafeDisc 1.5.5 branch condition: important new lead
+
+Existing primary research in
+[`docs/unsafedisc-linux.md`](unsafedisc-linux.md)
+records disassembly of the user's original historical 20,480-byte
+`unSafedisc.exe`, rather than guessing from the separate 18,944-byte
+modified public release.
+
+At `0x401F43..0x401F62`, the historical implementation performs an
+**extra pre-TEA processing step if the supplied `dplayerx.dll` is
+exactly `0x21E00` bytes (138,752)**. This applies to the Crimson Skies
+reference, but **not** to the Rayman 2 DLL of `0x28800` bytes
+(165,888). The implementation also has a generic 32-round TEA-like
+decryption stage at `0x401A55`, subject to other prerequisites.
+
+This is a **specific branch condition in a particular historical tool**,
+not an attestation that Rayman 2's ICD follows the same TEA geometry,
+that the needed key is known, or that running the old tool would work.
+The visible Rayman ICD does not have a PE header, so header restoration
+and correct loader/DLL key derivation must be established first.
+Do not substitute the Crimson Skies F1/F2 modifier or its fixed keys.
+
+Research priority: reconstruct the **early-family loader -> DLL ->
+ICD** data path and its header-handling stage, using read-only static
+evidence. The branch above suggests that a universal 1.x implementation
+should **identify its applicable algorithmic path**, not merely
+rename hard-coded Crimson Skies constants.
+
 ## Next research milestones
 
 1. Identify and document the protected loader's format and the specific
