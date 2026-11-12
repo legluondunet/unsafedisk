@@ -43,6 +43,69 @@ The original `inspect --generic-inspect` stopped on these inputs with
 inputs while preserving the existing exact-hash restrictions and
 fail-closed behavior in `unwrap` and strict `inspect`.
 
+## Independent static profile of these inputs (2026-11-12)
+
+The following observations were obtained on the original user-supplied files
+without loading or executing them (Python standard library, `file`,
+`objdump -x`, `objdump -d`).
+
+| Property | `Rayman2.exe` |
+|---|---|
+| DOS/NT headers | `MZ` at file offset `0x0`; `PE\\0\\0` at `0xB8` |
+| PE machine / format | i386 / PE32, GUI |
+| Image base | `0x00400000` |
+| Entry-point RVA | `0x0005FCC0` |
+| Reported PE timestamp | 1999-10-15 23:19:39 UTC (header value; not provenance proof) |
+| Sections | `.text`, `.rdata`, `.data` |
+| Import DLLs | `USER32.dll`, `GDI32.dll`, `WINMM.dll`, `MSVCRT.dll`, `KERNEL32.dll`, `SHELL32.dll`, `DINPUT.dll` |
+| Export directory | Claims `MainWinf.exe`, 110 exported ordinals |
+| `CRPE\\0\\0` signature | Not found in this loader |
+| `DPLAYERX` plaintext string | Not found in this loader |
+
+The `CRPE` marker used in the *separate* Crimson Skies SafeDisc 1.50.20
+research is therefore **not portable as an assumed key-lookup location**.
+No hard-coded replacement offset should be invented for 1.35.
+
+The `MZ` and `PE\\0\\0` byte patterns also appear inside the executable
+`.text` as x86 instruction operands in code which appears to validate
+mapped PE headers and inspect `KERNEL32`. These matches are **not**
+additional embedded PE images. This routine is a candidate for further
+static cross-reference analysis, not proof of a particular SafeDisc stage.
+
+Measured per-file whole-byte Shannon entropy:
+
+| File | Entropy (bits/byte) | First 16 bytes |
+|---|---:|---|
+| `Rayman2.exe` | 6.627897 | `4D 5A 90 00 03 00 00 00 04 00 00 00 FF FF 00 00` |
+| `RAYMAN2.ICD` | 7.953942 | `5B 8A C0 E4 6E BF 24 2F 01 6C CE B5 6A 5A B0 3A` |
+| `dplayerx.dll` | 7.952524 | `EC FB 30 00 46 7C B8 0A 0D CC 7E 5C 7E 65 90 5F` |
+
+The ICD is `0xA6E2D` bytes long (not a round PE alignment size),
+and the opaque DLL is `0x28800` bytes long. Neither begins with `MZ`
+or contains a `PE\\0\\0` signature. A plain `dplayerx.dll` import
+is **not present in the static import table** of the loader; this
+does not rule out dynamic loading.
+
+**Important:** `Rayman2.exe` has an extensive, genuine PE code,
+import and export structure; describing it as “only an encrypted stub”
+would go beyond these findings. Its actual protected launch sequence
+must be traced before planning a decoder.
+
+### Reproducibility
+
+On a system with GNU binutils:
+
+```sh
+sha256sum Rayman2.exe RAYMAN2.ICD dplayerx.dll
+file Rayman2.exe RAYMAN2.ICD dplayerx.dll
+objdump -x Rayman2.exe
+objdump -d -M intel --start-address=0x447000 --stop-address=0x447100 Rayman2.exe
+```
+
+`objdump` emits the executable's image-base addresses rather than
+raw file offsets. The `--start-address` range above is for preliminary
+static code inspection, not an exploit or validated key schedule.
+
 ## Next research milestones
 
 1. Identify and document the protected loader's format and the specific
