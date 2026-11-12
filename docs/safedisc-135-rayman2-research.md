@@ -346,6 +346,43 @@ file is distributed.
 from the historic SafeDisc 1.x loader and DLL processing stages. Do not
 discard the bit or blindly reinterpret words as compressed PE code.
 
+## Historical algorithm boundary: SafeDisc 1.30 to 1.50
+
+A contemporary June 2001 technical study,
+[*An overview of SafeDisc versions* by ArthaXerXès]
+(https://gbppr.net/cracking/krobar/other/com26.html), reports the following
+implementation changes:
+
+- **1.30.0**: import RVAs are XOR-encoded using one 32-bit TEA key word;
+  the original 128-bit TEA key still consists of **four identical words**.
+  The described loader search targets a literal \`00 00 00 00\` DWORD
+  followed by \`A, A, B, B\` DWORD pairs.
+- **1.40.4**: an additional callsite repair stage changes selected
+  x86 \`FF 15\` references using version-specific arithmetic.
+- **1.45.11**: repeated-key weakness was eliminated; per-title
+  DPLAYERX EAX modification appeared.
+- **1.50.20**: added a separate pre-decryption layer involving DPLAYERX
+  routines, which is the extra stage already investigated for Crimson Skies.
+
+**If the owner's Rayman 2 version is indeed 1.35.000**, it lies
+between the first two changes, suggesting an early repeated-key TEA
+path *may* apply. This exact-version link is **not verified directly**
+from the opaque ICD and therefore cannot yet enable any decoder.
+
+A read-only search for the **literal contiguous**
+\`0, A, A, B, B\` 32-bit sequence (with nonzero, distinct A and B)
+in the user's **676,352-byte Rayman2.exe**, across all four byte
+alignments, returned **zero candidates**. Neither \`DECRPE\\0\\0\`
+nor \`CRPE\\0\\0\` occurs in that executable. These negative
+findings invalidate a naive re-use of the historical loader-pattern
+heuristic on this input; they do not disprove TEA, an alternate key
+location or the user's SafeDisc version claim.
+
+Further work must first validate the file-pair relationship and
+reconstruct a trustworthy PE/header stage before inferring an import
+table or deriving a TEA key. No game binary, DLL, decrypted output
+or proprietary component is copied into the repository.
+
 ## Next research milestones
 
 1. Identify and document the protected loader's format and the specific
