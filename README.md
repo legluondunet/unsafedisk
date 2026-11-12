@@ -103,9 +103,13 @@ unsafedisc-linux inspect --generic-inspect \\
 ```
 
 Prints sizes, SHA-256, Shannon entropy, PE32 entry points and section
-metadata where a valid PE32 exists. With --layout it also reports 4 KiB\nblock entropy ranges and a bounded hex prefix. For opaque on-disk ICD or DLL data
-without an MZ header, it reports the file without rejecting the whole
-inspection. This is **not** decryption, unpacking, an encryption verdict or
+metadata for a valid PE32 loader. With `--layout` it also reports
+4 KiB block entropy ranges, a bounded hex prefix, superficial `MZ`
+occurrences, and the offsets of structurally valid unencrypted PE32
+images (if any). The loader must be a valid x86 PE32 executable; ICD
+and companion DLL inputs may be opaque without an `MZ` header.
+An `MZ` occurrence alone is not an executable. This is **not**
+decryption, unpacking, an encryption verdict or
 a compatibility assertion. Research flags such as `--strings`,
 `--key-research` and `--modifier-research` are prohibited in this mode.
 The legacy `inspect` behavior remains exact-SHA-gated.
