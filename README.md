@@ -115,37 +115,36 @@ a compatibility assertion. Research flags such as `--strings`,
 The legacy `inspect` behavior remains exact-SHA-gated.
 
 The `--layout` report also prints per-position high-bit counts in
-complete four-byte groups. This exposed a strong 31-bit representation
-candidate in the Rayman 2 ICD/DLL samples; it is **not** an available
-decryptor, verified cipher or automatic SafeDisc version detector.
+complete four-byte groups. **That alone cannot determine a word stream's
+actual starting offset or endian order.** The native Rust diagnostic
+now additionally scans all four offsets and both byte orders for the
+complete masked Park–Miller recurrence. This updated Rust code **has
+not yet been compiled or tested**.
 
-**Provenance check before decoding:** The three owner-supplied Rayman 2
-files are not yet authenticated as a directly runnable SafeDisc pair:
-the ICD and companion DLL have no PE32 header at byte zero, and the
-known protected EXE uses `.text/.rdata/.data`, rather than the
-`.text/.txt/.txt2` layout described for an earlier SafeDisc 1 wrapper.
-These observations are **cautions, not a corruption verdict**.
-The Python JSON `structural_consistency` output and the Rust inspector
-report them read-only. Compare source CD and original installed-file
-hashes before attempting any decryption. Independent Wine history
-confirms that Rayman 2 editions used SafeDisc 1.35.000, but does not
-authenticate these exact bytes.
+**Rayman 2 breakthrough (verified locally):** both exact user-supplied
+opaque files are entirely deterministic, masked Park–Miller streams
+using the **same XOR salt** `0x075BD924`:
 
-See [Rayman 2 SafeDisc 1.35 research](docs/safedisc-135-rayman2-research.md)
-for a second set of original protected inputs and planned work.
+| Sample | Word offset / order | Seed | Verified transitions |
+|---|---|---|---:|
+| `RAYMAN2.ICD` | +1 / little-endian, prefix `5B` | `0x6EE4C08A` | 170,890 / 170,890 |
+| `dplayerx.dll` | +0 / little-endian | `0x0030FBEC` | 41,471 / 41,471 |
 
-**Rayman 2 SafeDisc 1.35 research discovery:** the entire owner-supplied
-165,888-byte `dplayerx.dll` is exactly reproducible from its first
-31-bit word by a masked Park–Miller generator, with constants found
-independently in the supplied Rayman 2 EXE. This does **not** mean the
-ICD can be decoded in the same way: it fails the same complete
-recurrence check. See the detailed proof in
-[the Rayman 2 research notes](docs/safedisc-135-rayman2-research.md).
+**Every byte of both files was regenerated in memory**, with exact
+SHA-256 matches. The initial big-endian offset-zero reading of ICD was
+**incorrect**; its final byte is part of the last little-endian word.
+These specific files are reproducible PRNG data, not independently
+encoded arbitrary PE executable/DLL payloads. Their **role and
+authenticity** on the original game CD remain unverified, and the
+discovery is **not** SafeDisc 1.35 executable decryption.
 
 ```sh
-python scripts/safedisc_prng_recurrence.py dplayerx.dll --endian little
-python scripts/safedisc_prng_recurrence.py RAYMAN2.ICD --endian big
+python scripts/safedisc_prng_recurrence.py RAYMAN2.ICD --auto-align
+python scripts/safedisc_prng_recurrence.py dplayerx.dll --auto-align
 ```
+
+See [Rayman 2 SafeDisc 1.35 research](docs/safedisc-135-rayman2-research.md)
+for the complete proof, limits, and next steps.
 
 The optional Python 3 read-only research tools expose reproducible JSON without
 executing or decrypting protected files:
