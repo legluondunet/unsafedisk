@@ -212,6 +212,42 @@ Runtime reachability and file-system behavior remain untested.
 added section base VAs, cautiously labeled byte-pattern candidates.
 The local synthetic comparison suite passed **13 tests**.
 
+**GOG is not a drop-in implementation of the retail import
+resolver (verified 13 Nov 2026).** The GOG reference replaces
+the retail DLL-name decoder `0x004474D0` (106 bytes),
+export-name matcher `0x00447730` (357 bytes)
+and masked export resolver `0x00447AF0` (233 bytes)
+**entirely with `INT3` instructions**. A common
+178-byte part of the initializer at `0x004493F8`
+remains unchanged, but its runtime reachability is
+unknown. GOG also replaces the PRNG-based calculation
+at `0x00470051` and `0x0047B1C3` with
+`MOV EAX,0x00517000` and a short jump, introducing
+literal pointers to the **beginning of `.extra`**.
+That is the padded non-executable section containing
+the exact original `.text` copy, **not proof that
+the copy executes**.
+
+The general-purpose `pe_reference_diff.py`
+now offers bounded `--code-span VA:SIZE` to
+compare exact code bytes, NOP/INT3 changes and
+hashes between the protected retail and GOG files:
+
+```sh
+python scripts/pe_reference_diff.py \
+  --protected Rayman2-CD-protected.exe \
+  --reference Rayman2-GOG.exe --reference-origin GOG \
+  --code-span 0x4474d0:106 \
+  --code-span 0x447730:357 \
+  --code-span 0x447af0:233
+```
+
+**Do not infer runtime function calls, a safe retail
+deprotection patch or any SafeDisc-only provenance
+from these byte-level differences.** Four new synthetic
+code-span tests were added; Rust remains uncompiled
+and GitHub Actions were not triggered.
+
 **Masked callback writer and export-name lookup now identified
 (13 Nov 2026):** The retail `0x004493F8`
 initialization path sets a 7-module and 36-record
