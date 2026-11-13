@@ -212,6 +212,37 @@ Runtime reachability and file-system behavior remain untested.
 added section base VAs, cautiously labeled byte-pattern candidates.
 The local synthetic comparison suite passed **13 tests**.
 
+**GOG callback-table linkage (static, read-only):** Both retail
+protected and GOG PE32 files call the same callback initializer
+at VA `0x00467130`, from identical `CALL rel32` sites at
+`0x004674C8` and `0x0047B01B`. GOG changes the initializer
+to place literal pointers to its file-name lookup
+(`0x00448F60`) and file-size lookup (`0x00448FD0`)
+into table slots `+0x08` and `+0x20`,
+respectively. The retail initializer instead uses
+XOR-masked pointer values from global memory, whose
+**on-disk** values do not directly resolve to the
+GOG addresses. There is **no proven SafeDisc-only
+patch or runtime call path yet**.
+
+The PE comparator can independently compare direct
+`E8 rel32` and `MOV reg,imm32` **byte-pattern
+candidates** in both images:
+
+```sh
+python scripts/pe_reference_diff.py \
+  --protected Rayman2-CD-protected.exe \
+  --reference Rayman2-GOG.exe --reference-origin GOG \
+  --trace-va 0x467130 --trace-va 0x448F60 \
+  --trace-va 0x448FD0 --trace-va 0x449010
+```
+
+Results are research hints, **not a disassembly or proof
+of runtime reachability**. The specific addresses above
+were independently checked against GNU objdump output.
+This comparison must never be used to blindly replay
+GOG changes onto the original CD executable.
+
 **New direct EXE comparison:** The owner's independent 1,468,928-byte
 GOG `Rayman2.exe` (SHA-256 `9bae484b…`) and the
 676,352-byte protected EXE (SHA-256 `7927a106…`) share the same
