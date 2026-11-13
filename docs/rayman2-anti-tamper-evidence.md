@@ -1111,8 +1111,9 @@ the real Win32 CreateFileA API on its accepted path.
 Its instructions at 0x00448F65..0x00448FC5:
 
 1. Reject \`dwDesiredAccess & GENERIC_WRITE\` (bit 0x40000000).
-2. Require a non-null pointer and \`path[1:3] == ":\\",
-   \` where the first character is the drive letter.
+2. Require a non-null pointer and a path whose second and
+   third characters are a colon and a backslash, e.g. \`D:\`.
+   The first character is treated as the drive letter.
 3. Skip the first **three path bytes**, then compare the remaining
    filename with successive entries in the virtual table at
    **VA 0x005B3000**, uppercasing only ASCII a..z from the input.
