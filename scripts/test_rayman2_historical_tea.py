@@ -13,7 +13,7 @@ from rayman2_historical_tea import (
 
 class HistoricalRayman2TEATests(unittest.TestCase):
     def test_paper_zero_ciphertext_suffix(self):
-        self.assertEqual(encrypt_block(b"\\0" * 8), ZERO_CIPHER)
+        self.assertEqual(encrypt_block(b"\0" * 8), ZERO_CIPHER)
         self.assertEqual(ZERO_CIPHER[1:], PUBLISHED_SUFFIX)
 
     def test_paper_round_count(self):
@@ -42,14 +42,14 @@ class HistoricalRayman2TEATests(unittest.TestCase):
                 encrypt_block(bytes(8), key=key)
 
     def test_signature_scan_at_all_alignments(self):
-        data = b"\\x5B" + ZERO_CIPHER + b"not a section" + ZERO_CIPHER
+        data = b"\x5B" + ZERO_CIPHER + b"not a section" + ZERO_CIPHER
         found = scan_known_zero(data)
         self.assertEqual(found["candidate_zero_block_count"], 2)
         self.assertEqual(found["candidate_offsets_first_16"],
                          [1, 1 + 8 + len(b"not a section")])
 
     def test_no_false_claim_without_signature(self):
-        self.assertEqual(scan_known_zero(b"\\x00" * 128)["candidate_zero_block_count"], 0)
+        self.assertEqual(scan_known_zero(b"\x00" * 128)["candidate_zero_block_count"], 0)
         self.assertFalse(historical_vector()["verified_for_owner_retail_icd"])
         self.assertFalse(historical_vector()["cipher_params_from_runtime_dplayerx_verified"])
         self.assertTrue(historical_vector()["published_seven_byte_suffix_match"])
