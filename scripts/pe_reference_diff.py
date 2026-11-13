@@ -238,6 +238,47 @@ def find_added_section_base_literals(protected: dict, reference: dict) -> list[d
     return results
 
 
+def find_x86_reference_candidates(pe: dict, target_va: int) -> dict:
+    """Find E8 rel32 calls and B8..BF MOV-register-immediate references.
+
+    Scans *executable-designated* sections only. Byte-pattern matches
+    can fall inside unrelated instructions/data, so results require
+    manual decoding and control-flow review. No code is executed.
+    """
+    if not 0 <= target_va <= 0xFFFF_FFFF:
+        raise ValueError("x86 target VA must fit in 32 bits")
+    calls, immediates = [], []
+    for name, section in pe["sections"].items():
+        if not section["characteristics"] & 0x2000_0000:
+            continue
+        raw = section["contents"]
+        va_base = pe["image_base"] + section["rva"]
+        for offset in range(max(0, len(raw)-4)):
+            opcode = raw[offset]
+            site_va = va_base + offset
+            if opcode == 0xE8:
+                delta = struct.unpack_from("<i", raw, offset+1)[0]
+                if (site_va + 5 + delta) & 0xFFFF_FFFF == target_va:
+                    calls.append({
+                        "site_va": f"0x{site_va:08X}", "section": name,
+                        "candidate_opcode": "E8 rel32",
+                    })
+            elif 0xB8 <= opcode <= 0xBF:
+                literal = struct.unpack_from("<I", raw, offset+1)[0]
+                if literal == target_va:
+                    immediates.append({
+                        "site_va": f"0x{site_va:08X}", "section": name,
+                        "register_code": opcode-0xB8,
+                        "candidate_opcode": "MOV r32, imm32",
+                    })
+    return {
+        "target_va": f"0x{target_va:08X}",
+        "direct_call_candidates": calls,
+        "mov_immediate_candidates": immediates,
+        "caution": "Byte-pattern candidates only; manual instruction-boundary and reachability analysis required",
+    }
+
+
 def scan_manifest(data: bytes) -> dict:
     """Read <u32 claimed size><u32 name length><NUL-terminated name> records."""
     offset, records = 0, []
@@ -285,6 +326,8 @@ def main(argv=None) -> int:
                         help="Provenance label, e.g. GOG (metadata only; not authentication)")
     parser.add_argument("--manifest-section")
     parser.add_argument("--focus-name", action="append", default=[])
+    parser.add_argument("--trace-va", action="append", default=[],
+                        help="x86 VA in hex (0x...) or decimal; repeatable")
     args = parser.parse_args(argv)
     try:
         if args.protected.samefile(args.reference):
@@ -301,6 +344,19 @@ def main(argv=None) -> int:
         )
         result["exact_embedded_section_copies"] = find_embedded_section_copies(a, b)
         result["reference_added_section_base_literals"] = find_added_section_base_literals(a, b)
+        if args.trace_va:
+            # Bound output and prevent accidental exhaustive RVA scanning.
+            if len(args.trace_va) > 32:
+                raise ValueError("at most 32 traced target VAs")
+            targets = [int(arg, 0) for arg in args.trace_va]
+            result["x86_reference_candidates"] = [
+                {
+                    "target": f"0x{target:08X}",
+                    "protected": find_x86_reference_candidates(a, target),
+                    "reference": find_x86_reference_candidates(b, target),
+                }
+                for target in targets
+            ]
         if args.manifest_section:
             section = b["sections"].get(args.manifest_section)
             if section is None:
