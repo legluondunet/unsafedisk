@@ -296,6 +296,70 @@ class ReferenceDiffTests(unittest.TestCase):
             self.assertFalse(pairs["pairs"][0]["runtime_pointer_known"])
             self.assertIn("On-disk pairs", pairs["runtime_inference"])
 
+    def test_descriptor_layout_compares_full_file_backed_records(self):
+        retail = bytearray(pe_fixture(text_offset=0x400))
+        gog = bytearray(pe_fixture(text_offset=0x800))
+        stride = 0x4C
+        for binary, raw in ((retail, 0x400), (gog, 0x800)):
+            for index in range(3):
+                off = raw+0x20+index*stride
+                binary[off:off+stride] = bytes(stride)
+            struct.pack_into("<I", binary, raw+0x20, 0x5A151926)
+            struct.pack_into("<I", binary, raw+0x20+stride, 0x0E6AA5E6)
+        retail_pe = tool.parse_pe32(bytes(retail))
+        gog_pe = tool.parse_pe32(bytes(gog))
+        profile = tool.compare_descriptor_layout(
+            retail_pe, gog_pe, 0x00401020, stride, 3, 0, 0x30
+        )
+        self.assertEqual(profile["identical_records"], 3)
+        self.assertEqual(profile["retail_nonzero_records"], 2)
+        self.assertEqual(profile["retail_zero_pointer_slots"], 3)
+        self.assertTrue(profile["entries"][-1]["retail_record_all_zero"])
+        self.assertFalse(profile["runtime_pointer_values_inferred"])
+        self.assertEqual(profile["entries"][0]["retail_mask_candidate"], "0x5A151926")
+
+    def test_descriptor_layout_identifies_different_record_bytes(self):
+        retail = bytearray(pe_fixture())
+        gog = bytearray(pe_fixture(text_offset=0x800))
+        for binary, raw in ((retail, 0x400), (gog, 0x800)):
+            binary[raw+0x20:raw+0x20+0x4C] = bytes(0x4C)
+        gog[0x800+0x20+8] = 7
+        profile = tool.compare_descriptor_layout(
+            tool.parse_pe32(bytes(retail)),
+            tool.parse_pe32(bytes(gog)),
+            0x00401020, 0x4C, 1, 0, 0x30
+        )
+        self.assertFalse(profile["entries"][0]["both_full_record_bytes_equal"])
+        self.assertEqual(profile["identical_records"], 0)
+
+    def test_descriptor_layout_rejects_unbacked_and_large_inputs(self):
+        pe = tool.parse_pe32(pe_fixture())
+        for kwargs in [(0x401000, 0x4C, 0, 0, 0x30),
+                       (0x401000, 0x4C, 257, 0, 0x30),
+                       (0x401000, 0x4C, 1, 0, 0x4B)]:
+            with self.assertRaisesRegex(ValueError, "invalid bounded"):
+                tool.compare_descriptor_layout(pe, pe, *kwargs)
+        with self.assertRaisesRegex(ValueError, "file bytes unavailable"):
+            tool.compare_descriptor_layout(pe, pe, 0x403000, 0x4C, 1, 0, 0x30)
+
+    def test_cli_descriptor_layout_metadata_only(self):
+        with tempfile.TemporaryDirectory() as folder:
+            a, b = Path(folder)/"retail.exe", Path(folder)/"gog.exe"
+            a.write_bytes(pe_fixture())
+            b.write_bytes(pe_fixture(text_offset=0x800))
+            out = io.StringIO()
+            with contextlib.redirect_stdout(out):
+                self.assertEqual(tool.main([
+                    "--protected", str(a), "--reference", str(b),
+                    "--reference-origin", "GOG",
+                    "--descriptor-layout", "0x401020:0x4c:2:0:0x30"
+                ]), 0)
+            report = json.loads(out.getvalue())["file_backed_descriptor_observations"]
+            self.assertEqual(report["records"], 2)
+            self.assertEqual(report["stride_bytes"], 0x4C)
+            self.assertFalse(report["source_code_execution_asserted"])
+            self.assertEqual(len(report["entries"]), 2)
+
     def test_cli_rejects_self_comparison(self):
         with tempfile.TemporaryDirectory() as folder:
             path = Path(folder)/"fixture.exe"
