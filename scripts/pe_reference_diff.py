@@ -344,6 +344,48 @@ def read_section_bytes_va(pe: dict, va: int, length: int) -> bytes:
     raise ValueError(f"file bytes unavailable at 0x{va:08X} (length {length})")
 
 
+def compare_code_spans(protected: dict, reference: dict,
+                       spans: list[tuple[int, int]]) -> list[dict]:
+    """Compare exact file-backed VA spans without assigning patch intent.
+
+    Use this to establish whether a function's on-disk bytes were
+    replaced by INT3 or NOP in an independently modified reference.
+    Neither an instruction decoder nor a runtime reachability check.
+    """
+    if len(spans) > 64:
+        raise ValueError("at most 64 code spans")
+    results = []
+    for va, length in spans:
+        if not 1 <= length <= 65536:
+            raise ValueError("code span length must be between 1 and 65536 bytes")
+        old = read_section_bytes_va(protected, va, length)
+        new = read_section_bytes_va(reference, va, length)
+        differences = sum(a != b for a, b in zip(old, new))
+        results.append({
+            "start_va": f"0x{va:08X}",
+            "length_bytes": length,
+            "identical_bytes": length - differences,
+            "different_bytes": differences,
+            "reference_all_int3_bytes": all(x == 0xCC for x in new),
+            "reference_all_nop_bytes": all(x == 0x90 for x in new),
+            "bytes_changed_to_int3": sum(
+                a != 0xCC and b == 0xCC for a, b in zip(old, new)
+            ),
+            "bytes_changed_to_nop": sum(
+                a != 0x90 and b == 0x90 for a, b in zip(old, new)
+            ),
+            "protected_sha256": hashlib.sha256(old).hexdigest(),
+            "reference_sha256": hashlib.sha256(new).hexdigest(),
+            "protection_change_asserted": False,
+            "runtime_reachability_asserted": False,
+            "interpretation": (
+                "Byte-level PE comparison only. GOG/third-party changes "
+                "cannot automatically be attributed to SafeDisc."
+            ),
+        })
+    return results
+
+
 def compare_descriptor_layout(protected: dict, reference: dict,
                               base_va: int, stride: int, count: int,
                               mask_offset: int, slot_offset: int) -> dict:
@@ -443,6 +485,8 @@ def main(argv=None) -> int:
                         help="Provenance label, e.g. GOG (metadata only; not authentication)")
     parser.add_argument("--manifest-section")
     parser.add_argument("--focus-name", action="append", default=[])
+    parser.add_argument("--code-span", action="append", default=[],
+                        help="VA:SIZE (file-backed code region), repeatable")
     parser.add_argument("--descriptor-layout",
                         help="BASE:STRIDE:COUNT:MASK_OFFSET:SLOT_OFFSET, integer fields")
     parser.add_argument("--masked-pair", action="append", default=[],
@@ -465,6 +509,16 @@ def main(argv=None) -> int:
         )
         result["exact_embedded_section_copies"] = find_embedded_section_copies(a, b)
         result["reference_added_section_base_literals"] = find_added_section_base_literals(a, b)
+        if args.code_span:
+            if len(args.code_span) > 64:
+                raise ValueError("at most 64 code spans")
+            spans = []
+            for item in args.code_span:
+                address, separator, length = item.partition(":")
+                if not separator or not address or not length:
+                    raise ValueError("code span must be VA:SIZE")
+                spans.append((int(address, 0), int(length, 0)))
+            result["on_disk_code_span_comparison"] = compare_code_spans(a, b, spans)
         if args.descriptor_layout:
             fields = args.descriptor_layout.split(":")
             if len(fields) != 5:
