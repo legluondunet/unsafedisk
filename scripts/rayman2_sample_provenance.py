@@ -121,6 +121,22 @@ def inspect(samples: dict[str, bytes]) -> dict:
     if '.text' not in retail or '.extra' not in gog or '.extra2' not in gog:
         raise ValueError('expected reference PE sections missing')
     text = retail['.text']
+    # A contemporary January-2000 Rayman 2 SafeDisc study identifies an
+    # entrypoint and section size matching this *on-disk* reference. Its
+    # post-decryption function addresses must not be treated as static
+    # protected-EXE byte signatures: these two addresses differ.
+    nt = struct.unpack_from('<I', samples['retail'], 0x3c)[0]
+    opt = nt+24
+    entry_va = (struct.unpack_from('<I', samples['retail'], opt+28)[0]
+                + struct.unpack_from('<I', samples['retail'], opt+16)[0])
+    if len(text) != 0x9A200 or entry_va != 0x45FCC0:
+        raise ValueError('retail entry or section size differs from historical fingerprint')
+    if text[0x5ECC0:0x5ECC0+10] != bytes.fromhex('55 8B EC 6A FF 68 D0 C9 49 00'):
+        raise ValueError('unexpected protected on-disk original entrypoint bytes')
+    if text[0x54D0:0x54D0+7] != bytes.fromhex('53 8B 5C 24 08 55 8B'):
+        raise ValueError('unexpected on-disk function at historic address 0x4064D0')
+    if text[0x18FD] != 0x54:
+        raise ValueError('unexpected on-disk function at historic address 0x4028FD')
     extra = gog['.extra']
     copy_at = extra.find(text)
     if copy_at != 4096 or extra.count(text) != 1 or any(extra[:copy_at]) or any(extra[copy_at+len(text):]):
@@ -152,6 +168,15 @@ def inspect(samples: dict[str, bytes]) -> dict:
         'gog_secdrv_sys_declared_bytes':entries['SECDRV.SYS'],
         'secdrv_sys_sample_available':False,
         'retail_text_bytes':len(text), 'embedded_copy_offset_in_gog_extra':copy_at,
+        'contemporary_study_crosscheck':{
+            'published':'2000-01-25',
+            'source':'The Twilight of Safedisc (ArthaXerXes)',
+            'reported_entry_va_matches_disk':True,
+            'reported_text_size_matches_disk':True,
+            'runtime_decrypted_function_bytes_match_disk_at_0x4064d0':False,
+            'runtime_decrypted_function_bytes_match_disk_at_0x4028fd':False,
+            'interpretation':'Different execution stage or revision possible; historical patch offsets not safe for this file',
+        },
         'embedded_retail_text_exact_match':True,
         'opaque_prng':{
             'icd':{'complete_byte_regeneration':True,'prefix_bytes':1,'seed':'0x6EE4C08A'},
