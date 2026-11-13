@@ -212,6 +212,42 @@ def audit_cd_gog_data_changes(original_sections:dict[str,bytes],
             'all_masked_api_slots_zero_on_disk':True,
             'module_name_changes_do_not_imply_live_resolution':True}
 
+
+# Exact modified GOG virtual-CD manifest ordinals and declared lengths for
+# the original game's Fix resource sidecars. These are NOT physical-CD
+# extent checks, and ".rtl" is a supported code suffix but absent here.
+FIX_SIDECARS = (
+    (34, 'DATA\\WORLD\\LEVELS\\FIX.RTB', 235995),
+    (35, 'DATA\\WORLD\\LEVELS\\FIX.RTP', 547),
+    (36, 'DATA\\WORLD\\LEVELS\\FIX.RTS', 2259),
+    (37, 'DATA\\WORLD\\LEVELS\\FIX.RTT', 2067),
+    (38, 'DATA\\WORLD\\LEVELS\\FIX.SNA', 7682868),
+)
+
+
+def verify_fix_sidecars(manifest: dict[str,int]) -> dict:
+    """Validate five original resource names in GOG metadata, not file bytes."""
+    ordered = list(manifest.items())
+    for offset,name,size in FIX_SIDECARS:
+        if len(ordered) <= offset or ordered[offset] != (name,size):
+            raise ValueError(f'unexpected Fix resource record at ordinal {offset}')
+    if 'DATA\\WORLD\\LEVELS\\FIX.RTL' in manifest:
+        raise ValueError('unexpected Fix.rtl in the known GOG manifest')
+    return {
+        'read_only':True,
+        'source':'modified GOG embedded virtual-CD filename/length manifest',
+        'file_bytes_or_original_CD_extents_verified':False,
+        'resources':[
+            {'zero_based_manifest_index':index,
+             'filename':name,
+             'declared_bytes':size}
+            for index,name,size in FIX_SIDECARS
+        ],
+        'has_Fix_rtl_manifest_entry':False,
+        'code_can_construct_rtl_suffix':True,
+    }
+
+
 def inspect(samples: dict[str, bytes]) -> dict:
     for key, (sha, size) in REFS.items():
         if key not in samples or len(samples[key]) != size or hashlib.sha256(samples[key]).hexdigest() != sha:
@@ -244,6 +280,7 @@ def inspect(samples: dict[str, bytes]) -> dict:
     entries, used, total = manifest_entries(gog['.extra2'])
     if len(entries) != 3716 or total != 7453062614 or used != 139366:
         raise ValueError('unexpected GOG virtual-CD metadata')
+    fix_resources=verify_fix_sidecars(entries)
     found = {}
     for key, name in MANIFEST_NAMES.items():
         expected = len(samples[key])
@@ -266,6 +303,7 @@ def inspect(samples: dict[str, bytes]) -> dict:
         'gog_manifest_end_offset':used,
         'gog_declared_file_size_total':total,
         'gog_manifest_matches_owner_lengths':found,
+        'gog_Fix_resource_sidecars':fix_resources,
         'gog_secdrv_sys_declared_bytes':entries['SECDRV.SYS'],
         'secdrv_sys_sample_available':False,
         'retail_text_bytes':len(text), 'embedded_copy_offset_in_gog_extra':copy_at,
