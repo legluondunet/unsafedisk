@@ -77,6 +77,88 @@ branches can actually execute and how the indexed data-file bank feeds
 integrity checks. Compare all three numbered file groups in an independently
 verified same-edition CD image/install, without assuming GOG is original.
 
+
+## Four exact API-forwarding replacements and 11 direct call sites (13 November 2026)
+
+A further *independent* read-only static audit on the owner's two **SHA-256-pinned**
+executables shows four repeated obfuscated file-I/O wrappers from the retail
+build replaced with small ordinary Win32 forwarding stubs in **GOG**.
+
+| Entry VA | GOG API (verified via PE import directory and stdcall arguments) | Args | GOG IAT pointer |
+|---|---|---:|---|
+| \`0x00448500\` | \`KERNEL32.dll!CloseHandle\` | 1 | \`0x0049C0E0\` |
+| \`0x0044E750\` | \`KERNEL32.dll!ReadFile\` | 5 | \`0x0049C04C\` |
+| \`0x0044F220\` | \`KERNEL32.dll!CreateFileA\` | 7 | \`0x0049C058\` |
+| \`0x0044F380\` | \`KERNEL32.dll!SetFilePointer\` | 4 | \`0x0049C048\` |
+
+Every matching original entry begins with \`MOV ECX,[0x00510BF0]\` and,
+within the first 32 bytes, \`XOR ECX,0x075BD924\` (the same
+masked Park–Miller salt already measured in the exact opaque ICD/DLL
+streams). GOG instead uses \`PUSH [EBP+args]\` in reverse order,
+\`CALL [IAT]\`, and \`RET N\` with correct stdcall cleanup. GOG's
+\`CreateFileA\` wrapper at \`0x0044F220\`, for example, returns via
+\`RET 0x1C\`, consistent with seven 32-bit arguments.
+
+This is evidence that the **masked PRNG is integral to obfuscating
+routine Win32 file operations** in the original build, not just an
+on-disc-file producer. There is still no proof that the two opaque
+files are legitimate encrypted game executable payloads.
+
+Direct \`E8 rel32\` call site inventory, verified on exact instruction
+boundaries independently with \`objdump\`:
+
+| Wrapper | Retail direct calls | Retained as identical direct calls in GOG |
+|---|---:|---:|
+| CloseHandle \`0x448500\` | 2 | 2 |
+| ReadFile \`0x44E750\` | 5 | 3 |
+| CreateFileA \`0x44F220\` | 2 | 2 |
+| SetFilePointer \`0x44F380\` | 2 | 0 |
+| **Total** | **11** | **7** |
+
+The four changed callsite opcodes are
+\`0x0044F10D\` and \`0x0044F1D4\` (retail
+\`SetFilePointer\` calls), and \`0x0044F125\` and \`0x0044F1EC\`
+(retail \`ReadFile\` calls). Inspection of GOG shows the first
+read/seek region at \`0x0044F102..\` replaced with NOPs,
+and the later read block under \`0x0044F1CC\` bypassed by a jump
+followed by \`INT3\`. **These are not proof of a runtime-executed
+anti-piracy check, nor a recommendation to copy GOG patches.**
+The direct-call inventory also excludes dynamic and indirect calls.
+
+An explicit reproducibility helper, \`scripts/rayman2_win32_forwarders.py\`,
+validates exact file SHA-256, PE imports, stdcall argument count, four
+original PRNG anchors, and the 11 callsite instruction encodings.
+It does not execute the files, make edits, or distribute bytes.
+Nine synthetic-only tests are provided in
+\`scripts/test_rayman2_win32_forwarders.py\`.
+An independent local implementation of the algorithm ran successfully
+against **both original SHA-256-identified executable files**,
+reporting four GOG forwarders, 11 retail direct calls and seven
+GOG-preserved direct calls; **ten local synthetic mirror tests pass**.
+The exact newly committed GitHub versions have not been re-run via
+CI or compiled with Rust; make no stronger claim than this.
+
+Reproduction with user-owned files:
+
+\`\`\`sh
+python scripts/rayman2_win32_forwarders.py \
+  --retail /path/to/original/Rayman2.exe \
+  --gog /path/to/gog/Rayman2.exe
+python -m unittest discover -s scripts -p 'test_rayman2_win32_forwarders.py'
+\`\`\`
+
+**Research boundary:** Modern descriptions of SafeDisc v1 generally
+portray \`GAME.ICD\` as a conventionally encrypted executable and
+\`GAME.EXE\` as a loader. The two particular *owner-supplied*
+Rayman 2 opaque files were instead established as fully reproducible
+short-seed PRNG output, whereas its 676,352-byte original \`Rayman2.exe\`
+is a valid PE with substantial game code. Consequently **we cannot
+assume their distribution/installation stage or role**. The path
+from physical CD/installer to those sample bytes must be verified.
+Primary historical context: https://list.winehq.org/hyperkitty/list/wine-devel%40list.winehq.org/thread/A2SGOS3ZAABYF3LBHRLGNSFL3GQRBDIO/
+(2005, a different title). This historical general description
+does not override the exact measured Rayman 2 bytes.
+
 ## Read-only, falsifiable checks
 
 `scripts/rayman2_anti_tamper_assets.py` inspects only the two historical asset names and hashes, with case-insensitive per-component lookup, link rejection and bounded reading. Example:
