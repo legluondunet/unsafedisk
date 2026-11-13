@@ -16,6 +16,8 @@ from rayman2_cd_io_diff import (
     STREAM_XOR_RETAIL_MASKED_ANCHORS,
     STREAM_WORD_CHECK_ANCHORS, STREAM_WORD_CHECK_COMPARE_ANCHORS,
     stream_word_xor_checksum, inspect_stream_word_checksum,
+    SNAPSHOT_CHECKSUM_ANCHORS, SNAPSHOT_TEMPLATES, REFERENCE_SUFFIXES,
+    inspect_snapshot_checksum_provenance,
 )
 
 
@@ -385,6 +387,79 @@ class FileIoDiffTests(unittest.TestCase):
         self.assertEqual(result['stream_postread_DWORD_checksum']['common_opcode_anchors_checked'],26)
         self.assertEqual(result['stream_postread_DWORD_checksum']['gog_disabled_stream_open_INT3_bytes'],290)
         self.assertEqual(result['stream_postread_DWORD_checksum']['checksum_compare_anchors_checked'],9)
+
+    @staticmethod
+    def snapshot_provenance_fixture():
+        # Synthetic PE-backed VA layout; no proprietary game code included.
+        count=0xA4000
+        original=bytearray(b'\x90'*count)
+        gog=bytearray(b'\x90'*count)
+        headers={'image_base':0x400000,'sections':[
+            {'rva':0x1000,'raw_off':0,'raw_size':count}
+        ]}
+        def put(data,va,raw):
+            at=va-0x401000
+            data[at:at+len(raw)]=raw
+        for va,code in SNAPSHOT_CHECKSUM_ANCHORS.items():
+            for buf in (original,gog):
+                put(buf,va,bytes.fromhex(code))
+        for va,name in SNAPSHOT_TEMPLATES.items():
+            for buf in (original,gog):
+                put(buf,va,name.encode('ascii')+b'\0')
+        for buf in (original,gog):
+            put(buf,0x44DBCC,struct.pack('<5I',
+                *(branch for branch,_,_ in REFERENCE_SUFFIXES)))
+            for branch,filename_va,suffix in REFERENCE_SUFFIXES:
+                put(buf,filename_va,suffix.encode('ascii')+b'\0')
+                put(buf,branch,bytes.fromhex('8D 95 00 FF FF FF')
+                    +b'\xBF'+struct.pack('<I',filename_va))
+        return original,gog,headers
+
+    def test_snapshot_checksum_synthetic_reference_separation(self):
+        cd,gog,h=self.snapshot_provenance_fixture()
+        report=inspect_snapshot_checksum_provenance(bytes(cd),bytes(gog),h,h)
+        self.assertEqual(report['verified_common_opcode_anchors'],24)
+        self.assertEqual(report['snapshot_stream_mode'],'0x03')
+        self.assertEqual(report['reference_stream_normal_mode'],'0x00')
+        self.assertEqual(report['snapshot_path_formats'],
+                         ['%s\\Fix.sna','%s\\%s\\%s.sna'])
+        self.assertEqual([i['suffix'] for i in report['reference_suffix_switch']],
+                         ['.rtb','.rtp','.rts','.rtt','.rtl'])
+
+    def test_snapshot_checksum_rejects_changed_snapshot_path(self):
+        cd,gog,h=self.snapshot_provenance_fixture()
+        gog[0x49F2D8-0x401000]=ord('X')
+        with self.assertRaisesRegex(ValueError,'snapshot filename format'):
+            inspect_snapshot_checksum_provenance(bytes(cd),bytes(gog),h,h)
+
+    def test_snapshot_checksum_rejects_changed_caller(self):
+        cd,gog,h=self.snapshot_provenance_fixture()
+        cd[0x402A71-0x401000] ^= 1
+        with self.assertRaisesRegex(ValueError,'provenance mismatch'):
+            inspect_snapshot_checksum_provenance(bytes(cd),bytes(gog),h,h)
+
+    def test_snapshot_checksum_rejects_modified_suffix_pointer(self):
+        cd,gog,h=self.snapshot_provenance_fixture()
+        gog[0x44DA70-0x401000+1] ^= 1
+        with self.assertRaisesRegex(ValueError,'suffix pointer'):
+            inspect_snapshot_checksum_provenance(bytes(cd),bytes(gog),h,h)
+
+    def test_snapshot_checksum_rejects_changed_reference_jump_table(self):
+        cd,gog,h=self.snapshot_provenance_fixture()
+        gog[0x44DBCC-0x401000] ^= 1
+        with self.assertRaisesRegex(ValueError,'suffix switch'):
+            inspect_snapshot_checksum_provenance(bytes(cd),bytes(gog),h,h)
+
+    def test_snapshot_checksum_private_pair_optional(self):
+        folder=Path(os.environ.get('UNSAFEDISK_SAMPLES','/no-private-samples'))
+        retail=folder/'Rayman2(3).exe'
+        gog=folder/'rayman2(4).exe'
+        if not(retail.is_file() and gog.is_file()):
+            self.skipTest('original owner PE binaries unavailable in CI')
+        report=inspect_pair(safe_read(retail),safe_read(gog))
+        record=report['snapshot_checksum_resource_provenance']
+        self.assertEqual(record['verified_common_opcode_anchors'],24)
+        self.assertTrue(record['no_index_bound_verified_at_inversion_site'])
 
     def test_safe_read_rejects_symlink(self):
         if not hasattr(os,'symlink'):self.skipTest('no symlink support')
