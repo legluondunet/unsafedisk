@@ -44,19 +44,33 @@ def decode_name(record: bytes) -> str:
     return out.decode('ascii')
 
 
+def decode_plain_name(record: bytes) -> str:
+    nul = record.find(b'\0')
+    if nul < 1 or any(record[nul+1:]):
+        raise ValueError('plaintext module name must be NUL terminated and padded')
+    data = record[:nul]
+    if any(v < 0x21 or v > 0x7E for v in data):
+        raise ValueError('plaintext module name is not printable ASCII')
+    return data.decode('ascii')
+
+
 def inspect(pe: dict, module_base: int, module_stride: int, modules: int,
             api_base: int, api_stride: int, apis: int,
-            module_selector_offset: int, pointer_slot_offset: int) -> dict:
+            module_selector_offset: int, pointer_slot_offset: int,
+            module_mode: str = 'encoded') -> dict:
     if (not 1 <= modules <= 32 or not 1 <= apis <= 256
         or not 6 <= module_stride <= 4096 or not 6 <= api_stride <= 4096
         or module_selector_offset < 0 or pointer_slot_offset < 0
         or module_selector_offset + 4 > api_stride
         or pointer_slot_offset + 4 > api_stride):
         raise ValueError('invalid descriptor dimensions/offsets')
+    if module_mode not in ('encoded','plain'):
+        raise ValueError('invalid module-name mode')
     module_rows = []
     for index in range(modules):
         va = module_base + index*module_stride
-        name = decode_name(file_backed_bytes(pe, va, module_stride))
+        raw = file_backed_bytes(pe, va, module_stride)
+        name = decode_name(raw) if module_mode == 'encoded' else decode_plain_name(raw)
         module_rows.append({'index_zero_based': index, 'name': name})
     api_rows = []
     for i in range(apis):
@@ -78,7 +92,8 @@ def inspect(pe: dict, module_base: int, module_stride: int, modules: int,
         'read_only': True, 'reference_sha256': pe['sha256'],
         'runtime_exports_resolved': False,
         'derived_runtime_addresses_asserted': False,
-        'algorithm': 'additive-byte-key + XOR name obfuscation',
+        'api_name_encoding': 'additive-byte-key + XOR',
+        'module_name_encoding': module_mode,
         'module_count': modules, 'api_count': apis,
         'zero_on_disk_slots': sum(row['pointer_slot_zero_on_disk'] for row in api_rows),
         'modules': module_rows, 'apis': api_rows,
@@ -95,12 +110,14 @@ def main(argv=None):
                  'api-base', 'api-stride', 'api-count',
                  'module-selector-offset', 'pointer-slot-offset'):
         parser.add_argument('--'+name, type=lambda v:int(v,0), required=True)
+    parser.add_argument('--module-mode',choices=('encoded','plain'),default='encoded',
+                        help='encoded retail DLL names or GOG plaintext names')
     a=parser.parse_args(argv)
     try:
         pe=parse_pe32(read_bounded(a.pe))
         result=inspect(pe, a.module_base,a.module_stride,a.module_count,
                        a.api_base,a.api_stride,a.api_count,
-                       a.module_selector_offset,a.pointer_slot_offset)
+                       a.module_selector_offset,a.pointer_slot_offset,a.module_mode)
     except (OSError,ValueError) as exc:
         parser.exit(1,f'ERROR: {exc}\n')
     print(json.dumps(result,indent=2))
