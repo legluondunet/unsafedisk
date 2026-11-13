@@ -84,6 +84,9 @@ class ReferenceDiffTests(unittest.TestCase):
         self.assertEqual(report["claimed_total_bytes"], 145)
         self.assertEqual(report["entries"][1]["name"], r"SUB\TEXT.TXT")
         self.assertGreater(report["manifest_bytes_before_sentinel"], 0)
+        self.assertEqual(report["bytes_after_sentinel"], 40)
+        self.assertTrue(report["remaining_bytes_all_zero"])
+        self.assertFalse(tool.scan_manifest(manifest_fixture()+bytes(4)+b"X")["remaining_bytes_all_zero"])
 
     def test_malformed_manifest_is_rejected(self):
         with self.assertRaisesRegex(ValueError, "sentinel"):
