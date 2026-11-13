@@ -123,6 +123,47 @@ per-file lengths** gives **`675,805,210` bytes**:
 | Reported physical / simulated CD capacity | 678,168,576 | 680,755,200 |
 | Capacity minus remaining nominal lengths | **5,267,141** | **4,949,990** |
 
+### More appropriate ISO volume (not physical-image padding)
+
+The `DISC:` lines also specify **`volume_bytes=677853184`**
+from the ISO9660 primary descriptor, while `image_bytes`
+is `678168576`. The latter is **315,392 bytes larger**,
+so it includes bytes outside the nominal logical volume.
+The GOG virtual-CD geometry measured separately from its
+modified executable is **`680755200` bytes**.
+
+| Compare after excluding the same 23 atypical DAT lengths | Original ISO primary volume | GOG simulated CD |
+|---|---:|---:|
+| Declared logical volume/capacity | 677,853,184 | 680,755,200 |
+| Remaining file lengths | 672,901,435 | 675,805,210 |
+| Volume capacity minus remaining lengths | **4,951,749** | **4,949,990** |
+
+**These two residual margins differ by only 1,759 bytes.**
+The nominal-file sum difference (`2,903,775`) and
+the logical-volume-size difference (`2,902,016`)
+also differ by exactly **1,759**. This is more
+informative than comparing the ISO file length
+(which includes padding) to GOG's virtual volume size.
+The very close remaining margins are compatible with a
+rebuilt CD image with broadly related file inventory and
+similar filesystem overhead, but **not a proof of identical
+underlying files or filesystem extents**.
+
+This volume comparison is only reported by the tool when
+(a) **all 23** atypical lengths are corroborated in both
+metadata sources and (b) `volume_bytes` is explicitly
+available from the original ISO log. The GOG geometry is
+an earlier **statically verified constant tied to the
+exact hash-pinned GOG executable**, not read from the
+`.extra2` filename table. Both historical logs report
+the same primary volume and return the same **1,759**
+difference. A new eighth synthetic test verifies these
+results and the image-padding distinction; **8/8 local
+tests pass**. Updated Git blob SHA-1s exactly match the
+locally executed files:
+`dc000c8b53772f23ae86236954ea094cc8b1a08d`
+and `e0722ca7f6911a59f7acc4f9290aada444abedca`.
+
 This calculation establishes that **these 23 records alone account
 for all the gross nominal-size inflation** in both inventories,
 with the remaining nominal file lengths smaller than the respective
@@ -150,11 +191,11 @@ The `rayman2_cd_log_gog_compare.py` report now adds a bounded
 when all 23 files are found and have identical declared
 lengths in both metadata inventories**. Otherwise it emits
 `null` for that object. Both original owner logs passed.
-The newly added seventh synthetic unit test passed locally,
+The added seventh and eighth synthetic unit tests passed locally,
 including a deliberately missing-file negative control.
-**7/7 tests pass**, with GitHub file blob SHA values
-`7344d4fc25d38784ea92b8dfa22d7c24add00f5c`
-and `117f1b743d36688cd21a8b24bf53a1a033e43914`,
+**8/8 tests pass**, with GitHub file blob SHA values
+`dc000c8b53772f23ae86236954ea094cc8b1a08d`
+and `e0722ca7f6911a59f7acc4f9290aada444abedca`,
 both independently matching the executed local source.
 
 ## Why this matters for actual SafeDisc decryption
@@ -205,7 +246,7 @@ The exact GitHub source and test file blob hashes match the
 locally executed Python files:
 `7344d4fc25d38784ea92b8dfa22d7c24add00f5c` and
 `117f1b743d36688cd21a8b24bf53a1a033e43914`.
-**7/7 synthetic tests passed**; both owner log + GOG
+**8/8 synthetic tests passed**; both owner log + GOG
 comparisons were run locally. No GitHub Actions job or native
 Rust rebuild was triggered.
 
