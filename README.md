@@ -171,6 +171,43 @@ environment. Before merging the stacked draft PRs, run:
 cargo test --bin unsafedisc-linux
 ```
 
+**New direct EXE comparison:** The owner's independent 1,468,928-byte
+unprotected `Rayman2.exe` (SHA-256 `9bae484b…`) and the
+676,352-byte protected EXE (SHA-256 `7927a106…`) share the same
+entry RVA and unchanged import/export data directories. When aligned
+by PE section RVA rather than file offsets, **97.8981% of backed
+`.text` bytes, 100% of `.rdata`, and 99.5999% of `.data`
+are identical**. Of 13,269 changed `.text` bytes, **10,851
+become `INT3` (0xCC)**; the unprotected reference additionally has
+`.extra`, `.extra2` and `.rsrc`.
+
+Its `.extra2` contains a length-prefixed inventory of **3,716
+original-CD filenames and claimed lengths**, including exactly
+matching sizes for `RAYMAN2.EXE`, `RAYMAN2.ICD` and `DPLAYERX.DLL`.
+The declared sizes add up to **7,453,062,614 bytes (7.45 GB)**:
+this manifest is **not** an extraction plan or proof of physical
+disc extents (many entries are oversized/fake).
+
+Use the generic, read-only PE/manifest analyzer with the owner's
+own copies:
+
+```sh
+python scripts/pe_reference_diff.py \
+  --protected Rayman2-protected.exe \
+  --reference Rayman2-unprotected.exe \
+  --manifest-section .extra2 \
+  --focus-name RAYMAN2.EXE \
+  --focus-name RAYMAN2.ICD \
+  --focus-name DPLAYERX.DLL
+python -m unittest discover -s scripts -p 'test_pe_reference_diff.py'
+```
+
+This comparator has **10 synthetic tests validated locally** against
+the independently developed working copy. The native Rust inspector
+remains uncompiled; no new GitHub Actions runs have been triggered.
+Neither this analysis nor the presence of `INT3` constitutes a
+universal SafeDisc 1.35 decryption.
+
 The optional Python 3 read-only research tools expose reproducible JSON without
 executing or decrypting protected files:
 
