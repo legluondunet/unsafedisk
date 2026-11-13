@@ -24,6 +24,21 @@ logs; all **six** synthetic tests passed locally.
 This confirms metadata retention only, not physical file
 contents or an executed in-game anti-tamper predicate.
 
+**Capacity normalisation:** The 23 original ISO
+and GOG catalog DAT entries have **6,777,257,404
+nominal bytes** in both. Removing exactly these 23
+nominal values leaves **672,901,435 bytes** for the
+ISO and **675,805,210 bytes** for GOG. The logical
+ISO volume has **4,951,749 bytes** of nominal slack
+(vs. **4,949,990 bytes** for GOG's previously
+verified virtual volume): a difference of **1,759
+bytes**. The ISO image's extra **315,392 bytes**
+of padding must not be confused with the volume's
+capacity. These are metadata/accounting results,
+not physical extents or cryptographic CD identity.
+The checker and its eight synthetic tests were run
+locally with both owner logs and exact GOG data.
+
 ## Two original ISO inspection logs corroborate the GOG virtual catalog (14 November 2026)
 
 [Read-only original-ISO versus GOG log reconciliation]
