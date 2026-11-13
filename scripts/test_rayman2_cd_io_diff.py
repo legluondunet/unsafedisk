@@ -14,6 +14,7 @@ from rayman2_cd_io_diff import (
     stream_xor_step32, stream_xor_transform, inspect_stream_xor_x86,
     STREAM_XOR_SEED, STREAM_XOR_SALT, STREAM_XOR_DIRECT_ANCHORS,
     STREAM_XOR_RETAIL_MASKED_ANCHORS,
+    STREAM_WORD_CHECK_ANCHORS, stream_word_xor_checksum, inspect_stream_word_checksum,
 )
 
 
@@ -272,6 +273,95 @@ class FileIoDiffTests(unittest.TestCase):
     def test_stream_xor_original_gog_anchor_inventory(self):
         self.assertEqual(len(STREAM_XOR_DIRECT_ANCHORS),16)
         self.assertEqual(len(STREAM_XOR_RETAIL_MASKED_ANCHORS),9)
+
+    def test_word_checksum_exact_le_dword(self):
+        self.assertEqual(stream_word_xor_checksum(b'\x01\x02\x03\x04'),
+                         (0x04030201,b''))
+
+    def test_word_checksum_pending_not_zero_padded(self):
+        value,pending=stream_word_xor_checksum(b'\x01\x02\x03')
+        self.assertEqual((value,pending),(0,b'\x01\x02\x03'))
+        self.assertEqual(stream_word_xor_checksum(b'\x04',value,pending),
+                         (0x04030201,b''))
+
+    def test_word_checksum_two_equal_dwords_cancel(self):
+        self.assertEqual(stream_word_xor_checksum(b'abcdabcd'),(0,b''))
+
+    def test_word_checksum_chunked_equal_whole(self):
+        import random
+        rng=random.Random(7127)
+        for count in range(0,256):
+            payload=bytes(rng.getrandbits(8) for _ in range(count))
+            expected=stream_word_xor_checksum(payload)
+            got=(0,b'')
+            for start in range(0,count,3):
+                got=stream_word_xor_checksum(payload[start:start+3],*got)
+            self.assertEqual(got,expected)
+
+    def test_word_checksum_skips_unsuccessful_callback(self):
+        self.assertEqual(
+            stream_word_xor_checksum(b'123',0x10203040,b'xy',
+                                      callback_success=False),
+            (0x10203040,b'xy'))
+
+    def test_word_checksum_refuses_bad_state(self):
+        for value in (-1,2**32,True,'4'):
+            with self.assertRaisesRegex(ValueError,'unsigned DWORD'):
+                stream_word_xor_checksum(b'',value)
+        for tail in (b'1234',bytearray(b'1'),True):
+            with self.assertRaisesRegex(ValueError,'pending'):
+                stream_word_xor_checksum(b'',pending=tail)
+        for data in (None,True,bytearray(b'a'),'hello'):
+            with self.assertRaisesRegex(ValueError,'bytes'):
+                stream_word_xor_checksum(data)
+
+    def test_word_checksum_refuses_nonbool_callback_status(self):
+        for status in (0,1,'true',None):
+            with self.assertRaisesRegex(ValueError,'boolean'):
+                stream_word_xor_checksum(b'',callback_success=status)
+
+    def word_check_fixture(self):
+        retail,gog,h=self.stream_fixture()
+        def store(data,va,bytecode):
+            ofs=va-0x401000
+            data[ofs:ofs+len(bytecode)]=bytecode
+        for addr,hexa in STREAM_WORD_CHECK_ANCHORS.items():
+            for data in (retail,gog):
+                store(data,addr,bytes.fromhex(hexa))
+        store(retail,0x450ADE,bytes.fromhex('56 E8 EC 03 00 00 83 C4 04 84 C0 0F'))
+        store(retail,0x450B9E,b'\xff\xd6')
+        store(gog,0x450ADE,bytes.fromhex('E9 22 01 00 00'))
+        store(gog,0x450AE3,b'\xcc'*290)
+        return retail,gog,h
+
+    def test_word_checksum_synthetic_static_audit(self):
+        retail,gog,h=self.word_check_fixture()
+        result=inspect_stream_word_checksum(bytes(retail),bytes(gog),h,h)
+        self.assertEqual(result['common_opcode_anchors_checked'],26)
+        self.assertEqual(result['gog_disabled_stream_open_INT3_bytes'],290)
+        self.assertEqual(result['checksum_accumulator_offset'],'stream+0x10')
+
+    def test_word_checksum_reject_changed_open_byte(self):
+        retail,gog,h=self.word_check_fixture()
+        gog[0x450AE3-0x401000]=0x90
+        with self.assertRaisesRegex(ValueError,'masked stream-open'):
+            inspect_stream_word_checksum(bytes(retail),bytes(gog),h,h)
+
+    def test_word_checksum_reject_changed_xor_instruction(self):
+        retail,gog,h=self.word_check_fixture()
+        gog[0x450E70-0x401000]=0x90
+        with self.assertRaisesRegex(ValueError,'DWORD checksum anchor'):
+            inspect_stream_word_checksum(bytes(retail),bytes(gog),h,h)
+
+    def test_word_checksum_private_pair_if_available(self):
+        folder=Path(os.environ.get('UNSAFEDISK_SAMPLES','/no-private-samples'))
+        retail=folder/'Rayman2(3).exe'
+        gog=folder/'rayman2(4).exe'
+        if not(retail.is_file() and gog.is_file()):
+            self.skipTest('private commercial samples are not in repository CI')
+        result=inspect_pair(safe_read(retail),safe_read(gog))
+        self.assertEqual(result['stream_postread_DWORD_checksum']['common_opcode_anchors_checked'],26)
+        self.assertEqual(result['stream_postread_DWORD_checksum']['gog_disabled_stream_open_INT3_bytes'],290)
 
     def test_safe_read_rejects_symlink(self):
         if not hasattr(os,'symlink'):self.skipTest('no symlink support')
