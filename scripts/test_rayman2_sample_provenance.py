@@ -6,7 +6,8 @@ import unittest
 from rayman2_sample_provenance import (manifest_entries, pe_sections,
                                        check_opaque_prng, inspect, REFS,
                                        read_bounded, SALT, M, A, changed_runs,
-                                       decode_masked_module, audit_cd_gog_data_changes)
+                                       decode_masked_module, audit_cd_gog_data_changes,
+                                       FIX_SIDECARS, verify_fix_sidecars)
 
 
 def manifest_record(name, size):
@@ -106,6 +107,34 @@ class SampleProvenanceTests(unittest.TestCase):
             audit_cd_gog_data_changes({'.rdata':b'ab','.data':b'ab'},
                                       {'.rdata':b'aB','.data':b'ab'})
 
+    def test_fix_sidecars_synthetic_ordered_metadata(self):
+        records={f'FILLER-{i}':i for i in range(40)}
+        rows=list(records.items())
+        for index,name,length in FIX_SIDECARS:
+            rows[index]=(name,length)
+        result=verify_fix_sidecars(dict(rows))
+        self.assertEqual(len(result['resources']),5)
+        self.assertEqual(result['resources'][-1]['filename'],
+                         'DATA\\WORLD\\LEVELS\\FIX.SNA')
+        self.assertFalse(result['has_Fix_rtl_manifest_entry'])
+
+    def test_fix_sidecars_wrong_size_rejected(self):
+        rows=[(f'FILLER-{i}',i) for i in range(40)]
+        for index,name,length in FIX_SIDECARS:
+            rows[index]=(name,length)
+        index,name,length=FIX_SIDECARS[0]
+        rows[index]=(name,length+1)
+        with self.assertRaisesRegex(ValueError,'Fix resource record'):
+            verify_fix_sidecars(dict(rows))
+
+    def test_fix_sidecars_rtl_unlisted(self):
+        rows=[(f'FILLER-{i}',i) for i in range(40)]
+        for index,name,length in FIX_SIDECARS:
+            rows[index]=(name,length)
+        rows.append(('DATA\\WORLD\\LEVELS\\FIX.RTL',512))
+        with self.assertRaisesRegex(ValueError,'Fix.rtl'):
+            verify_fix_sidecars(dict(rows))
+
     def test_optional_real_four_file_integration(self):
         folder=Path(os.environ.get('UNSAFEDISK_SAMPLES','/nonexistent'))
         files={'retail':'Rayman2(3).exe','gog':'rayman2(4).exe',
@@ -118,6 +147,8 @@ class SampleProvenanceTests(unittest.TestCase):
         self.assertEqual(len(report['gog_manifest_matches_owner_lengths']),3)
         self.assertEqual(report['gog_manifest_end_offset'],139366)
         self.assertEqual(report['gog_secdrv_sys_declared_bytes'],14368)
+        self.assertEqual(len(report['gog_Fix_resource_sidecars']['resources']),5)
+        self.assertFalse(report['gog_Fix_resource_sidecars']['has_Fix_rtl_manifest_entry'])
         self.assertTrue(report['contemporary_study_crosscheck']['reported_entry_va_matches_disk'])
         self.assertFalse(report['contemporary_study_crosscheck']['runtime_decrypted_function_bytes_match_disk_at_0x4064d0'])
         self.assertEqual(report['original_to_gog_data_changes']['data_diff_bytes'],127)
