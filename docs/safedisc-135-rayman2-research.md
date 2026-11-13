@@ -2,6 +2,118 @@
 
 Status: **read-only classification implemented; native unwrapping not implemented.**
 
+## Direct protected / unprotected PE32 comparison (13 November 2026)
+
+The owner previously supplied an independent **unprotected**
+`Rayman2.exe` (**1,468,928 bytes**, SHA-256
+`9bae484bd84a4afad8d4e7b1bb30a85ce1ce2367f8451463696eabab28a72713`).
+This SHA-256 is also recorded as the approved unprotected runtime in
+[Rayman2Fix architecture](https://github.com/legluondunet/Rayman2Fix/blob/main/docs/architecture.md).
+The protected source `Rayman2.exe` is **676,352 bytes**, SHA-256
+`7927a106ac4f2244e304e57c196170f6cfb311af87ddf59eb6e6c48b9bb0d5e3`.
+**Both exact user-owned files were analyzed read-only.**
+
+Their PE32 entry RVA **`0x5FCC0`**, image base **`0x400000`**,
+import data-directory RVA **`0x9D0D8`** and export data-directory
+RVA **`0x9DDD0`** agree. The protected EXE is **not** merely an
+empty launcher: much of the original game code is present already.
+
+**Compare section contents at matching virtual RVAs**, not at file
+offsets: the protected `.text` begins at raw offset `0x400`,
+whereas the unprotected counterpart begins at raw offset `0x1000`.
+A naive file-position byte comparison misleadingly reports massive
+differences. Correctly aligned by RVA:
+
+| Shared section | Compared backed bytes | Identical bytes | Identity | Changed bytes |
+|---|---:|---:|---:|---:|
+| `.text` (RVA `0x1000`) | 631,296 | 618,027 | **97.8981%** | 13,269 |
+| `.rdata` (RVA `0x9C000`) | 12,288 | 12,288 | **100%** | 0 |
+| `.data` (RVA `0x9F000`) | 31,744 | 31,617 | **99.5999%** | 127 |
+
+The `.text` byte changes occupy **14** distinct 4-KiB virtual pages,
+with the largest concentrations in page ranges near RVAs
+`0x47000`, `0x48000` and `0x4E000`. Changed-byte addresses
+and density are diagnostics only: they are **not** automatically
+identified as SafeDisc routines. The unprotected reference has
+three additional sections:
+
+| Additional section | RVA | Backed length | Remark |
+|---|---:|---:|---|
+| `.extra` | `0x117000` | 638,976 | Purpose not established |
+| `.extra2` | `0x1B3000` | 143,360 | Begins with a size/name-length file inventory |
+| `.rsrc` | `0x1D6000` | 3,584 | PE resource section, absent from the protected EXE |
+
+The unprotected EXE's PE resource data directory is nonzero; the
+protected counterpart has no ordinary resource directory. These
+differences **do not establish how the unprotected EXE was produced**
+or imply a general-purpose SafeDisc 1.35 decoding method.
+
+### Embedded file inventory inside `.extra2`
+
+The first part of unprotected `.extra2` has a reproducible,
+length-prefixed sequence of **3,716 distinct filenames**:
+
+```text
+<u32 claimed_file_size><u32 name_length><name_bytes_including_NUL>
+...
+<u32 0xFFFFFFFF><u32 0>       # end marker
+```
+
+The table occupies **139,366 bytes** before the end marker and
+is followed by ordinary section padding. Some directly verified
+entries:
+
+| Manifest path | Manifest claim | Owner's original file |
+|---|---:|---|
+| `RAYMAN2.EXE` | 676,352 bytes | protected EXE: 676,352 |
+| `RAYMAN2.ICD` | 683,565 bytes | supplied ICD: 683,565 |
+| `DPLAYERX.DLL` | 165,888 bytes | supplied DLL: 165,888 |
+| `SECDRV.SYS` | 14,368 bytes | no separate source file checked |
+
+The table names **`DPLAYERX.DLL`**, not
+`DXPLAYERX.DLL` (the latter spelling appeared in an earlier
+Rayman2Fix exclusion list). This is useful evidence for auditing
+the original file layout, but the two names must still not be
+silently equated.
+
+**The sum of all 3,716 *declared* sizes is 7,453,062,614 bytes
+(7.45 GB)**, far more than the physical Rayman 2 CD image.
+Many individual data files declare hundreds of megabytes.
+Those totals are **not actual byte extents to extract**, and
+are consistent with the prior observation of fake/oversized CD
+entries designed to complicate direct copying. The precise
+origin and function of the manifest itself remain to be proven.
+Do not allocate 7.45 GB or attempt to extract the listed sizes.
+
+### Reproducibility and validation
+
+A new **generic** standard-library-only tool
+[`scripts/pe_reference_diff.py`](../scripts/pe_reference_diff.py)
+compares shared sections at matched RVAs, requires bounded PE32
+headers/section tables, prints JSON metadata only, and optionally
+scans such a length-prefixed manifest (no file extraction):
+
+```sh
+python scripts/pe_reference_diff.py \
+  --protected "Rayman2-protected.exe" \
+  --reference "Rayman2-unprotected.exe" \
+  --manifest-section .extra2 \
+  --focus-name RAYMAN2.EXE \
+  --focus-name RAYMAN2.ICD \
+  --focus-name DPLAYERX.DLL
+python -m unittest discover -s scripts -p 'test_pe_reference_diff.py'
+```
+
+The first command does **not** write a patched EXE, copy protected
+data, or claim a decrypted result. The CLI refuses self-comparison
+to avoid a misleading independent-provenance claim.
+**Nine synthetic Python tests pass locally** on the independent
+working copy: section file-offset shifts, exact changed RVA, extra
+sections, parser bounds, corrupted manifest entries, self-comparison,
+and read-only JSON output. Native Rust tests remain uncompiled due
+to absent Rust toolchain; the existing Crimson Skies unwrap code
+was not modified.
+
 ## Verified breakthrough — BOTH uploaded opaque files are exact masked-MINSTD streams
 
 **2026-11-12 correction:** Earlier research incorrectly interpreted the ICD as
