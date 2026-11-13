@@ -10,6 +10,90 @@ reported file lengths** in the GOG reference, but does not authenticate the
 3,716 GOG entries as the original CD directory.
 
 
+## Critical scope correction — retail EXE code is already mostly native, not a proven encrypted bulk payload (13 November 2026)
+
+A new exact-file PE boundary audit changes the **decryption research priority**.
+Against the **two SHA-256-locked full PE32 EXEs** supplied by the owner
+(original protected CD \`Rayman2.exe\`, separately edited GOG \`Rayman2.exe\`):
+
+| On-disk PE evidence | Verified result |
+|---|---:|
+| Original retail executable \`.text\` raw bytes | **631,296** |
+| Exact corresponding bytes in the executable GOG \`.text\` | **618,027** (97.8981%) |
+| Total different code bytes | **13,269** (2.1019%) |
+| Differing code bytes replaced with GOG \`INT3\` / \`0xCC\` | **10,851** |
+| Other different bytes in active GOG \`.text\` | **2,418** |
+| Contiguous changed-byte spans | **102** |
+| 4-KiB code pages with any difference | **14 of 155** |
+| 4-KiB code pages byte-identical | **141 of 155** |
+| Longest continuous unchanged code stretch | **268,900 bytes** |
+| Shared PE32 original/GOG entrypoint | **0x0045FCC0** |
+| First 16 KiB from entrypoint | **Byte-identical** |
+| Shared \`.rdata\` raw bytes | **12,288 / 12,288 identical** |
+| Shared \`.data\` | **127 bytes altered** (described below) |
+
+The exact modified executable pages (RVA) are
+\`0x1000, 0x2000, 0x5000, 0x47000, 0x48000, 0x49000,
+0x4D000, 0x4E000, 0x4F000, 0x50000, 0x51000,
+0x67000, 0x70000, 0x7B000\`.
+All other executable-code pages in that original 631,296-byte
+raw section match **at the same VA**. The two binaries start
+at the same native x86 entrypoint; a real disassembly of
+the original entrypoint begins with an ordinary \`PUSH EBP;
+MOV EBP,ESP\` prologue and subsequent runtime/API calls.
+
+**Independent archival copy check:** GOG's \`.extra\` PE
+section is **not marked executable** (PE section
+characteristics lack \`IMAGE_SCN_MEM_EXECUTE\`). At
+offset **0x1000** inside that section, it contains a
+**byte-exact copy of the original retail \`.text\`**,
+SHA-256 **\`43ce6eff6082f2c7491cd249d3cfeffbcb56e63313a67246dd2b14f1985751c3\`**,
+surrounded by zero padding. This archival copy does
+*not* establish that the active GOG code is a pristine
+SafeDisc-decrypted retail build; GOG intentionally
+changed/removed additional executable logic.
+
+The separately supplied **ICD and \`dplayerx.dll\`**
+are both completely reproducible as known masked
+Park–Miller pseudo-random streams (see tests below).
+Thus **neither supplied opaque file has been
+established as carrying a conventionally encrypted
+original PE executable image**; their possible roles
+as a protection state, key stream, decoy or generated
+resource require independent evidence. Do not infer
+a decryptable PE payload merely from the filename
+\`RAYMAN2.ICD\`.
+
+**What this DOES and DOES NOT prove:** It is strong
+negative evidence *against* a simple model in which
+the entire on-disk original game \`.text\` is an
+unreadable encrypted blob that must first be decrypted.
+It does **not** exclude smaller encrypted regions,
+post-load transformation, encrypted disc sectors,
+checks performed by another module, or functions
+whose behavior depends on the original CD and
+SafeDisc driver. The exact point or algorithm of
+SafeDisc 1.35's protection-stage unwrapping
+**remains unidentified**.
+
+**Practical consequence:** stop treating GOG as a
+clean "decrypted EXE" oracle. Investigate
+only the precisely changed original code islands
+and the loading/driver authorization path, and
+seek a **same-edition original physical CD/install
+or a validated post-load memory observation** before
+claiming a portable 1.35 decrypter. In this repository,
+\`scripts/rayman2_sample_provenance.py\` now adds a
+bounded whole-\`.text\` page-diff diagnostic with exact
+sample hashes; \`scripts/test_rayman2_sample_provenance.py\`
+has synthetic and optional private-input tests. A separate
+independent local audit ran **7/7 tests** on the exact
+private PE pair and refused mutated inputs, generating
+\`rayman2_binary_boundary_verified_20261113.json\`.
+Only hashes, byte counts, RVAs and limitation flags
+are reported; no game bytes are redistributed.
+
+
 ## New four-sample provenance and contemporary Rayman 2-specific study (13 November 2026)
 
 A **full, independent byte-level crosscheck** now links the user's exact
