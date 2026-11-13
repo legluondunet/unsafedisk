@@ -188,6 +188,8 @@ def main(argv=None) -> int:
     parser.add_argument("--focus-name", action="append", default=[])
     args = parser.parse_args(argv)
     try:
+        if args.protected.samefile(args.reference):
+            raise ValueError("protected and reference paths refer to the same file")
         a, b = (parse_pe32(read_bounded(args.protected)),
                 parse_pe32(read_bounded(args.reference)))
         result = compare_pe32(a, b)
