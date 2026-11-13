@@ -78,6 +78,22 @@ SLOT_ANCHORS = {
     0x00447BCD: '33 DB',                       # zero on failure
     0x00447BCF: '89 9E 00 14 4A 00',           # write zero on failure
 }
+# Special record index zero bootstraps GetModuleHandleA, distinct from the
+# 35 one-based ordinary export descriptors.
+BOOTSTRAP_RECORD = 0x004A13D0
+BOOTSTRAP_SLOT = 0x004A1400
+BOOTSTRAP_ANCHORS = {
+    0x004478E3: 'E8 48 FE FF FF',              # call export walker
+    0x004478F7: '03 02',                       # module base + export RVA
+    0x004478F9: '33 C1',                       # XOR with record-0 mask
+    0x004478FB: 'A3 00 14 4A 00',              # store first masked slot
+    0x00447AB7: 'E8 14 FA FF FF',              # decoded DLL name
+    0x00447ABC: '8B 15 00 14 4A 00',           # GetModuleHandleA masked slot
+    0x00447AC2: '8B 0D D0 13 4A 00',           # record-0 XOR mask
+    0x00447ACB: '33 CA',                       # decode GetModuleHandleA
+    0x00447ACE: 'FF D1',                       # invoke GetModuleHandleA
+    0x00447AE4: '89 04 B1',                    # store HMODULE in runtime table
+}
 SLOT_INIT_CALLS = {
     0x0044818A: 0x00447A90,
     0x00448196: SLOT_INIT,
@@ -100,6 +116,13 @@ def masked_slot(index):
 
 def verify_slot_initializer(retail, retail_headers, gog=None):
     """Read-only static verification; no runtime API pointer is recovered."""
+    bootstrap=backed(retail,retail_headers,BOOTSTRAP_RECORD,0x4C)
+    if decode_name(bootstrap) != 'GetModuleHandleA':
+        raise ValueError('unexpected module-handle bootstrap API')
+    if bootstrap[0x30:0x34] != b'\0'*4:
+        raise ValueError('unexpected nonzero bootstrap on-disk pointer')
+    for site, hex_pattern in BOOTSTRAP_ANCHORS.items():
+        assert_bytes(retail,retail_headers,site,bytes.fromhex(hex_pattern))
     for site, hex_pattern in SLOT_ANCHORS.items():
         assert_bytes(retail,retail_headers,site,bytes.fromhex(hex_pattern))
     for site, dest in SLOT_INIT_CALLS.items():
@@ -117,6 +140,12 @@ def verify_slot_initializer(retail, retail_headers, gog=None):
         if hashlib.sha256(gog).hexdigest() != GOG_SHA:
             raise ValueError('wrong exact GOG reference SHA-256')
         gh=pe_headers(gog)
+        if backed(gog,gh,BOOTSTRAP_RECORD,0x4C) != bootstrap:
+            raise ValueError('GOG changed bootstrap descriptor unexpectedly')
+        if backed(gog,gh,0x004478A0,4) != b'\xc3' + b'\xcc'*3:
+            raise ValueError('GOG GetModuleHandleA bootstrap not disabled')
+        if backed(gog,gh,0x00447A90,8) != b'\xcc'*8:
+            raise ValueError('GOG module handle resolver not disabled')
         if backed(gog,gh,SLOT_INIT,SLOT_INIT_SIZE) != b'\xcc'*SLOT_INIT_SIZE:
             raise ValueError('GOG retained unexpected resolver instructions')
         for va in (0x004474D0,0x00447540,0x00447730):
@@ -129,7 +158,13 @@ def verify_slot_initializer(retail, retail_headers, gog=None):
     return {
         'retail_init_va':f'0x{SLOT_INIT:08X}',
         'direct_slot_init_calls_verified':3,
-        'other_load_module_helper_calls_verified':2,
+        'get_loaded_module_handle_helper_calls_verified':2,
+        'special_bootstrap_api':'GetModuleHandleA',
+        'special_bootstrap_descriptor_va':f'0x{BOOTSTRAP_RECORD:08X}',
+        'bootstrap_masked_slot_va':f'0x{BOOTSTRAP_SLOT:08X}',
+        'special_bootstrap_anchor_count':len(BOOTSTRAP_ANCHORS),
+        'module_handle_helper_va':'0x00447A90',
+        'loads_new_module_via_LoadLibraryA_proven':False,
         'init_instruction_anchors_verified':len(SLOT_ANCHORS),
         'api_descriptors_verified':len(rows),
         'descriptor_stride_bytes':0x4C,
