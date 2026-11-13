@@ -332,6 +332,70 @@ def compare_masked_pointer_pairs(protected: dict, reference: dict,
     return results
 
 
+def read_section_bytes_va(pe: dict, va: int, length: int) -> bytes:
+    """Map one contiguous file-backed PE virtual-memory range to raw bytes."""
+    if not 0 <= va <= 0xFFFF_FFFF or not 0 <= length <= 1_048_576:
+        raise ValueError("invalid VA or byte length")
+    rva = va - pe["image_base"]
+    for section in pe["sections"].values():
+        delta = rva - section["rva"]
+        if 0 <= delta and delta + length <= section["raw_len"]:
+            return section["contents"][delta:delta + length]
+    raise ValueError(f"file bytes unavailable at 0x{va:08X} (length {length})")
+
+
+def compare_descriptor_layout(protected: dict, reference: dict,
+                              base_va: int, stride: int, count: int,
+                              mask_offset: int, slot_offset: int) -> dict:
+    """Summarize fixed-stride on-disk descriptors without assigning semantics.
+
+    The mask and pointer-slot labels refer to a hypothesis supplied by
+    the researcher; they are not confirmed decoded function pointers.
+    """
+    if (not 1 <= count <= 256 or not 8 <= stride <= 4096
+            or not 0 <= mask_offset <= stride - 4
+            or not 0 <= slot_offset <= stride - 4
+            or stride * count > 1_048_576):
+        raise ValueError("invalid bounded descriptor layout")
+    entries = []
+    for index in range(count):
+        addr = base_va + index * stride
+        retail = read_section_bytes_va(protected, addr, stride)
+        other = read_section_bytes_va(reference, addr, stride)
+        r_mask = struct.unpack_from("<I", retail, mask_offset)[0]
+        r_slot = struct.unpack_from("<I", retail, slot_offset)[0]
+        g_mask = struct.unpack_from("<I", other, mask_offset)[0]
+        g_slot = struct.unpack_from("<I", other, slot_offset)[0]
+        entries.append({
+            "index": index, "record_va": f"0x{addr:08X}",
+            "retail_record_all_zero": not any(retail),
+            "reference_record_all_zero": not any(other),
+            "retail_mask_candidate": f"0x{r_mask:08X}",
+            "retail_pointer_slot_on_disk": f"0x{r_slot:08X}",
+            "reference_mask_candidate": f"0x{g_mask:08X}",
+            "reference_pointer_slot_on_disk": f"0x{g_slot:08X}",
+            "both_full_record_bytes_equal": retail == other,
+        })
+    return {
+        "read_only": True, "base_va": f"0x{base_va:08X}",
+        "stride_bytes": stride, "records": count,
+        "mask_offset": mask_offset, "pointer_slot_offset": slot_offset,
+        "identical_records": sum(row["both_full_record_bytes_equal"] for row in entries),
+        "retail_nonzero_records": sum(not row["retail_record_all_zero"] for row in entries),
+        "retail_zero_pointer_slots": sum(
+            row["retail_pointer_slot_on_disk"] == "0x00000000" for row in entries
+        ),
+        "source_code_execution_asserted": False,
+        "runtime_pointer_values_inferred": False,
+        "caution": (
+            "Only file-backed record bytes compared. An on-disk zero slot "
+            "may change at runtime; layout role and protected function "
+            "targets require independent verification."
+        ),
+        "entries": entries,
+    }
+
+
 def scan_manifest(data: bytes) -> dict:
     """Read <u32 claimed size><u32 name length><NUL-terminated name> records."""
     offset, records = 0, []
@@ -379,6 +443,8 @@ def main(argv=None) -> int:
                         help="Provenance label, e.g. GOG (metadata only; not authentication)")
     parser.add_argument("--manifest-section")
     parser.add_argument("--focus-name", action="append", default=[])
+    parser.add_argument("--descriptor-layout",
+                        help="BASE:STRIDE:COUNT:MASK_OFFSET:SLOT_OFFSET, integer fields")
     parser.add_argument("--masked-pair", action="append", default=[],
                         help="two PE virtual addresses FIRST:SECOND, repeatable")
     parser.add_argument("--trace-va", action="append", default=[],
@@ -399,6 +465,14 @@ def main(argv=None) -> int:
         )
         result["exact_embedded_section_copies"] = find_embedded_section_copies(a, b)
         result["reference_added_section_base_literals"] = find_added_section_base_literals(a, b)
+        if args.descriptor_layout:
+            fields = args.descriptor_layout.split(":")
+            if len(fields) != 5:
+                raise ValueError("descriptor layout must contain five integer fields")
+            numbers = [int(piece, 0) for piece in fields]
+            result["file_backed_descriptor_observations"] = compare_descriptor_layout(
+                a, b, *numbers
+            )
         if args.masked_pair:
             if len(args.masked_pair) > 64:
                 raise ValueError("at most 64 masked pointer pairs")
