@@ -151,6 +151,49 @@ def compare_pe32(protected: dict, reference: dict) -> dict:
     }
 
 
+def find_embedded_section_copies(protected: dict, reference: dict,
+                                 min_bytes: int = 4096) -> list[dict]:
+    """Find exact FULL section-byte copies inside differently named sections.
+
+    This is a byte-identity test, not evidence of code execution or a
+    SafeDisc-only change. Tiny or nearly constant regions are excluded
+    to avoid trivial coincidental matches.
+    """
+    if min_bytes < 1:
+        raise ValueError("minimum section size must be positive")
+    matches = []
+    for source_name, source in protected["sections"].items():
+        needle = source["contents"]
+        if len(needle) < min_bytes or len(set(needle)) < 8:
+            continue
+        for target_name, target in reference["sections"].items():
+            if source_name == target_name:
+                continue
+            offset = target["contents"].find(needle)
+            if offset < 0:
+                continue
+            prefix = target["contents"][:offset]
+            suffix = target["contents"][offset + len(needle):]
+            matches.append({
+                "protected_section": source_name,
+                "reference_section": target_name,
+                "matched_bytes": len(needle),
+                "matched_sha256": hashlib.sha256(needle).hexdigest(),
+                "reference_section_offset": f"0x{offset:X}",
+                "reference_file_offset": f"0x{target['raw_offset'] + offset:X}",
+                "reference_rva": f"0x{target['rva'] + offset:08X}",
+                "prefix_bytes": len(prefix),
+                "prefix_all_zero": not any(prefix),
+                "suffix_bytes": len(suffix),
+                "suffix_all_zero": not any(suffix),
+                "interpretation": (
+                    "Exact byte copy of a section, not a demonstrated relocation, "
+                    "execution path, GOG change reason, or SafeDisc behavior."
+                ),
+            })
+    return matches
+
+
 def scan_manifest(data: bytes) -> dict:
     """Read <u32 claimed size><u32 name length><NUL-terminated name> records."""
     offset, records = 0, []
@@ -210,6 +253,7 @@ def main(argv=None) -> int:
             "contain GOG, compatibility, third-party, or unrelated "
             "modifications. No difference is attributed to SafeDisc."
         )
+        result["exact_embedded_section_copies"] = find_embedded_section_copies(a, b)
         if args.manifest_section:
             section = b["sections"].get(args.manifest_section)
             if section is None:
