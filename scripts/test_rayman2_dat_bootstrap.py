@@ -6,7 +6,8 @@ import struct
 import unittest
 from rayman2_dat_bootstrap import (decode_bootstrap_48, analyze_executables,
                                    OUTPUTS, pe_va, READ_CALL_VAS,
-                                   approximate_dat_seek, SELECTOR_CONSTANTS, SELECTOR_ANCHORS)
+                                   approximate_dat_seek, SELECTOR_CONSTANTS, SELECTOR_ANCHORS,
+                                   _recover_dat_retry_strings, verify_missing_dat_dialog)
 
 
 def fixture(a=100, b=200, c=7, d=9, words=None):
@@ -111,6 +112,54 @@ class DatBootstrapTests(unittest.TestCase):
     def test_selector_not_bit_exact(self):
         self.assertFalse(approximate_dat_seek(33,100,200,1000,4)['bit_exact_x87'])
 
+
+    def test_synthetic_retry_message_reconstruction(self):
+        pairs=(( -0x58, b'Hello World'),(-0x24,b'No disk'))
+        code=bytearray()
+        for start,message in pairs:
+            for i,byte in enumerate(message+b'\0'):
+                offset=start+i
+                if byte==32:
+                    code.extend((0x88,0x5d,offset&0xff))
+                else:
+                    code.extend((0xc6,0x45,offset&0xff,byte))
+        self.assertEqual(_recover_dat_retry_strings(bytes(code)),
+                         ('Hello World','No disk'))
+
+    def test_retry_message_missing_byte(self):
+        with self.assertRaisesRegex(ValueError,'incomplete encoded retry'):
+            _recover_dat_retry_strings(b'\xc6\x45\xa8H')
+
+    def test_retry_message_conflicting_byte(self):
+        code=b'\xc6\x45\xa8H'+b'\xc6\x45\xa8I'
+        with self.assertRaisesRegex(ValueError,'conflicting encoded retry'):
+            _recover_dat_retry_strings(code)
+
+    def test_retry_message_missing_terminator(self):
+        code=bytearray()
+        for start,end in ((-0x58,-0x24),(-0x24,-0x0e)):
+            for offset in range(start,end):
+                code.extend((0xc6,0x45,offset&0xff,ord('X')))
+        with self.assertRaisesRegex(ValueError,'unterminated encoded retry'):
+            _recover_dat_retry_strings(bytes(code))
+
+    def test_retry_cancel_destination_math(self):
+        # 0x44E0E6 E8 rel32 -> 0x4011C0, and GOG EB 72 -> 0x44E15F.
+        self.assertEqual(0x44E0E6+5+struct.unpack('<i',bytes.fromhex('D5 30 FB FF'))[0],
+                         0x4011C0)
+        self.assertEqual(0x44E0EB+2+0x72,0x44E15F)
+
+    def test_private_retail_and_gog_retry_dialog_when_available(self):
+        folder=Path(os.environ.get('UNSAFEDISK_SAMPLES','/no/samples'))
+        retail=folder/'Rayman2(3).exe'
+        gog=folder/'rayman2(4).exe'
+        if not retail.is_file() or not gog.is_file():
+            self.skipTest('private game data not available')
+        report=verify_missing_dat_dialog(retail.read_bytes(),gog.read_bytes())
+        self.assertEqual(report['identical_dialog_code_bytes'],0x44E0EB-0x44DFC9)
+        self.assertEqual(report['retry_dialog_caption'],'Rayman 2 CD not found')
+        self.assertTrue(report['gog_retries_via_direct_CreateFileA'])
+
     def test_exact_private_samples_when_available(self):
         folder=Path(os.environ.get('UNSAFEDISK_SAMPLES','/no/samples'))
         retail=folder/'Rayman2(3).exe'
@@ -123,6 +172,7 @@ class DatBootstrapTests(unittest.TestCase):
         self.assertTrue(report['x87_selector_retained_identical'])
         self.assertEqual(report['x87_selector_verified_bytes'],192)
         self.assertEqual(report['x87_instruction_anchors_verified'],15)
+        self.assertTrue(report['missing_dat_retry_dialog_retained'])
 
 if __name__ == '__main__':
     unittest.main()
