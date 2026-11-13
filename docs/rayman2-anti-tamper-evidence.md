@@ -2,6 +2,40 @@
 
 Status: **external evidence and reproducible diagnostics, not a decoder**. Created 2026-11-13. This note supplements [the SafeDisc 1.35 investigation](safedisc-135-rayman2-research.md) without changing Crimson Skies or merging the draft PR.
 
+## Four-sample provenance: retail EXE, ICD, DLL and GOG virtual media
+
+A new [SHA-256-locked, read-only four-sample verifier](../scripts/rayman2_sample_provenance.py)
+correlates the three owner's original Rayman 2 sample sizes
+(676,352 EXE, 683,565 ICD, 165,888 DPLAYERX.DLL) with three
+**exact-length entries** in GOG's 3,716-record virtual-CD table.
+The same modified GOG executable embeds an exact, complete copy of
+the original retail 631,296-byte `.text` section at offset 0x1000
+inside its `.extra` section. The virtual manifest also lists
+SECDRV.SYS as 14,368 bytes; no owner sample of that file is available.
+
+**Do not equate metadata matching with actual original-disc file
+identity.** The source of the manifest is a modified GOG executable,
+and equality of file size does not establish equality of content.
+
+A contemporary [January 2000 Rayman 2 SafeDisc study by ArthaXerXès]
+(https://www.scribd.com/document/659005728/safedisc)
+describes *in-memory* section deciphering and independently gives
+an original entrypoint of 0x45FCC0 and .text size of 0x9A200;
+both match the original owner's PE. Its code at 0x4064D0 and
+0x4028FD does **not** match the on-disk code at the same VAs,
+possibly because it describes a post-decryption stage or another
+revision. This is evidence to keep the original SafeDisc loader,
+decrypted runtime game sections and GOG substitutions as **three
+separate referents**.
+
+**Critical:** The completely regenerable PRNG pattern in the two
+opaque ICD/DLL samples is a mathematical fact, **not proof that
+these files are disposable decoys**. This ambiguity is now explicit
+in the [main research report](safedisc-135-rayman2-research.md).
+Twelve local tests pass for the four-file provenance verifier;
+GitHub Actions and Windows/Wine gameplay were not run.
+
+
 ## Three separate issues, not one cipher
 
 1. **SafeDisc 1.x media authentication / loader.** A Wine developer's 2005 explanation describes the `Secdrv.sys` kernel driver, `DeviceIoControl`, and a typical encrypted `.ICD` payload. This description is of a *different game* and must not overrule measurements on our exact Rayman 2 samples. Source: https://list.winehq.org/hyperkitty/list/wine-devel@list.winehq.org/thread/A2SGOS3ZAABYF3LBHRLGNSFL3GQRBDIO/
