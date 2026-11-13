@@ -107,6 +107,16 @@ class ReferenceDiffTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "data directory exceeds optional header"):
             tool.parse_pe32(bytes(data))
 
+    def test_int3_neutralization_is_counted_separately(self):
+        a = bytearray(pe_fixture())
+        b = bytearray(pe_fixture(text_offset=0x800))
+        b[0x800+14] = 0xCC
+        diff = tool.compare_pe32(
+            tool.parse_pe32(bytes(a)), tool.parse_pe32(bytes(b))
+        )["section_comparison"][0]
+        self.assertEqual(diff["changed_to_int3_bytes"], 1)
+        self.assertEqual(diff["different_bytes"], 1)
+
     def test_cli_rejects_self_comparison(self):
         with tempfile.TemporaryDirectory() as folder:
             path = Path(folder)/"fixture.exe"
