@@ -159,6 +159,55 @@ Primary historical context: https://list.winehq.org/hyperkitty/list/wine-devel%4
 (2005, a different title). This historical general description
 does not override the exact measured Rayman 2 bytes.
 
+
+### Deeper original-code finding: resolved descriptor slots, not an unknown file cipher
+
+For these four wrappers, the original x86 stubs **do not operate on
+unexplained random executable bytes**: they recover an API pointer
+from the existing 76-byte/record, 36-record masked function-descriptor
+table whose 35 nonzero records were decoded earlier.
+
+For records numbered **one-based**, the descriptor record base is
+\`0x004A141C + (record-1)*0x4C\`, and its resolved masked pointer
+is at base \`+0x30\`. The original retail wrapper writes or synthesizes
+a tiny trampoline:
+
+| GOG-confirmed API | Original wrapper | Descriptor | Base / stored pointer |
+|---|---|---:|---|
+| CreateFileA | \`0x44F220\` | **8** | \`0x4A1630 / 0x4A1660\` |
+| ReadFile | \`0x44E750\` | **10** | \`0x4A16C8 / 0x4A16F8\` |
+| CloseHandle | \`0x448500\` | **11** | \`0x4A1714 / 0x4A1744\` |
+| SetFilePointer | \`0x44F380\` | **12** | \`0x4A1760 / 0x4A1790\` |
+
+At \`0x44F28C–0x44F2A9\`, the retail code constructs 13 bytes
+corresponding to the following x86 semantics:
+
+\`\`\`asm
+mov eax, dword ptr [0x004A1660]  ; descriptor 8, +0x30
+xor eax, dword ptr [0x004A1630]  ; descriptor 8, base
+jmp eax
+\`\`\`
+
+The corresponding \`ReadFile\` and \`SetFilePointer\` wrappers construct
+the same \`MOV / XOR / JMP\` shape with their own paired addresses.
+\`CloseHandle\` at \`0x448556–0x44856B\` instead reads the two DWORDs,
+XORs them, and creates a six-byte \`PUSH imm32; RET\` trampoline
+containing the resulting pointer. This demonstrates *two* concrete
+ways in which original code hides and invokes an import that GOG
+forwards directly.
+
+The actual runtime pointer values cannot be derived from the
+uninitialized \`+0x30\` fields on disk. The masked descriptor
+initialization routine must run before the trampoline is callable;
+**no full runtime trace or decrypted ICD follows from this result**.
+
+The names \`CreateFileA\` (record 8) and \`ReadFile\` (record 10)
+are additionally independently confirmed by the existing encoded
+export-name decoder. The other two names in this table are confirmed
+from the GOG import-forwarding stubs and matching original descriptor
+address construction, not from a newly published entire decoded
+export list.
+
 ## Read-only, falsifiable checks
 
 `scripts/rayman2_anti_tamper_assets.py` inspects only the two historical asset names and hashes, with case-insensitive per-component lookup, link rejection and bounded reading. Example:
