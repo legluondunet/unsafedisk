@@ -293,6 +293,34 @@ See [the Rayman 2 research notes](docs/safedisc-135-rayman2-research.md)
 for the three instruction addresses, verification
 limits and source references.
 
+**The GOG virtual-CD layer also synthesizes file metadata:**
+The retail encoded export descriptors #31
+(`GetFileInformationByHandle`) and #34
+(`GetFileTime`) correspond exactly to GOG
+callbacks `0x449010` (table `+0x1C`) and
+`0x448F18` (`+0x24`). GOG returns a fixed
+FILETIME equivalent to **1999-09-07 09:10:06 UTC**
+and the same synthetic disc serial
+`0x6D380AE8`. Crucially, its
+`GetFileInformationByHandle`-like callback
+calls the `0x448FD0` `.extra2` manifest-size
+lookup, then places the result into the
+`nFileSizeLow`-style field of its output.
+This is independent static evidence that
+the 3,716-entry GOG file inventory supplies
+**synthetic file metadata**, not merely
+names. Full runtime contract compliance
+is **not established**.
+
+Five GOG callbacks are now mapped to exact
+retail encoded API export names:
+`GetDriveTypeA`, `GetVolumeInformationA`,
+`GetDiskFreeSpaceA`, `GetFileTime`,
+`GetFileInformationByHandle`.
+**16/16 local real-file tests pass**.
+Do not confuse GOG's hard-coded answers
+with the true retail disc's properties.
+
 **GOG also emulates CD-ROM properties (static evidence):**
 Three callbacks in the GOG-specific dispatch table return fixed
 answers resembling Win32 CD-drive functions:
