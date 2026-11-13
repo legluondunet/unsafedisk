@@ -126,7 +126,7 @@ def _pe32_headers_in_bytes(data: bytes) -> list[int]:
         if nt < 0x40 or nt > 0x1000 or pos + nt + 0x18 > limit:
             continue
         head = pos + nt
-        if data[head:head+4] != b"PE\\0\\0":
+        if data[head:head+4] != b"PE\0\0":
             continue
         machine, sections = struct.unpack_from("<HH", data, head + 4)
         optional_size = struct.unpack_from("<H", data, head + 20)[0]
@@ -135,7 +135,7 @@ def _pe32_headers_in_bytes(data: bytes) -> list[int]:
             continue
         optional_start = head + 24
         table_end = optional_start + optional_size + sections * 40
-        if table_end > limit or data[optional_start:optional_start+2] != b"\\x0b\\x01":
+        if table_end > limit or data[optional_start:optional_start+2] != b"\x0b\x01":
             continue
         found.append(pos)
 
