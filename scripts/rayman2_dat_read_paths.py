@@ -137,6 +137,21 @@ def analyze(cd:bytes,gog:bytes)->dict:
     if common != region(gog,gh,0x44F0C8,0x3A):
         raise ValueError('unexpected 4-byte data transformation mismatch')
     want(cd,ch,0x44F0D4,bytes.fromhex('2B CB 33 CE 89 0A'))
+    # Original pseudo-file alias selector. Both versions still calculate
+    # a scale from runtime globals, divide the decoded value by that
+    # scale, and take a PRNG remainder. Retail alone then subtracts
+    # selected_index*scale from the seek offset and indexes the 24 names.
+    # GOG calculates but does not apply the alias adjustment.
+    alias_prefix=bytes.fromhex(
+        'A1 B0 17 51 00 33 D2 F7 35 C0 17 51 00 33 D2 8B F0 '
+        '8B C1 C1 E6 0B F7 F6 8B D8 85 DB 74 0A E8 83 93 FF FF')
+    alias_mod=bytes.fromhex('85 DB 74 0A E8 83 93 FF FF 99 F7 FB 8B DA')
+    for data,head in ((cd,ch),(gog,gh)):
+        want(data,head,0x44F0DA,alias_prefix)
+        want(data,head,0x44F0F4,alias_mod)
+        want(data,head,0x44F12A,bytes.fromhex('8B CB 57 0F AF CE 8B 75 08'))
+    want(cd,ch,0x44F133,bytes.fromhex('29 0E'))
+    want(gog,gh,0x44F133,bytes.fromhex('90 90'))
     # First 512-byte read and seek are present in retail, 40 bytes of
     # ordinary NOP fill in GOG, with continuation to retained logic.
     want(cd,ch,0x44F11E,bytes.fromhex('68 00 02 00 00'))
@@ -194,6 +209,14 @@ def analyze(cd:bytes,gog:bytes)->dict:
       'indexed_word_decode':{'header_update':'A=(A+index*C) mod 2^32; B=(B+index*D) mod 2^32',
                              'result':'((indexed_word - A) mod 2^32) XOR B',
                              'semantics':'data decoding preserved identically in both EXEs, not established as SafeDisc cryptography'},
+      'retail_alias_selection':{
+          'runtime_scale':'((global_0x5117B0 // global_0x5117C0) << 11) modulo 2^32',
+          'pre_selection_bucket_count':'decoded_word // runtime_scale (requires nonzero scale)',
+          'alias_index':'if bucket_count>0: signed_nonnegative_PRNG_result % bucket_count; else 0',
+          'retail_seek_offset':'decoded_word - alias_index * runtime_scale',
+          'retail_filename':'DAT_name_table[alias_index]',
+          'gog_behavior':'keeps bucket and PRNG computation, but NOPs seek subtraction and chooses LEVELS0.DAT',
+          'runtime_globals_known':False,'real_filename_bound_verified':False},
       'retail_512_read_buffers':{'first':'[EBP-0x334]','second':'[EBP-0x534]',
                                  'direct_encoded_stack_refs_each':1,
                                  'readfile_returns_explicitly_checked':False,
