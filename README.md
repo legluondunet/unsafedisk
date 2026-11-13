@@ -145,6 +145,19 @@ python scripts/safedisc_prng_recurrence.py RAYMAN2.ICD --auto-align
 python scripts/safedisc_prng_recurrence.py dplayerx.dll --auto-align
 ```
 
+**Original ISO versus GOG catalog (14 Nov):** Two archived Rayman2Fix
+CD-inspection logs (Windows and Wine) were independently reconciled
+with GOG's hash-pinned virtual-CD catalog, using the new read-only
+`scripts/rayman2_cd_log_gog_compare.py`.
+The Wine log shows **1,612 matching names and sizes among 1,618
+omitted CD records**; the Windows log independently shows
+**1,607/1,613**. The same six absent files are Adobe Reader
+installers from `ACROBAT/` and **no shared name has a mismatched
+declared size**. The original ISO bytes were not available here,
+so this verifies historical metadata **only**, not CD content
+hashes. See [the reconciliation report]
+(docs/rayman2-original-iso-gog-log-reconciliation.md).
+
 **Extended five-file finding (13 Nov 2026):**
 
 **TEA five-file known-plaintext test:** [independently reproduced negative crossmatch](docs/rayman2-tea-known-plaintext-crosscheck.md); both historical key spellings, all overlapping eight-byte offsets, strict source SHA-256 gates and five synthetic tests. **Not an ICD decrypter**.
