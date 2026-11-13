@@ -22,7 +22,7 @@ class LifecycleTests(unittest.TestCase):
         pe=bytearray(0x600)
         pe[:2]=b'MZ'
         struct.pack_into('<I',pe,0x3c,0x80)
-        pe[0x80:0x84]=b'PE\\0\\0'
+        pe[0x80:0x84]=b'PE\0\0'
         struct.pack_into('<H',pe,0x84,0x14c)  # x86 machine
         struct.pack_into('<H',pe,0x86,1)      # one section
         struct.pack_into('<H',pe,0x94,0xe0)   # PE32 optional header length
