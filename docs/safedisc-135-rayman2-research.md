@@ -30,6 +30,24 @@ differences. Correctly aligned by RVA:
 | `.rdata` (RVA `0x9C000`) | 12,288 | 12,288 | **100%** | 0 |
 | `.data` (RVA `0x9F000`) | 31,744 | 31,617 | **99.5999%** | 127 |
 
+**Control-flow neutralization pattern:** among the **13,269**
+changed backed bytes in shared `.text`, **10,851 bytes** are
+replaced by `0xCC` (`INT3`) and **1,520 bytes** are replaced by
+`0x90` (`NOP`). A large original code range beginning at
+RVA `0x474B0` is filled with `INT3` in the unprotected reference.
+This strongly indicates intentional invalidation/neutralization of
+some original code paths, **not** necessarily the exact SafeDisc
+module boundary, and does not by itself provide safe code relocation.
+
+At reference image VA **`0x00518000`** (within added section
+`.extra`, section-relative offset `0x1000`) the bytes disassemble
+as coherent x86 sequences, including references to the original
+`.data` and calls into higher addresses in the extra region.
+The `.extra` section is flagged as *read-only data*, not ordinary
+executable code, so actual runtime execution/permissions are
+**unverified**. Its semantics require careful cross-reference tracing.
+No additional proprietary code is committed.
+
 The `.text` byte changes occupy **14** distinct 4-KiB virtual pages,
 with the largest concentrations in page ranges near RVAs
 `0x47000`, `0x48000` and `0x4E000`. Changed-byte addresses
