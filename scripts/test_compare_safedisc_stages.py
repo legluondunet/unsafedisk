@@ -2,7 +2,8 @@
 from pathlib import Path
 import tempfile
 import unittest
-from compare_safedisc_stages import inventory, compare_records, main
+from types import SimpleNamespace
+from compare_safedisc_stages import inventory, compare_records, main, opened_snapshot_matches
 
 
 class TestStageComparison(unittest.TestCase):
@@ -52,8 +53,25 @@ class TestStageComparison(unittest.TestCase):
     def test_reject_casefold_collisions(self):
         with tempfile.TemporaryDirectory() as d:
             root=Path(d);(root/"rayman2.icd").write_bytes(b"a");(root/"RAYMAN2.ICD").write_bytes(b"b")
+            # A case-insensitive Windows volume cannot represent both names.
+            if len(list(root.iterdir())) < 2:
+                self.skipTest("filesystem cannot represent casefold collisions")
             with self.assertRaisesRegex(ValueError,"ambiguous"):
                 inventory(root)
+
+    def test_windows_inode_mismatch_same_snapshot(self):
+        before=SimpleNamespace(st_dev=1,st_ino=101,st_size=42,st_mtime_ns=1234)
+        opened=SimpleNamespace(st_dev=2,st_ino=202,st_size=42,st_mtime_ns=1234)
+        self.assertTrue(opened_snapshot_matches(before,opened,platform="nt"))
+        self.assertFalse(opened_snapshot_matches(before,opened,platform="posix"))
+
+    def test_windows_rejects_size_or_mtime_changes(self):
+        before=SimpleNamespace(st_dev=1,st_ino=101,st_size=42,st_mtime_ns=1234)
+        for size,stamp in ((43,1234),(42,1235)):
+            with self.subTest(size=size,stamp=stamp):
+                opened=SimpleNamespace(st_dev=2,st_ino=202,st_size=size,st_mtime_ns=stamp)
+                self.assertFalse(opened_snapshot_matches(before,opened,platform="nt"))
+                self.assertFalse(opened_snapshot_matches(before,opened,platform="posix"))
 
     def test_reject_oversized(self):
         with tempfile.TemporaryDirectory() as d:
