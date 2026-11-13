@@ -710,6 +710,67 @@ This is evidence about Rayman 2's resource-access logic, *not*
 a SafeDisc 1.35 decryption algorithm.
 
 
+## Retained x87 DAT position selector: formula and verified opcode anchors (13 Nov 2026)
+
+The independent investigation of both **exact owner-supplied SHA-256-known
+retail CD and modified GOG EXEs** has now pinned the complete unchanged
+**192-byte** x87/CRT calculation at VAs **0x0044ED8E..0x0044EE4D**.
+All **six double-precision constants** at VA **0x0049C940** and
+**15 x86 instruction anchors** match both files. The imported CRT thunks
+at **0x45FF52**, **0x45FF4C** and **0x45FEB0** are respectively
+\`modf\`, \`floor\` and \`_ftol\`, validated in each PE.
+
+For valid positive runtime divisor \`D = [0x5117B4]\`, let
+\`m = byte([0x5116F2]) % D\`. If **m = 0**, the path branches
+directly to **0x0044F1FA** and does not make the indexed DAT read.
+Otherwise the floating-point calculation is approximately:
+
+\`\`\`python
+S = 1.06913
+for i in range(m):                      # m <= 255
+    S += 0.69314 * abs(sin(1.69314 * i*i)) + 0.52658
+fraction = modf(S).fractional_part
+quantized = floor(fraction * 1000000.0) * 0.000001
+j = floor(quantized * decoded_global_0x5117B0)
+P = (decoded_global_0x511754
+     + j * decoded_global_0x5117BC) & 0xFFFFFFFF
+\`\`\`
+
+The quantized fractional coordinate lies between zero and one for
+the positive finite ideal arithmetic; for a safely representable
+positive 32-bit signed count \`C\`, the ideal \`j\` lies in
+\`[0, C-1]\`. That makes the selector a **deterministic bounded
+position choice within C stride slots** given the decoded globals,
+rather than an unrestricted random disk offset.
+
+**Critical limitation:** \`FSIN\` works on x87 80-bit intermediates,
+and the exact historical \`modf\`, \`floor\`, \`_ftol\` results depend
+on floating-point rounding/precision and possible conversion
+overflow. Python's \`math.sin\`/binary64 is **NOT bit-exact x87
+emulation**; synthetic \`j\` and P values near rounding boundaries
+can differ from the real game. Runtime DAT values, valid Win32 file
+reads, and original CD sector provenance have not been observed.
+The code is not established as a SafeDisc decryption algorithm.
+
+Instead of adding another standalone script to an already broad
+research PR, the existing
+\`scripts/rayman2_dat_bootstrap.py\` was **extended in place** with
+\`verify_seek_selector\` (the exact opcode/constant checks) and
+\`approximate_dat_seek\` (the explicitly inexact mathematical model).
+Its companion test module gained eight new cases, giving **19 actual
+local test executions passing**, including the two private
+authenticated binary inputs and a sweep over many synthetic state
+values. GitHub's exact Python blobs are identical to the tested files
+(script \`7f968acdc73dcd890ef47a4fb95fedd957dd7ec5\`, tests
+\`6cab41e1dc9c70cf161f592ec8349d5d2de81ccb\`).
+
+No new GitHub Actions run or Rust build was launched; no game code was
+executed or modified, and PR #3 remains a draft. The logical next
+research check is to compare real original-CD \`LEVELS0.DAT\` data,
+with its authentic file/ISO offset, against a runtime trace of P and
+the six decoded globals—not to infer correctness from GOG's
+modified executable alone.
+
 ## Read-only, falsifiable checks
 
 `scripts/rayman2_anti_tamper_assets.py` inspects only the two historical asset names and hashes, with case-insensitive per-component lookup, link rejection and bounded reading. Example:
