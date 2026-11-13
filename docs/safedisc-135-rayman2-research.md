@@ -150,6 +150,50 @@ protected counterpart has no ordinary resource directory. These
 differences **do not establish how the unprotected EXE was produced**
 or imply a general-purpose SafeDisc 1.35 decoding method.
 
+### Static GOG code references to the embedded file inventory
+
+Unlike the inert-looking byte-copy hypothesis for `.extra`,
+the **GOG-modified `.text` contains two explicit x86
+immediates referencing the base of `.extra2`**.
+The section's RVA is `0x1B3000`, so its image-base-adjusted
+virtual address is **`0x005B3000`**.
+
+Verified by independent `objdump -D -M intel` of the SHA-256-pinned
+GOG EXE and compared to the protected CD bytes at the same VAs:
+
+| GOG instruction VA | Exact observation |
+|---|---|
+| `0x00448F80` | `MOV EDI, 0x005B3000` — base of `.extra2` |
+| `0x00448F85`–`0x00448FBD` | Loop checks the `0xFFFFFFFF` sentinel, compares a caller-supplied path to table entry names (ASCII lowercase normalized), and advances by a record's prefixed length |
+| `0x00448FD7` | `MOV ESI, 0x005B3000` — same table base |
+| `0x00448FE0`–`0x00448FF5` | Second loop traverses records, selects an entry by index and reads its claimed size |
+| `0x0044905A` | `CALL 0x00448FD0` — call to the size-lookup routine |
+
+The corresponding protected retail `.text` contains **different
+instructions** at these addresses (in particular obfuscated
+PRNG/control-flow code), so these two manifest readers are
+**GOG-reference-specific static modifications**. This establishes
+a concrete intended **file-path and file-size lookup** use for the
+`.extra2` table in GOG's code. It does **not** prove whether those
+functions are reached at runtime, whether a particular file is
+emulated, or why GOG chose the declared values. In particular,
+it does not authenticate the 3,716 records as the true original
+physical CD file inventory.
+
+Separately, the GOG `.text` has two literal VA operands
+referring to `.extra`'s base `0x00517000`
+(at `0x00470052` and `0x0047B1C4`). The first corresponds to
+`MOV EAX, 0x00517000` at `0x00470051`. Their role must be
+traced; **the fact that the protected `.text` is preserved in
+`.extra` does not mean it is executed there**.
+
+The generic comparator now lists byte-pattern occurrences of the
+absolute base VAs of *reference-only* PE sections inside
+executable-designated sections. Such matches are labeled
+**literal candidates**, not automatically decoded x86 instructions.
+One synthetic regression test validates the bounded reference mapping
+and its absence when the bytes are not present.
+
 ### Exact extent of GOG `.extra2` inventory
 
 The entire `143,360` backed bytes of GOG `.extra2` consist
