@@ -250,6 +250,29 @@ def verify_missing_dat_dialog(retail: bytes, gog: bytes) -> dict:
     if (message,caption) != ('Please, insert Rayman II CD in CDROM Drive',
                              'Rayman 2 CD not found'):
         raise ValueError('unexpected Rayman 2 DAT retry dialog contents')
+    # Two more data-file open failures use the game's UI dispatcher.
+    # All branch bytes and the 90-byte dispatcher are identical across
+    # the exact protected CD and GOG images, including Retry/Cancel.
+    other_ranges = ((0x44EC44,0x44EC6B), (0x44F184,0x44F1A7),
+                    (0x4028F0,0x40294A))
+    for low,high in other_ranges:
+        if _va_span(retail,low,high) != _va_span(gog,low,high):
+            raise ValueError('original/GOG DAT file-open dispatcher differs')
+    expected_prompt = bytes.fromhex('6A 05 68 70 22 4A 00 68 C0 06 4A 00')
+    for binary in (retail,gog):
+        for site in (0x44EC4D,0x44F189):
+            if pe_va(binary,site,len(expected_prompt)) != expected_prompt:
+                raise ValueError(f'wrong DAT error UI arguments at 0x{site:08X}')
+        if pe_va(binary,0x4A2270,17) != b'CDROM not found!\0':
+            raise ValueError('unexpected DAT error caption')
+        if pe_va(binary,0x4A06C0,21) != b'Please insert the CD\0':
+            raise ValueError('unexpected DAT error message')
+        # If global GUI handle at 0x4A6AC0 is zero, call MessageBoxA;
+        # otherwise the dispatcher uses SendMessageA on that handle.
+        if pe_va(binary,0x40293E,8) != bytes.fromhex('6A 00 FF 15 70 C2 49 00'):
+            raise ValueError('MessageBoxA dispatcher fallback mismatch')
+        if pe_va(binary,0x402921,6) != bytes.fromhex('FF 15 28 C2 49 00'):
+            raise ValueError('SendMessageA dispatcher path mismatch')
     return {'missing_dat_retry_dialog_retained':True,
             'identical_dialog_code_bytes':len(original),
             'messageboxa_import_pointer':'0x0049C270',
@@ -258,6 +281,14 @@ def verify_missing_dat_dialog(retail: bytes, gog: bytes) -> dict:
             'retry_dialog_text':message, 'retry_dialog_caption':caption,
             'gog_retries_via_direct_CreateFileA':True,
             'retail_retries_via_generated_CreateFileA':True,
+            'other_dat_errors':{'candidate_branches':['0x0044EC4D','0x0044F189'],
+                                 'caption':'CDROM not found!',
+                                 'message':'Please insert the CD',
+                                 'shared_error_code_lengths':[39,35,90],
+                                 'ui_dispatcher_va':'0x004028F0',
+                                 'fallback_when_no_gui_handle':'USER32.dll!MessageBoxA',
+                                 'otherwise':'USER32.dll!SendMessageA',
+                                 'runtime_path_observed':False},
             'safedisc_authorization_proven':False}
 
 def verify_seek_selector(retail: bytes, gog: bytes) -> dict:
