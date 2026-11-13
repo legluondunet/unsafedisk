@@ -65,6 +65,23 @@ class LogToGogTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             parse_iso_omissions(SUMMARY.replace('cd_excluded_files=2','cd_excluded_files=3')+OMITTED)
 
+    def test_all_23_unusually_large_dat_records(self):
+        from rayman2_cd_log_gog_compare import LEVEL_DAT_PATHS
+        self.assertEqual(len(LEVEL_DAT_PATHS), 23)
+        synthetic = {name: 200_000_000+i for i, name in
+                     enumerate(sorted(LEVEL_DAT_PATHS))}
+        log = {'stats': {'files': 24, 'declared_bytes': 4_000_000_000,
+                         'image_bytes': 650_000_000},
+               'omissions': synthetic}
+        result = compare(log, synthetic)
+        details = result['historical_23_omitted_dat']
+        self.assertTrue(details['all_23_confirmed_in_both'])
+        self.assertEqual(details['matching_paths_and_lengths_in_gog'], 23)
+        self.assertEqual(details['iso_declared_bytes'], sum(synthetic.values()))
+        synthetic.pop('data/world/levels/music0.dat')
+        result = compare(log, synthetic)
+        self.assertFalse(result['historical_23_omitted_dat']['all_23_confirmed_in_both'])
+
     def test_catalog_malformed_and_wrong_hash_rejected(self):
         good = fake_pe_catalog([('RAYMAN2.ICD', 10)])
         with self.assertRaises(ValueError):
