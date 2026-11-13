@@ -1099,6 +1099,98 @@ Both editions are SHA-256 locked. No proprietary PE content is
 committed or distributed; GOG is an edited third-party executable,
 not a clean original executable with only SafeDisc removed.
 
+## GOG virtual-CD handles: record indices, not Win32 kernel objects (13 Nov 2026)
+
+A follow-up to the 16-slot callback audit reveals exactly how
+the **modified GOG executable simulates file handles** for its
+Rayman 2 CD metadata queries.
+
+The GOG callback at **0x00448F60** is placed in the original
+**CreateFileA** table slot (offset 0x08). It does **not** call
+the real Win32 CreateFileA API on its accepted path.
+Its instructions at 0x00448F65..0x00448FC5:
+
+1. Reject \`dwDesiredAccess & GENERIC_WRITE\` (bit 0x40000000).
+2. Require a non-null pointer and \`path[1:3] == ":\\",
+   \` where the first character is the drive letter.
+3. Skip the first **three path bytes**, then compare the remaining
+   filename with successive entries in the virtual table at
+   **VA 0x005B3000**, uppercasing only ASCII a..z from the input.
+4. Return the **zero-based integer position** of the matching
+   filename in the ordered table of 3,716 records, **not** a
+   native Windows HANDLE. Return **0xFFFFFFFF** if no file matches.
+
+At **0x00448FD0**, its callback for **GetFileSize** uses that
+integer as a record index, walks the same packed metadata records
+(their entries are \`u32 declared_length\`, \`u32 filename_bytes\`,
+\`NUL-terminated name\`), and returns the record's
+**declared 32-bit file length** while clearing the output high
+DWORD to zero. If the index runs beyond the sentinel, the function
+returns **zero**, not \`INVALID_FILE_SIZE\`. It does not read actual
+file contents, and the declared values for the 24 DAT pseudofiles
+still do not describe trustworthy physical CD extents.
+
+The other GOG callback implementations confirm the same virtual
+filesystem contract:
+
+| GOG code | Static return or metadata behavior |
+|---|---|
+| \`0x00448F08\` (CloseHandle) | Returns TRUE = 1, without calling native CloseHandle |
+| \`0x00448F08\` (GetFileAttributesA) | Returns **1 = FILE_ATTRIBUTE_READONLY** |
+| \`0x00448F00\` (SetFileAttributesA) | Returns FALSE = 0 |
+| \`0x00448F10\` (SetFileTime) | Returns FALSE = 0 |
+| \`0x00448F18\` (GetFileTime) | Fabricates file timestamps |
+| \`0x00449010\` (GetFileInformationByHandle) | Fills read-only file attributes, volume serial 0x6D380AE8, link count 1, size via the same virtual index, and file index equal to that index |
+
+The fixed GOG FILETIME bytes correspond to
+**1999-09-07 09:10:06 UTC**. One **unverified implementation hazard**
+was noted: at **0x00449023**, the GOG
+\`GetFileInformationByHandle\` shim stores the high timestamp DWORD
+through **[EDI+8]**, whereas adjacent fields use the output pointer
+in **EAX**. No runtime register trace was collected, so it would be
+premature to call this a demonstrable crash or to patch the
+executable on that basis. It is recorded only as a static anomaly.
+
+### Independent correlation against all real GOG records
+
+The ordered 3,716-name manifest (from its actual \`.extra2\` section)
+is now parsed and checked alongside **30 independent instruction
+signatures**. These verified index/size pairs illustrate why the
+returned integer is a synthetic handle:
+
+| Virtual handle | GOG manifest filename | Declared size |
+|---:|---|---:|
+| 6 | DPLAYERX.DLL | 165,888 |
+| 17 | RAYMAN2.EXE | 676,352 |
+| 18 | RAYMAN2.ICD | 683,565 |
+| 21 | SECDRV.SYS | 14,368 |
+| 43 | DATA\WORLD\LEVELS\LEVELS0.DAT | 150,775,808 |
+| 46 | DATA\WORLD\LEVELS\MAP0.DAT | 187,087,845 |
+| 56 | DATA\WORLD\LEVELS\SOUNDS1.DAT | 339,690,633 |
+
+The \`CreateFileA\` shim accepts these paths with differing
+drive letters and ASCII capitalization, while \`GetFileSize\`
+returns their declared byte counts. The original CD's physical
+LBA layout and the actual data read path are **not** inferred.
+
+**Reproducible implementation:** the existing
+\`scripts/rayman2_win32_forwarders.py\` now checks the 30 opcode
+signatures and the seven specific manifest indices through
+\`inspect_gog_virtual_handles\`. The existing
+\`scripts/test_rayman2_win32_forwarders.py\` contains
+**21 test methods**, including a private-file test that skips
+when the owner PE samples are unavailable. A separate local
+read-only independent audit completed **13 tests with the exact
+SHA-256-pinned GOG executable**, including bad-hash refusal and
+synthetic file-index behavior. Neither this nor CI executes the
+proprietary game executable.
+
+**Important boundary:** these are **CD-file metadata APIs**.
+The caller-facing table does not provide a complete emulation
+of native \`ReadFile\`; no conclusion about SafeDisc 1.35's physical
+disc authentication or the live data-loading path follows from
+these static GOG stubs.
+
 ## Read-only, falsifiable checks
 
 `scripts/rayman2_anti_tamper_assets.py` inspects only the two historical asset names and hashes, with case-insensitive per-component lookup, link rejection and bounded reading. Example:
