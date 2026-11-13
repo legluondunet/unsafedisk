@@ -212,6 +212,53 @@ Runtime reachability and file-system behavior remain untested.
 added section base VAs, cautiously labeled byte-pattern candidates.
 The local synthetic comparison suite passed **13 tests**.
 
+**GOG startup bypass identified statically (13 Nov 2026):**
+The direct CD/GOG startup call `0x401EFA → 0x449360`
+and the **complete 331-byte initializer at `0x449360`**
+are byte-identical. GOG nevertheless replaces the
+three called preparation functions
+`0x4478A0`, `0x448DB0`, `0x448D80`
+with single-byte `RET` entries; `0x447DE0`
+also becomes `RET` and `0x448DE0`
+becomes `XOR EAX,EAX; INC EAX; RET`.
+This explains how GOG can keep the original
+`CALL` instructions without necessarily entering
+the `INT3` padding behind those entries.
+The branch of `0x448E30` at `0x448E5A`
+is also replaced by a short code path that writes
+an ASCII `'.'` byte and returns.
+
+**PE zero-fill distinction:** original and GOG
+`.data` have identical **virtual size `0x776D0`**
+but only **`0x7C00` raw-backed bytes**.
+The state at `0x5113EC`, iteration bounds
+`0x5113E8`/`0x5113F0` and generated-stub
+buffer `0x510EA0` lie in the **virtual
+zero-filled tail**. They do **not** have
+file-backed initial values, and their runtime
+values may change.
+
+Use the read-only comparison options:
+
+```sh
+python scripts/pe_reference_diff.py \
+  --protected Rayman2-CD-protected.exe \
+  --reference Rayman2-GOG.exe --reference-origin GOG \
+  --entry-va 0x4478a0 --entry-va 0x448db0 \
+  --entry-va 0x448d80 --entry-va 0x447de0 \
+  --entry-va 0x448de0 \
+  --map-va 0x510ea0 --map-va 0x5113ec \
+  --code-span 0x449360:331
+```
+
+These are **stored-binary observations**, not
+proof of runtime reachability, a Windows/Wine
+validation or a generic SafeDisc removal method.
+The comparison code has **seven new synthetic
+tests** for return-stub classification and virtual
+data-tail handling, while independent local
+checks of the exact retail/GOG files pass.
+
 **GOG is not a drop-in implementation of the retail import
 resolver (verified 13 Nov 2026).** The GOG reference replaces
 the retail DLL-name decoder `0x004474D0` (106 bytes),
