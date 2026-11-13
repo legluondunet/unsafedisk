@@ -52,8 +52,15 @@ def safe_read(path: Path) -> bytes:
         opened = os.fstat(fh.fileno())
         if not stat.S_ISREG(opened.st_mode) or opened.st_size > MAX_INPUT_BYTES:
             raise ValueError('file changed type or size')
-        if (opened.st_dev, opened.st_ino) != (before.st_dev, before.st_ino):
-            raise ValueError('file replaced on opening')
+        # DirEntry.stat / fstat file IDs can disagree for the same file on
+        # Windows. Keep strict device+inode checks on POSIX; on Windows the
+        # common snapshot fields provide a best-effort check, not immunity
+        # to every concurrent path replacement (TOCTOU).
+        if ((opened.st_size, opened.st_mtime_ns) !=
+                (before.st_size, before.st_mtime_ns) or
+                (os.name != 'nt' and (opened.st_dev, opened.st_ino) !=
+                 (before.st_dev, before.st_ino))):
+            raise ValueError('file changed or replaced on opening')
         data = fh.read(MAX_INPUT_BYTES + 1)
         after = os.fstat(fh.fileno())
     if (len(data) != opened.st_size or len(data) > MAX_INPUT_BYTES or
@@ -94,11 +101,102 @@ def read_file_table(data: bytes, headers: dict, table_va: int = TABLE_VA) -> lis
     return names
 
 
+
+# Paired original file-stream readers. The retail-only versions use masked
+# ReadFile pointer trampolines; GOG preserves the direct-IAT counterparts.
+STREAM_BRANCH_BYTES = {0x00450A47:(0x28,0x00), 0x00450A6A:(0x05,0x00)}
+STREAM_PRESERVED = (
+    (0x00451090,0x00451110,'direct ReadFile plus per-byte XOR'),
+    (0x004512C0,0x00451300,'direct ReadFile without data XOR'),
+)
+STREAM_REMOVED = (
+    (0x00451110,0x004512C0,'masked ReadFile plus per-byte XOR'),
+    (0x00451300,0x00451431,'masked ReadFile without data XOR'),
+)
+
+
+def inspect_stream_read_variants(retail: bytes, gog: bytes,
+                                 hr: dict, hg: dict) -> dict:
+    """Account for the *exact two changed bytes* selecting file readers.
+
+    This is static PE code evidence on the two SHA-locked samples; it
+    cannot prove runtime equivalence or how DAT bytes are supplied.
+    """
+    original=va_bytes(retail,hr,0x00450A00,0x76)
+    patched=va_bytes(gog,hg,0x00450A00,0x76)
+    diff={0x00450A00+i:(a,b) for i,(a,b) in enumerate(zip(original,patched))
+          if a!=b}
+    if diff!=STREAM_BRANCH_BYTES:
+        raise ValueError('unexpected file-stream callback selection edits')
+    # Four reader addresses are still encoded in both on-disk initializers.
+    shared_anchors={
+        0x00450A41:'B8 10 11 45 00', # masked XOR reader
+        0x00450A48:'B8 90 10 45 00', # direct-IAT XOR reader
+        0x00450A64:'B8 00 13 45 00', # masked raw reader
+        0x00450A6B:'B8 C0 12 45 00', # direct-IAT raw reader
+        0x00450A4D:'89 46 24',       # structure->reader at +0x24
+        0x00450A70:'89 46 24',
+        0x00450A8E:'E8 6D FF FF FF', # stream setup -> 0x450A00
+        0x00450DD5:'FF 53 24',       # later CALL [EBX+0x24]
+        0x00450C16:'FF 15 58 C0 49 00', # CreateFileA real OS handle
+        0x00450C1C:'89 06',         # store real OS HANDLE
+        0x004510AE:'FF 15 4C C0 49 00', # direct ReadFile
+        0x004512DA:'FF 15 4C C0 49 00', # direct ReadFile
+        0x004510CD:'8A 4F 15 8A 16 32 D1', # per-byte XOR
+    }
+    for code,head in ((retail,hr),(gog,hg)):
+        for va,hex_signature in shared_anchors.items():
+            expected=bytes.fromhex(hex_signature)
+            if va_bytes(code,head,va,len(expected))!=expected:
+                raise ValueError(f'mismatched stream instruction at 0x{va:08X}')
+    # Obfuscated originals generate a local call stub before ReadFile.
+    retail_only={
+        0x004511E2:'FF D6',  # masked + per-byte XOR
+        0x004513BB:'FF D6',  # masked + raw
+        0x0045126B:'8A 4B 15 8A 17 32 D1', # same kind of XOR after read
+    }
+    for va,hex_signature in retail_only.items():
+        expected=bytes.fromhex(hex_signature)
+        if va_bytes(retail,hr,va,len(expected))!=expected:
+            raise ValueError(f'missing masked original reader at 0x{va:08X}')
+    same=[]
+    for start,end,description in STREAM_PRESERVED:
+        if va_bytes(retail,hr,start,end-start)!=va_bytes(gog,hg,start,end-start):
+            raise ValueError(f'changed preserved stream reader at 0x{start:08X}')
+        same.append({'original_va':f'0x{start:08X}','byte_length':end-start,
+                     'description':description})
+    removed=[]
+    for start,end,description in STREAM_REMOVED:
+        if va_bytes(gog,hg,start,end-start)!=b'\xCC'*(end-start):
+            raise ValueError(f'GOG retained masked reader at 0x{start:08X}')
+        removed.append({'original_va':f'0x{start:08X}','gog_INT3_count':end-start,
+                        'description':description})
+    return {
+        'read_only':True,'sample_hashes_validated_by_parent':True,
+        'initializer_va':'0x00450A00','initializer_bytes_compared':0x76,
+        'changed_initializer_byte_count':len(diff),
+        'changed_branch_displacements':[
+           {'va':f'0x{address:08X}','retail':pair[0],'gog':pair[1]}
+           for address,pair in sorted(diff.items())],
+        'reader_field_offset':'0x24','reader_call_va':'0x00450DD5',
+        'native_CreateFileA_IAT_call_va':'0x00450C16',
+        'native_file_handle_store_va':'0x00450C1C',
+        'preserved_direct_ReadFile_variants':same,
+        'gog_disabled_masked_ReadFile_variants':removed,
+        'shared_instruction_anchors_checked':len(shared_anchors),
+        'original_only_instruction_anchors_checked':len(retail_only),
+        'data_XOR_retained':True,
+        'behavioral_equivalence_not_runtime_proven':True,
+        'original_CD_sector_reads_not_proven':True,
+    }
+
+
 def inspect_pair(retail: bytes, gog: bytes, *, verify_hashes: bool = True) -> dict:
     hashes = (hashlib.sha256(retail).hexdigest(), hashlib.sha256(gog).hexdigest())
     if verify_hashes and hashes != (RETAIL_SHA256, GOG_SHA256):
         raise ValueError('input hashes are not the two known exact Rayman 2 samples')
     h_r, h_g = parse_headers(retail), parse_headers(gog)
+    stream_report = inspect_stream_read_variants(retail,gog,h_r,h_g)
     names_r = read_file_table(retail, h_r)
     names_g = read_file_table(gog, h_g)
     if names_r != names_g or names_r[0] != 'LEVELS0.DAT':
@@ -140,6 +238,7 @@ def inspect_pair(retail: bytes, gog: bytes, *, verify_hashes: bool = True) -> di
         'retail_path_format':fmt,'gog_path_format':gfmt,
         'direct_import_va':'0x0049C058','direct_import_api':'KERNEL32.dll!CreateFileA',
         'code_comparisons':sites,
+        'stream_reader_variants':stream_report,
         'conclusion':('Verified local static I/O code changes at exact addresses: GOG omits the drive letter, '
                       'directly calls CreateFileA at one site, selects the first of 24 DAT names at a second '
                       'site, and shortens paths through other code. Runtime reachability, intent, SafeDisc '
