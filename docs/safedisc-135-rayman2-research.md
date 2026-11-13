@@ -975,6 +975,46 @@ used alone to assert that matched bytes are executable
 instructions or reachable code. The listed sites above
 were **independently checked with GNU objdump**.
 
+### Stronger proof: GOG callbacks match exact retail export descriptors
+
+The API identities below are **not inferred from calling
+conventions alone**. They are explicitly named in the
+**encoded import descriptors of the original protected
+retail `Rayman2.exe`**, independently decoded via the
+original export-name algorithm:
+
+| One-based retail descriptor | Original decoded export (KERNEL32.dll) | Descriptor and pointer slot VAs | GOG replacement callback |
+|---:|---|---|---|
+| **15** | **`GetDriveTypeA`** | record `0x004A1844`, slot `0x004A1874` | **`0x00448EC4`** at GOG table offset `+0x10` |
+| **16** | **`GetVolumeInformationA`** | record `0x004A1890`, slot `0x004A18C0` | **`0x00448E6C`** at offset `+0x28` |
+| **28** | **`GetDiskFreeSpaceA`** | record `0x004A1C20`, slot `0x004A1C50` | **`0x00448ED0`** at offset `+0x0C` |
+
+For each record, the **entire 76 bytes** are
+**identical between retail and GOG**, including
+its encoded API name and zero-on-disk pointer
+slot at offset `+0x30`. The original retail
+dispatch initializer reads `[slot] XOR [record base]`;
+GOG instead installs the literal callback
+address at the corresponding dispatch table
+slot. This is an exact cross-version **functional
+correspondence in the initializer**, not just a
+similar-looking helper function.
+
+Independent local validation decoded these three
+retail export names directly from the protected
+file and checked the correct record/slot VAs,
+identical GOG data records, and zero on-disk
+slots. Together with the GOG static opcode
+checks, the local test suite now passes
+**14/14 tests**.
+
+**Scope:** The evidence proves GOG installs
+replacements for the *three named Windows
+APIs*. It does **not** prove their actual
+invocation, the authenticity of GOG's
+hard-coded disc values, or an algorithm
+for reconstructing an unprotected retail EXE.
+
 ### GOG CD-ROM compatibility callbacks: three concrete static replacements
 
 **13 November 2026: verified on the actual two SHA-256-pinned
@@ -986,19 +1026,17 @@ copied blindly to the original retail executable.
 The GOG-modified callback initializer at VA `0x00467130`
 installs *three* functions that return fixed CD-like answers:
 
-| GOG table slot | GOG callback VA | Evidence in x86 | Plausible Win32 signature |
+| GOG table slot | GOG callback VA | Evidence in x86 | Win32 interface (independently confirmed by retail descriptor) |
 |---|---|---|---|
 | `+0x10` | `0x00448EC4` | `MOV EAX,5; RET 4` | `GetDriveTypeA`: `DRIVE_CDROM = 5` |
 | `+0x28` | `0x00448E6C` | writes volume labels, serial, flags; `RET 0x20` | `GetVolumeInformationA` (8 arguments) |
 | `+0x0C` | `0x00448ED0` | writes sector/cluster values; `RET 0x14` | `GetDiskFreeSpaceA` (5 arguments) |
 
-The byte patterns and calling conventions match the
+The decoded original-CD descriptor names, byte patterns and calling conventions match the
 [GetDriveTypeA](https://learn.microsoft.com/en-us/windows/win32/api/fileapi/nf-fileapi-getdrivetypea),
 [GetVolumeInformationA](https://learn.microsoft.com/en-us/windows/win32/api/fileapi/nf-fileapi-getvolumeinformationa)
 and [GetDiskFreeSpaceA](https://learn.microsoft.com/en-us/windows/win32/api/fileapi/nf-fileapi-getdiskfreespacea)
-interfaces. The exact Windows function identities remain inferred
-from signatures and table usage, **not** verified by a runtime trace
-or PDB symbol names.
+interfaces. The three API names are **confirmed by the original retail encoded descriptors**, not inferred solely from function signatures. Runtime invocation and actual effects remain unverified.
 
 #### Exact GOG-supplied values
 
