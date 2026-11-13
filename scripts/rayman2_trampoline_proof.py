@@ -193,6 +193,15 @@ RELAY_CALLS = {
     0x0044949A:0x00447DE0,  # original runtime API-dependent logic
     0x0044949F:0x00448E30,  # original runtime path/metadata logic
 }
+# The fourth original bootstrap callee checks Process/Module APIs, not a
+# decoded PE payload; GOG replaces this callee with a RET.
+RELAY_TOOLHELP_SLOT_SITES = {
+    19:0x00447E04, # CreateToolhelp32Snapshot
+    20:0x00447E11, # Process32First
+    21:0x00447E1E, # Process32Next
+    22:0x00447E2B, # Module32First
+    23:0x00447E38, # Module32Next
+}
 GOG_IMMEDIATE_RET_CALLEES = (
     0x004478A0,0x00448DB0,0x00448D80,0x00447DE0
 )
@@ -226,6 +235,9 @@ def verify_retained_bootstrap_chain(retail, rh, gog=None):
         assert_bytes(retail,rh,site,
                      b'\xe8'+struct.pack('<i',target-site-5))
     assert_bytes(retail,rh,0x00449496,bytes.fromhex('85 DB 74 0A'))
+    for descriptor_index,site in RELAY_TOOLHELP_SLOT_SITES.items():
+        _,ptr=masked_slot(descriptor_index)
+        assert_bytes(retail,rh,site,b'\xa1'+p32(ptr))
     for callee in GOG_IMMEDIATE_RET_CALLEES:
         if backed(retail,rh,callee,1) == b'\xc3':
             raise ValueError('original callee unexpectedly a RET stub')
@@ -268,6 +280,8 @@ def verify_retained_bootstrap_chain(retail, rh, gog=None):
         'last_two_calls_conditional_on_nonzero_EBX':True,
         'shared_PRNG_seed_word_count':0x119,
         'shared_generator_opcode_anchor_count':len(RELAY_GENERATOR_ANCHORS),
+        'original_process_module_pointer_checks':len(RELAY_TOOLHELP_SLOT_SITES),
+        'process_enumeration_anti_debug_intent_not_proven':True,
         'gog_four_callees_replaced_with_RET_INT3_verified':gog_stubs_checked,
         'gog_fifth_callee_rewritten_to_store_dot_in_global_0x004A6AD8':gog_stubs_checked,
         'gog_startup_windows_directory_replaced_by_relative_dot':gog_stubs_checked,
@@ -289,6 +303,11 @@ def analyze(data, gog=None):
         if record[0x30:0x34] != b'\0'*4:
             raise ValueError(f'unexpected on-disk pointer at descriptor {i+1}')
         names.append(decode_name(record))
+    if names[18:23] != [
+            'CreateToolhelp32Snapshot','Process32First','Process32Next',
+            'Module32First','Module32Next']:
+        raise ValueError('unexpected original process/module enumeration API names')
+    relay_report['original_fourth_callee_process_module_APIs'] = names[18:23]
     if names[:2] != ['FlushInstructionCache','GetCurrentProcess']:
         raise ValueError('helper API names not verified')
     wanted={8:'CreateFileA',10:'ReadFile',11:'CloseHandle',12:'SetFilePointer'}
