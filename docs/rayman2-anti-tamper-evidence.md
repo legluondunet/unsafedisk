@@ -618,8 +618,12 @@ owner's exact original-CD PE32 and the separately modified GOG PE32 provides
 the missing static dependency chain:
 
 - The initialization function at VA **0x0044DE90 .. 0x0044E748**
-  opens an initial DAT path and requests a **16-byte header**, with
-  its 16-byte ReadFile call at **0x0044E28D**.
+  selects the **first** DAT filename-table pointer at VA **0x004A2090**:
+  this resolves to **LEVELS0.DAT** at **0x004A221C in BOTH retail CD
+  and GOG**, independently of the later 24-name pseudo-file selector.
+  The editions differ in how they format the drive path (format VA
+  0x004A2264 versus 0x004A2268), but both request a **16-byte header**
+  using their 16-byte ReadFile call at **0x0044E28D**.
 - It requests **eight further 4-byte words** at VAs
   **0x44E387, 0x44E43C, 0x44E4FE, 0x44E5B8, 0x44E662,
   0x44E6B0, 0x44E6E5, 0x44E71A**.
