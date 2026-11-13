@@ -203,6 +203,7 @@ class SampleProvenanceTests(unittest.TestCase):
         self.assertEqual(code['code_page_differentiation']['identical_pages'],141)
         self.assertEqual(code['code_page_differentiation']['changed_to_gog_INT3_bytes'],10851)
         self.assertTrue(code['startup_16_kib_identical'])
+        self.assertEqual(code['startup_direct_application_call_target_va'],'0x00401D40')
         self.assertFalse(code['gog_archive_section_marked_executable'])
         self.assertEqual(len(report['gog_manifest_matches_owner_lengths']),3)
         self.assertEqual(report['gog_manifest_end_offset'],139366)
