@@ -86,6 +86,16 @@ def analyze_executables(retail: bytes, gog: bytes) -> dict:
     if hashlib.sha256(gog).hexdigest() != GOG_SHA256:
         raise ValueError('GOG sample SHA-256 mismatch')
     checks=[]
+    # Bootstrap always begins with the first DAT name; only the later
+    # game-resource lookup selects among 24 names in the original edition.
+    for binary, format_va in ((retail, 0x004A2264), (gog, 0x004A2268)):
+        if pe_va(binary,0x44DE9D,5)!=bytes.fromhex('A1 90 20 4A 00'):
+            raise ValueError('missing bootstrap first-name table lookup')
+        name_va=struct.unpack('<I',pe_va(binary,0x004A2090,4))[0]
+        if name_va!=0x004A221C or pe_va(binary,name_va,12)!=b'LEVELS0.DAT\0':
+            raise ValueError('unexpected bootstrap DAT filename')
+        if pe_va(binary,0x44DEB7,5)!=b'\x68'+struct.pack('<I',format_va):
+            raise ValueError('unexpected bootstrap filename formatting')
     # A 16-byte header and eight 4-byte words are read in the retail path.
     for va, n in ((0x44E289,16), (0x44E383,4), (0x44E438,4),
                   (0x44E4FA,4), (0x44E5B4,4), (0x44E65E,4),
@@ -122,6 +132,7 @@ def analyze_executables(retail: bytes, gog: bytes) -> dict:
         if pe_va(binary,0x44E469,8)!=bytes.fromhex('2B D0 33 D1 03 C3 03 CE'):
             raise ValueError('missing shared arithmetic on second word')
     return {'read_only':True,'sha256_verified':True,'sample_pair': 'retail CD and modified GOG',
+            'bootstrap_filename':'LEVELS0.DAT','later_retail_alias_selector_independent':True,
             'header_length_bytes':16,'following_4byte_reads':8,'nominal_minimum_bytes':48,
             'return_values_checked_for_full_reads':False,'global_writes':checks,
             'two_unused_read_indices':[0,7],
