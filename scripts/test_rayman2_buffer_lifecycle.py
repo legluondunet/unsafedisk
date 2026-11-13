@@ -1,12 +1,14 @@
 """Synthetic, no game-file fixtures. Test the static buffer lifecycle verifier."""
 import unittest
+import struct
+from pe_import_xrefs import parse_headers
 from rayman2_buffer_lifecycle import (at, expect, check_loop_tail, inspect, WRAPPERS,
                                      INITIAL_WORDS, FLUSH_BYTES, OFFSET_DIVISOR, SCRUB_BYTES)
 
 class LifecycleTests(unittest.TestCase):
     def setUp(self):
         self.h = {'image_base':0x400000,'sections':[{'rva':0x1000,'raw_size':1000,
-                                                   'raw_start':0}]}
+                                                   'raw_off':0}]}
 
     def test_bad_hashes_refused(self):
         with self.assertRaisesRegex(ValueError,'retail SHA-256'):
@@ -14,6 +16,28 @@ class LifecycleTests(unittest.TestCase):
 
     def test_mapping_works(self):
         self.assertEqual(at(b'abcdefghij', self.h, 0x401002, 3), b'cde')
+
+    def test_real_pe32_parser_contract(self):
+        """Use the repository PE reader, not an invented raw_start adapter."""
+        pe=bytearray(0x600)
+        pe[:2]=b'MZ'
+        struct.pack_into('<I',pe,0x3c,0x80)
+        pe[0x80:0x84]=b'PE\\0\\0'
+        struct.pack_into('<H',pe,0x84,0x14c)  # x86 machine
+        struct.pack_into('<H',pe,0x86,1)      # one section
+        struct.pack_into('<H',pe,0x94,0xe0)   # PE32 optional header length
+        struct.pack_into('<H',pe,0x98,0x10b)
+        struct.pack_into('<I',pe,0x98+28,0x400000)
+        section=0x98+0xe0
+        pe[section:section+5]=b'.text'
+        struct.pack_into('<I',pe,section+8,0x200)
+        struct.pack_into('<I',pe,section+12,0x1000)
+        struct.pack_into('<I',pe,section+16,0x200)
+        struct.pack_into('<I',pe,section+20,0x400)
+        pe[0x402:0x405]=b'xyz'
+        parsed=parse_headers(bytes(pe))
+        self.assertEqual(parsed['sections'][0]['raw_off'],0x400)
+        self.assertEqual(at(bytes(pe),parsed,0x401002,3),b'xyz')
 
     def test_bad_range_refused(self):
         with self.assertRaises(ValueError): at(b'ab', self.h, 0x401000, 257)
