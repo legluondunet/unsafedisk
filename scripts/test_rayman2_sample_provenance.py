@@ -5,7 +5,8 @@ import struct
 import unittest
 from rayman2_sample_provenance import (manifest_entries, pe_sections,
                                        check_opaque_prng, inspect, REFS,
-                                       read_bounded, SALT, M, A)
+                                       read_bounded, SALT, M, A, changed_runs,
+                                       decode_masked_module, audit_cd_gog_data_changes)
 
 
 def manifest_record(name, size):
@@ -73,6 +74,38 @@ class SampleProvenanceTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError,'unknown or changed'):
             inspect({'retail':b'x','gog':b'y','icd':b'z','dplayerx':b'w'})
 
+
+    def test_diff_runs_grouped(self):
+        self.assertEqual(changed_runs(b'abcdefgh',b'aBcdEFgh'),[(1,2),(4,6)])
+        self.assertEqual(changed_runs(b'aaa',b'aaa'),[])
+        self.assertEqual(changed_runs(b'abcd',b'WXYZ'),[(0,4)])
+
+    def test_diff_runs_reject_other_length(self):
+        with self.assertRaisesRegex(ValueError,'raw lengths'):
+            changed_runs(b'ab',b'abc')
+
+    def test_masked_module_seed_decoder_synthetic(self):
+        name=b'Kernel32.dll'
+        subtract,key,sub_incr,key_incr=9,11,3,5
+        output=bytearray((subtract,key,sub_incr,key_incr,len(name)))
+        for char in name:
+            output.append((((char ^ key)+subtract)&255))
+            subtract=(subtract+sub_incr)&255
+            key=(key+key_incr)&255
+        output.extend(b'\0'*(45-len(output)))
+        self.assertEqual(decode_masked_module(bytes(output)),'Kernel32.dll')
+
+    def test_masked_module_decoder_rejects_bad_shape(self):
+        with self.assertRaisesRegex(ValueError,'45-byte'):
+            decode_masked_module(b'a')
+        with self.assertRaisesRegex(ValueError,'name length'):
+            decode_masked_module(b'\0'*45)
+
+    def test_audit_rejects_unexpected_readonly_difference(self):
+        with self.assertRaisesRegex(ValueError,'read-only data'):
+            audit_cd_gog_data_changes({'.rdata':b'ab','.data':b'ab'},
+                                      {'.rdata':b'aB','.data':b'ab'})
+
     def test_optional_real_four_file_integration(self):
         folder=Path(os.environ.get('UNSAFEDISK_SAMPLES','/nonexistent'))
         files={'retail':'Rayman2(3).exe','gog':'rayman2(4).exe',
@@ -87,6 +120,10 @@ class SampleProvenanceTests(unittest.TestCase):
         self.assertEqual(report['gog_secdrv_sys_declared_bytes'],14368)
         self.assertTrue(report['contemporary_study_crosscheck']['reported_entry_va_matches_disk'])
         self.assertFalse(report['contemporary_study_crosscheck']['runtime_decrypted_function_bytes_match_disk_at_0x4064d0'])
+        self.assertEqual(report['original_to_gog_data_changes']['data_diff_bytes'],127)
+        self.assertEqual(report['original_to_gog_data_changes']['module_name_diff_bytes'],107)
+        self.assertEqual(report['original_to_gog_data_changes']['path_config_diff_bytes'],20)
+        self.assertEqual(report['original_to_gog_data_changes']['masked_api_descriptor_records_identical'],35)
 
 if __name__=='__main__':
     unittest.main()
