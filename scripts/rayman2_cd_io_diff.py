@@ -115,6 +115,125 @@ STREAM_REMOVED = (
 )
 
 
+# Actual x86 update in the real-data ReadFile+XOR stream reader, not the
+# SafeDisc PE unwrapping cipher. This is NOT equivalent to a Park-Miller
+# modulo operation for every possible state (including from game's seed).
+STREAM_XOR_SEED = 0x6AB5CC79
+STREAM_XOR_SALT = 0x075BD924
+STREAM_XOR_MAGIC = 0x069C16BD
+STREAM_XOR_MULTIPLIER = 16807
+STREAM_XOR_MASK = 0xFFFFFFFF
+STREAM_XOR_DIRECT_ANCHORS = {
+    0x00450A2D: 'C7 46 14 79 CC B5 6A',       # when mode bit 1 is set
+    0x004510CD: '8A 4F 15 8A 16 32 D1',       # key = state byte +1
+    0x004510D4: 'B8 BD 16 9C 06',
+    0x004510DB: '8B 4F 14',
+    0x004510DE: '81 F1 24 D9 5B 07',
+    0x004510E4: 'F7 E1',                       # unsigned 64-bit MUL
+    0x004510E6: '8B C1',
+    0x004510E8: '69 C9 A7 41 00 00',         # IMUL low DWORD only
+    0x004510EE: '2B C2 D1 E8 03 C2 C1 E8 10',
+    0x004510F7: '8B D0 F7 DA C1 E2 1F 2B D0 2B CA',
+    0x00451102: '46 3B F3 89 4F 14 72 C3',
+}
+STREAM_XOR_RETAIL_MASKED_ANCHORS = {
+    0x0045126B: '8A 4B 15 8A 17 32 D1',
+    0x00451272: 'B8 BD 16 9C 06',
+    0x00451279: '8B 4B 14',
+    0x0045127C: '81 F1 24 D9 5B 07',
+    0x00451282: 'F7 E1',
+    0x00451286: '69 C9 A7 41 00 00',
+    0x0045128C: '2B C2 D1 E8 03 C2 C1 E8 10',
+    0x00451295: '8B D0 F7 DA C1 E2 1F 2B D0 2B CA',
+    0x004512A0: '47 3B FE 89 4B 14 72 C3',
+}
+
+
+def stream_xor_step32(state: int) -> int:
+    """Byte-exact x86 arithmetic in VA 0x4510D4..0x451101.
+
+    Unlike the tempting ((state XOR salt)*16807) % 2147483647,
+    the original x86 MUL/SHR and 32-bit wrap sometimes produce
+    a different result. Do NOT normalize intermediate arithmetic.
+    """
+    if type(state) is not int or not 0 <= state <= STREAM_XOR_MASK:
+        raise ValueError('state must be an unsigned 32-bit integer')
+    v = state ^ STREAM_XOR_SALT
+    high = (v * STREAM_XOR_MAGIC) >> 32
+    low_product = (v * STREAM_XOR_MULTIPLIER) & STREAM_XOR_MASK
+    quotient = (v - high) & STREAM_XOR_MASK
+    quotient >>= 1
+    quotient = (quotient + high) & STREAM_XOR_MASK
+    quotient >>= 16
+    edx = (-quotient) & STREAM_XOR_MASK
+    edx = (edx << 31) & STREAM_XOR_MASK
+    edx = (edx - quotient) & STREAM_XOR_MASK
+    return (low_product - edx) & STREAM_XOR_MASK
+
+
+def stream_xor_transform(data: bytes, state: int = STREAM_XOR_SEED) -> tuple[bytes, int]:
+    """Model XOR only after a complete-length successful ReadFile.
+
+    The game checks its requested and returned byte counts before
+    entering the XOR loop. Caller must not use this helper to claim
+    a partial/failed read would advance the state; that case skips
+    the native XOR loop.
+    """
+    if not isinstance(data, bytes) or len(data) > MAX_INPUT_BYTES:
+        raise ValueError('input must be bytes of at most 16 MiB')
+    if type(state) is not int or not 0 <= state <= STREAM_XOR_MASK:
+        raise ValueError('state must be an unsigned 32-bit integer')
+    out = bytearray(len(data))
+    for pos, byte in enumerate(data):
+        out[pos] = byte ^ ((state >> 8) & 255)  # [stream+0x15]
+        state = stream_xor_step32(state)
+    return bytes(out), state
+
+
+def inspect_stream_xor_x86(retail: bytes, gog: bytes, rh: dict, gh: dict) -> dict:
+    """Verify x86 opcode source on both authenticated samples; never run it."""
+    for binary, hdr in ((retail, rh), (gog, gh)):
+        for va, raw in STREAM_XOR_DIRECT_ANCHORS.items():
+            expected = bytes.fromhex(raw)
+            if va_bytes(binary, hdr, va, len(expected)) != expected:
+                raise ValueError(f'unexpected direct stream XOR opcode at 0x{va:08X}')
+    for va, raw in STREAM_XOR_RETAIL_MASKED_ANCHORS.items():
+        expected = bytes.fromhex(raw)
+        if va_bytes(retail, rh, va, len(expected)) != expected:
+            raise ValueError(f'unexpected original masked XOR opcode at 0x{va:08X}')
+        if va_bytes(gog, gh, va, len(expected)) != b'\xcc' * len(expected):
+            raise ValueError(f'GOG retained masked XOR code at 0x{va:08X}')
+    keystream, state256 = stream_xor_transform(bytes(256))
+    digest = hashlib.sha256(keystream).hexdigest()
+    if digest != '8eeed8d4e85f19dd1a78d818003c41056e15755dd1bff524afb49c8cda0bc957':
+        raise ValueError('x86 stream XOR synthetic 256-byte golden mismatch')
+    naive = actual = STREAM_XOR_SEED
+    first_state_diff = first_key_diff = None
+    for i in range(256):
+        if first_state_diff is None and actual != naive:
+            first_state_diff = i
+        if first_key_diff is None and ((actual >> 8) & 255) != ((naive >> 8) & 255):
+            first_key_diff = i
+        actual = stream_xor_step32(actual)
+        naive = ((naive ^ STREAM_XOR_SALT) * STREAM_XOR_MULTIPLIER) % 0x7FFFFFFF
+    if first_state_diff != 70 or first_key_diff != 71:
+        raise ValueError('original XOR reducer unexpectedly equals simplified modulo')
+    return {
+        'read_only': True, 'actual_file_read_traced': False,
+        'seed_when_stream_flag_bit_1_set':f'0x{STREAM_XOR_SEED:08X}',
+        'key_byte':'(state >> 8) & 0xFF',
+        'direct_reader_opcodes_verified_per_executable':len(STREAM_XOR_DIRECT_ANCHORS),
+        'original_masked_reader_opcodes_verified':len(STREAM_XOR_RETAIL_MASKED_ANCHORS),
+        'original_masked_XOR_bytes_disabled_in_gog':True,
+        'first_16_keystream_bytes':keystream[:16].hex(),
+        'keystream_256_sha256':digest,
+        'state_after_256_bytes':f'0x{state256:08X}',
+        'naive_modulo_first_state_divergence_offset':first_state_diff,
+        'naive_modulo_first_key_divergence_offset':first_key_diff,
+        'safe_disc_loader_decryption_proven':False,
+    }
+
+
 def inspect_stream_read_variants(retail: bytes, gog: bytes,
                                  hr: dict, hg: dict) -> dict:
     """Account for the *exact two changed bytes* selecting file readers.
@@ -199,6 +318,7 @@ def inspect_pair(retail: bytes, gog: bytes, *, verify_hashes: bool = True) -> di
         raise ValueError('input hashes are not the two known exact Rayman 2 samples')
     h_r, h_g = parse_headers(retail), parse_headers(gog)
     stream_report = inspect_stream_read_variants(retail,gog,h_r,h_g)
+    xor_report = inspect_stream_xor_x86(retail,gog,h_r,h_g)
     names_r = read_file_table(retail, h_r)
     names_g = read_file_table(gog, h_g)
     if names_r != names_g or names_r[0] != 'LEVELS0.DAT':
@@ -241,6 +361,7 @@ def inspect_pair(retail: bytes, gog: bytes, *, verify_hashes: bool = True) -> di
         'direct_import_va':'0x0049C058','direct_import_api':'KERNEL32.dll!CreateFileA',
         'code_comparisons':sites,
         'stream_reader_variants':stream_report,
+        'stream_read_xor_exact_x86':xor_report,
         'conclusion':('Verified local static I/O code changes at exact addresses: GOG omits the drive letter, '
                       'directly calls CreateFileA at one site, selects the first of 24 DAT names at a second '
                       'site, and shortens paths through other code. Runtime reachability, intent, SafeDisc '
