@@ -198,6 +198,20 @@ the copy's byte offset, RVA, hash, padding and section flags.
 Two new synthetic tests verify exact matches and reject one-bit
 changes and all-zero false matches.
 
+**Evidence of GOG-specific manifest use:** The GOG `.text` contains
+`MOV EDI, 0x005B3000` at VA `0x00448F80` and
+`MOV ESI, 0x005B3000` at `0x00448FD7`, pointing exactly to
+its `.extra2` table. Static loops at these locations traverse
+the entries and appear to perform filename/claimed-size lookups.
+The retail protected bytes at these VAs are different. The table
+is therefore used by identifiable **GOG-specific code**, not an
+independently verified original-CD installation manifest.
+Runtime reachability and file-system behavior remain untested.
+
+`pe_reference_diff.py` now also reports literal references to
+added section base VAs, cautiously labeled byte-pattern candidates.
+The local synthetic comparison suite passed **13 tests**.
+
 **New direct EXE comparison:** The owner's independent 1,468,928-byte
 GOG `Rayman2.exe` (SHA-256 `9bae484b…`) and the
 676,352-byte protected EXE (SHA-256 `7927a106…`) share the same
@@ -229,7 +243,7 @@ python scripts/pe_reference_diff.py \
 python -m unittest discover -s scripts -p 'test_pe_reference_diff.py'
 ```
 
-This comparator has **10 synthetic tests validated locally** against
+This comparator has **13 synthetic tests validated locally** against
 the independently developed working copy. The native Rust inspector
 remains uncompiled; no new GitHub Actions runs have been triggered.
 Neither this analysis nor the presence of `INT3` constitutes a
