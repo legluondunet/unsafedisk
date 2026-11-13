@@ -290,6 +290,54 @@ earlier third-party patch, nor does it
 identify a generally applicable SafeDisc
 1.35 decryption mechanism.
 
+### All sixteen callbacks assigned by GOG `0x00467130`
+
+A second independent read-only scan of the *same hash-pinned*
+GOG executable reconstructed **all 16 assignments**
+to the game-level callback table between
+`0x00467130` and `0x00467205`.
+The scan identifies x86 `MOV reg,imm32`,
+`MOV [EAX+offset],reg`, and immediate
+`MOV [EAX+offset],imm32` instructions in
+this narrow, separately disassembled range.
+
+| Table offset | Stored value or source | Known static role |
+|---|---|---|
+| `+0x00` | `0x00448F08` | constant-return callback |
+| `+0x04` | `0x00467050` | other GOG function, PRNG code present |
+| `+0x08` | `0x00448F60` | filename lookup in GOG `.extra2` |
+| `+0x0C` | `0x00448ED0` | disk-free-space geometry callback |
+| `+0x10` | `0x00448EC4` | `DRIVE_CDROM = 5` callback |
+| `+0x14` | `0x00448F08` | same callback as `+0x00` |
+| `+0x18` | `0x0045FEBC` | function, detailed role unverified |
+| `+0x1C` | `0x00449010` | callback invoking filename/size lookup |
+| `+0x20` | `0x00448FD0` | lookup of declared file size by index |
+| `+0x24` | `0x00448F18` | function, detailed role unverified |
+| `+0x28` | `0x00448E6C` | volume label `RAYMAN2` and `CDFS` |
+| `+0x2C` | `0x00448DE0` | returns 1 in GOG |
+| `+0x30` | `0x00448AB0` | function, detailed role unverified |
+| `+0x34` | **DWORD loaded from `[0x0049C0C8]`** | live IAT pointer, **not a fixed function VA** |
+| `+0x38` | `0x00448F00` | constant-return callback |
+| `+0x3C` | `0x00448F10` | constant-return callback |
+
+This provides a **complete static assignment map:
+15 literal function addresses and one runtime-loaded
+import pointer**, all sixteen 4-byte slots from
+`+0x00` to `+0x3C` accounted for.
+The extraction tool and the resulting metadata-only
+JSON were locally checked against the original
+GOG SHA-256. The one IAT-fed slot must **not**
+be represented as a constant target address.
+
+The table combines file lookups, volume/drive
+metadata and other callbacks. Its structure
+supports a **GOG-specific replacement of
+several original CD-related Win32 operations**,
+but is not proof that every callback executes,
+that every listed function has been accurately
+identified, or that all differences are SafeDisc
+removal rather than game-compatibility changes.
+
 ### Startup path: unchanged caller, GOG return stubs (13 Nov 2026)
 
 **New, independently measured evidence from both owner-supplied
