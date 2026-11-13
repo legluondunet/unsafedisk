@@ -408,6 +408,49 @@ Both new GitHub file blob SHA values exactly match the locally tested
 file contents. A real original retail ISO is **not** present in the
 research environment: **no physical original-CD LBA evidence is claimed**.
 
+## Original DAT I/O: 4-byte read retained, two 512-byte reads removed in GOG
+
+Additional **strictly SHA-256-identified, offline** code verification narrows
+the changes around the original DAT pseudo-file selection. The new tool
+scripts/rayman2_dat_read_paths.py uses PE RVA mapping and checks the
+actual KERNEL32.dll ReadFile IAT pointer (VA 0x0049C04C) in both EXEs:
+
+| Instruction address | Protected original CD | GOG reference |
+|---|---|---|
+| 0x0044F0A6 / 0x0044F0AA | 4-byte ReadFile through generated indirect-call trampoline | **Same 4-byte read**, but direct IAT ReadFile |
+| 0x0044F0C8..0x0044F101 | **58 original bytes shared**: a 4-byte result is transformed by SUB/XOR and written via a caller pointer | Exact same 58-byte code |
+| 0x0044F10D / 0x0044F125 | SetFilePointer followed by an additional **512-byte ReadFile** | Region 0x0044F102..0x0044F129 replaced by NOPs |
+| 0x0044F133 | Subtracts a computed quantity from the caller-owned DWORD | Two NOPs |
+| 0x0044F13A | Indexed entry from 24-name pseudo-file table | Fixed first entry LEVELS0.DAT |
+| 0x0044F1D4 / 0x0044F1EC | Second SetFilePointer followed by **512-byte ReadFile** | Early JMP at 0x0044F1CC to exit at 0x0044F1F1; remaining bytes INT3 |
+
+These are exactly **two distinct requested 512-byte reads in the original
+code** which GOG removes or bypasses. GOG retains the initial requested
+4-byte read and its transformation. All listed signatures, including
+the original relative CALL destinations and GOG replacement bytes, have
+been checked on the two private owner-supplied executables.
+
+**Important cautions:** static code and byte equivalence do not prove
+that the path is taken in a particular gameplay session, that the
+ReadFile calls succeed, that the selected files carry valid game
+resource data, or that a particular change is attributable to SafeDisc
+rather than another GOG modification. Do not automatically transplant
+these code modifications into the original retail executable.
+
+Reproduce:
+
+    python scripts/rayman2_dat_read_paths.py \
+      --retail /path/to/retail/Rayman2.exe --gog /path/to/GOG/Rayman2.exe
+    python -m unittest discover -s scripts -p 'test_rayman2_dat_read_paths.py'
+
+**Local validation:** the exact two SHA-256-pinned files pass this
+comparison, and six new synthetic tests pass using the existing local
+PE helper mirrors. Combined with the earlier 43 local tests and
+11 ISO9660 tests, **60/60 local tests pass**. The exact GitHub script
+and test blob SHA values match locally tested contents. No native
+Rust compilation, Wine gameplay execution or new GitHub Actions job
+was initiated.
+
 ## Read-only, falsifiable checks
 
 `scripts/rayman2_anti_tamper_assets.py` inspects only the two historical asset names and hashes, with case-insensitive per-component lookup, link rejection and bounded reading. Example:
