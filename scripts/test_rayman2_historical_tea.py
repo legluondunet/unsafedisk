@@ -8,7 +8,7 @@ import unittest
 from rayman2_historical_tea import (
     DELTA, KEY, ROUNDS, ZERO_CIPHER, PUBLISHED_SUFFIX,
     encrypt_block, decrypt_block, historical_vector, scan_known_zero,
-    verify_known_prng_samples,
+    verify_known_prng_samples, scan_fixed_tea_for_pe32,
 )
 
 
@@ -48,6 +48,42 @@ class HistoricalRayman2TEATests(unittest.TestCase):
         self.assertEqual(found["candidate_zero_block_count"], 2)
         self.assertEqual(found["candidate_offsets_first_16"],
                          [1, 1 + 8 + len(b"not a section")])
+
+    def test_naive_scan_recovers_synthetic_pe_only_at_correct_alignment(self):
+        # Synthetic 1-section PE32 with a complete header, no commercial bytes.
+        import hashlib
+        plain = bytearray(4096)
+        base = 13
+        plain[base:base+2] = b"MZ"
+        struct.pack_into("<I", plain, base + 0x3C, 0x80)
+        nt = base + 0x80
+        plain[nt:nt+4] = b"PE\\0\\0"
+        struct.pack_into("<H", plain, nt+4, 0x14C)
+        struct.pack_into("<H", plain, nt+6, 1)
+        struct.pack_into("<H", plain, nt+20, 0xE0)
+        struct.pack_into("<H", plain, nt+24, 0x10B)
+        enc = bytearray(plain)
+        for at in range(5, len(plain)-7, 8):
+            enc[at:at+8] = encrypt_block(bytes(plain[at:at+8]))
+        report = scan_fixed_tea_for_pe32(bytes(enc))
+        self.assertEqual(report["input_sha256"], hashlib.sha256(enc).hexdigest())
+        self.assertEqual(report["tested_alignments"], 8)
+        self.assertEqual(report["alignments"][5]["plausible_pe32_offsets_first_16"], [base])
+        for item in report["alignments"]:
+            if item["alignment"] != 5:
+                self.assertEqual(item["plausible_pe32_header_count"], 0)
+        self.assertTrue(report["absence_does_not_rule_out_section_only_or_runtime_stage"])
+
+    def test_naive_pe_scan_rejects_malformed_and_wrong_types(self):
+        for payload in (b"", b"x" * 7, b"x" * (2*1024*1024+1)):
+            with self.assertRaises(ValueError):
+                scan_fixed_tea_for_pe32(payload)
+        with self.assertRaises(ValueError):
+            scan_fixed_tea_for_pe32(bytearray(24))
+        self.assertEqual(sum(
+            item["plausible_pe32_header_count"]
+            for item in scan_fixed_tea_for_pe32(b"zero" * 200)["alignments"]
+        ), 0)
 
     def test_known_owner_prng_regeneration_not_tea_ciphertext(self):
         report = verify_known_prng_samples()
