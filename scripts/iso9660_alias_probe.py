@@ -158,9 +158,13 @@ def scan(path: Path) -> dict:
     fd = os.open(path, os.O_RDONLY | getattr(os,'O_NOFOLLOW',0) | getattr(os,'O_BINARY',0))
     with os.fdopen(fd,'rb') as f:
         state = os.fstat(f.fileno())
+        # Windows stat/fstat inode and device IDs can disagree for the same
+        # unchanged image. POSIX retains strict identity checking, while
+        # Windows compares common size and modification-time snapshots.
         if (not stat.S_ISREG(state.st_mode) or
-            (state.st_ino,state.st_dev) != (info.st_ino,info.st_dev) or
-            state.st_size != info.st_size):
+            (state.st_size,state.st_mtime_ns) != (info.st_size,info.st_mtime_ns) or
+            (os.name != 'nt' and
+             (state.st_ino,state.st_dev) != (info.st_ino,info.st_dev))):
             raise ValueError('image replaced or resized before opening')
         result = scan_iso_file(f, state.st_size)
         after = os.fstat(f.fileno())
