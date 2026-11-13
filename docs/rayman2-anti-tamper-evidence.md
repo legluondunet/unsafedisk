@@ -401,7 +401,8 @@ Reproduce on a user-owned 2048-byte-sector ISO:
     python scripts/iso9660_alias_probe.py /path/to/retail-Rayman2.iso
     python -m unittest discover -s scripts -p 'test_iso9660_alias_probe.py'
 
-Ten synthetic test cases passed locally, including duplicate fake extents,
+Eleven synthetic test cases passed locally, including nested
+DATA/WORLD/LEVELS directories, duplicate fake extents,
 false oversized lengths, malformed directory metadata and symlink refusal.
 Both new GitHub file blob SHA values exactly match the locally tested
 file contents. A real original retail ISO is **not** present in the
