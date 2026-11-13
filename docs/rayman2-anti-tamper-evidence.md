@@ -1591,6 +1591,114 @@ and sizes, and its synthetic tests reject incorrect
 lengths and an unexpected \`.rtl\` record. It reads
 metadata only, never proprietary payload bytes.
 
+### Why the mismatch table starts 4 bytes early: it targets the previous appended read result
+
+A new exact comparison of **32 x86 instruction signatures
+shared by the retail CD and modified GOG EXEs** reconstructs
+the data flow of the index global **0x005117C4** and two
+nearby temporary tables.
+
+**Four direct index write sites have distinct provenance:**
+
+| VA | Static origin of new 0x005117C4 DWORD |
+|---|---|
+| **0x004038A8** | EDI, cleared with \`XOR EDI,EDI\` at 0x0040373F on this path |
+| **0x0040484C** | Constant **0** |
+| **0x00404317** | ESI after a pseudo-random state transformation, with negative-state correction but **no visible clamp to 24** immediately before the store |
+| **0x0044EAC4** | EAX, incremented immediately beforehand at 0x0044EABD |
+
+Two adjacent address ranges each span **24 × 4 bytes**:
+**0x00511700..0x0051175F** and
+**0x00511760..0x005117BF**.
+This **24-DWORD separation is a verified address-layout
+observation, not an authenticated allocation bound**.
+The functions at 0x00404657/0x004046A2 and
+0x0044EA8C/0x0044EAB6 write indexed entries to
+the corresponding two bases; the consumer at
+0x004672AD/0x004672CC reads both.
+An initialization loop at **0x004045F0** uses the
+global 0x005117C4 as its upper bound, and a
+subsequent consumer uses an 8-bit counter against
+that same value. Neither local instruction sequence
+shows an explicit constant-24 limit. The runtime
+call paths and any prior bounds checks remain unknown.
+
+**The apparent inversion off-by-one has a coherent
+explanation on the sequential append path.**
+At **0x0044EA93**, a pointer to local [EBP-8]
+is prepared for a stream read; the call at
+**0x0044EAA0** writes the returned count.
+At **0x0044EAAA**, that value is loaded into EDX.
+Then the sequence is:
+
+\`\`\`text
+old index = k
+0x0044EAB6: [0x00511700 + 4*k] = returned_read_count
+0x0044EABD: k = k + 1
+0x0044EAC4: [0x005117C4] = k
+...
+0x0044D95F: on mismatch, invert [0x005116FC + 4*k]
+\`\`\`
+
+Because **0x5116FC = 0x511700 - 4**, the
+mismatch target after an increment is exactly
+**0x511700 + 4*(k-1)**: the **most recently
+written result** from this append path.
+It is therefore not correct to label the
+four-byte offset an accidental off-by-one from
+the disassembly alone. It may deliberately
+invalidate a previous resource-read result.
+No successful-read status or runtime checksum
+mismatch was demonstrated; the sequence itself
+does not test the read result before incrementing.
+
+**Arithmetic edge cases, not observed runtime events:**
+
+| Index currently in 0x5117C4 | Target of mismatch DWORD inversion |
+|---:|---|
+| 0 | 0x005116FC, immediately before the first table |
+| 1 | 0x00511700, first entry |
+| 24 | 0x0051175C, end of first 24-DWORD interval |
+| 25 | 0x00511760, start of second interval |
+| 49 | 0x005117C0, another global DWORD |
+| 50 | **0x005117C4, the index global itself** |
+
+These results use the exact x86 DWORD-scaled
+index arithmetic (including 32-bit wrapping).
+An alternative pseudo-random writer at
+**0x00404317** does not visibly establish
+the append/increment relation; neither an
+index of 49/50 during checksum verification
+nor an out-of-range write has been observed.
+Their numerical aliases are **conditional
+address properties**, not demonstrated
+game crashes or SafeDisc punishment.
+
+**All these globals are virtual-only,
+zero-initialized PE .data in both editions:**
+the file-backed bytes of \`.data\` end at
+**0x004A6C00** while the mapped section
+extends to **0x005166D0**. Its runtime
+contents depend on game execution, which
+cannot be reconstructed from the input
+EXE bytes alone.
+
+The existing \`scripts/rayman2_cd_io_diff.py\`
+now verifies the **32 exact original/GOG opcode
+anchors**, both BSS layouts, all four direct
+index writers, the indexed table producers
+and consumers, and the append/inversion
+arithmetic. Its synthetic tests cover the
+layout, malformed indices, altered instructions,
+and the index-50 alias, without pretending
+that any such index was reached in game.
+A standalone independent audit on the exact
+two owner-supplied PE binaries passed
+**13 local index tests**, and the prior
+research suites passed alongside them.
+No game binaries are committed.
+
+
 **Safety/reachability caveats:** Four direct code stores
 of the global index at **0x005117C4** are found
 at \`0x004038A8\`, \`0x00404317\`,
