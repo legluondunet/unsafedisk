@@ -1,6 +1,8 @@
 # Rayman 2 retail CD — SafeDisc 1.35 research
 
 Status: **read-only classification implemented; native unwrapping not implemented.**
+**Latest read-only crosscheck:** [Rayman 2 historical TEA known-plaintext analysis](rayman2-tea-known-plaintext-crosscheck.md) independently excludes direct fixed-key TEA encoding of the on-disk retail EXE into any of the five owner-supplied PRNG streams (all overlapping 8-byte offsets, two historical key readings); it does **not** reconstruct a decrypted runtime section.
+
 
 Additional independent historical and installer-stage evidence, with a separate
 read-only asset-checking script: [Rayman 2 SafeDisc versus in-game anti-tamper](rayman2-anti-tamper-evidence.md).
