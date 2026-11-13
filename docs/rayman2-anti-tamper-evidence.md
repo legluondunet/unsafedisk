@@ -451,6 +451,76 @@ and test blob SHA values match locally tested contents. No native
 Rust compilation, Wine gameplay execution or new GitHub Actions job
 was initiated.
 
+## New: Rayman 2 DAT four-DWORD header and indexed word decoder (13 November 2026)
+
+**This corrects and expands the previous description of only one
+meaningful four-byte DAT read.** Static disassembly was repeated on
+the *actual* protected retail and separately modified GOG EXEs, whose
+full SHA-256 values are pinned in the research scripts.
+
+The full retained data path, in both versions, is:
+
+| Address | Original code | GOG code | Argument semantics |
+|---|---|---|---|
+| 0x0044EE39..0x0044EE4F | Compute base offset P | Same instructions | P is a runtime-dependent affine expression, NOT assumed to be zero |
+| 0x0044EEC3 / 0x0044EEC9 | Masked SetFilePointer | Direct IAT | FILE_BEGIN, offset P |
+| 0x0044EF53 / 0x0044EF5D | Masked ReadFile | Direct IAT | **16 bytes** into the four-DWORD local area at EBP-0x20 |
+| 0x0044EF7B..0x0044EF9F | Adjust first two DWORDs using the remaining DWORDs and index n | Byte-identical | A <- A+n*C; B <- B+n*D (modulo 2^32) |
+| 0x0044F009 / 0x0044F016 | Masked SetFilePointer | Direct IAT | FILE_CURRENT, relative displacement **4*n** |
+| 0x0044F09D / 0x0044F0AA | Masked ReadFile | Direct IAT | **4 bytes** into local DWORD T |
+| 0x0044F0C8..0x0044F0D9 | Read T, A_n and B_n, SUB then XOR, store output | Byte-identical | **R = ((T-A_n) mod 2^32) XOR B_n** |
+
+The 16-byte local area is interpreted as four *little-endian*
+unsigned DWORDs (A, B, C, D), at the file position P chosen by the
+program. Given the index n:
+
+    A_n = (A + n*C) mod 2^32
+    B_n = (B + n*D) mod 2^32
+    R   = ((T - A_n) mod 2^32) XOR B_n
+
+**If and only if the preceding Win32 operations succeeded and
+returned all requested bytes**, T is fetched from file offset
+**P+16+4*n**. The method is not a generic SafeDisc decoder:
+it describes a local data transformation and cannot supply an
+unknown retail DAT payload, a missing runtime P, or a disc
+authentication proof. GOG retains the transformation even though it
+changes the filename selection.
+
+The two **512-byte reads** at retail VAs 0x0044F125 and 0x0044F1EC
+write into the stack arrays at EBP-0x334 and EBP-0x534,
+respectively. A bounded disassembly of function 0x0044EB40..0x0044F1F9
+shows **one direct encoded frame reference to each buffer**, at
+0x0044F118 and 0x0044F1DF: both are LEA instructions passing
+their buffer to ReadFile. There are no further direct frame
+references to these two arrays within the function. The immediate
+ReadFile return values also are **not tested** at these call sites.
+This supports the hypothesis that these are artificial CD reads, not
+the payload required for R. However, static non-use by the same
+function is **not evidence of successful I/O**, nor proof that the
+buffers or file API have no indirect side effects.
+
+The already existing diagnostic script has been **extended**, not
+duplicated: scripts/rayman2_dat_read_paths.py now verifies the
+original and GOG instructions and their import targets for the
+FILE_BEGIN +16-byte + FILE_CURRENT +4-byte path. It offers a pure
+synthetic-testable function
+\`derive_dat_word(header_16_bytes, indexed_word_u32, index)\`.
+Seven new unit tests cover zero/nonzero index, uint32 overflow,
+invalid header length and invalid value/index bounds; the file's
+test count increases **from 6 to 13**.
+
+**Independent actual-file verification:** Python/objdump checked
+the real SHA-pinned retail and GOG binary pairs (12 original
+critical byte patterns plus five base-seek signatures), including
+the once-only stack-frame displacement references. Eight independent
+local tests passed, including actual-file anchors and synthetic
+formula/validation checks. **The exact updated repository test module
+has not been run in GitHub Actions** or on this environment;
+no claim of 67/67 repository-wide tests is made here.
+No original ISO or physical LEVELS0.DAT payload was available for
+decoding. This study never runs game code or edits protected bytes.
+
+
 ## Read-only, falsifiable checks
 
 `scripts/rayman2_anti_tamper_assets.py` inspects only the two historical asset names and hashes, with case-insensitive per-component lookup, link rejection and bounded reading. Example:
