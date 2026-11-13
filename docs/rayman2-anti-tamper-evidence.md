@@ -18,6 +18,12 @@ Status: **external evidence and reproducible diagnostics, not a decoder**. Creat
 - GOG's `.extra` has an exact, separately stored copy of retail protected `.text`. Its `.extra2` contains a 3,716-entry filename/size table, while GOG installs callbacks returning virtual CD-ROM properties. **Hypothesis only:** that copy may be used to satisfy original file-integrity reads. No runtime trace or proof of this purpose exists.
 - Therefore these two specific on-disc opaque files are **not established as recoverable encrypted Windows executable payloads**, even though the conventional SafeDisc 1.x description uses such an ICD. Investigate actual file provenance and runtime paths before claiming a decoder.
 
+## Independent numerical cross-check of historical CD anomalies
+
+The 2009 Wine report describes Rayman 2 media as approximately **650 MB physically** but **6.9 GB of listed files**. The independently analyzed **GOG** binary's `.extra2` table declares **7,453,062,614 bytes = 6.941 GiB** of file sizes, while its CD geometry callback reports **332,400 x 2,048 = 680,755,200 bytes = 649.219 MiB**. The ratio of declared sizes to virtual capacity is **10.95:1**.
+
+This is a **notable two-number correlation**: a historical original-disc observer used rounded “650 MB / 6.9 GB” and the GOG-emulated numbers round to approximately **649 MiB / 6.94 GiB**. Decimal GB versus binary GiB usage in the 2009 post is unspecified; no exact match is asserted. The witness and GOG executable are independent observations but this does **not** prove the 3,716 individual GOG records are the authentic CD directory, or that this is the same regional disc edition. Falsifiable next check: compare directory counts, names and declared sizes against the same-edition retail ISO filesystem (not against GOG alone), explicitly accounting for ISO9660 extents and deliberately bogus lengths.
+
 ## Read-only, falsifiable checks
 
 `scripts/rayman2_anti_tamper_assets.py` inspects only the two historical asset names and hashes, with case-insensitive per-component lookup, link rejection and bounded reading. Example:
