@@ -117,6 +117,48 @@ class ReferenceDiffTests(unittest.TestCase):
         self.assertEqual(diff["changed_to_int3_bytes"], 1)
         self.assertEqual(diff["different_bytes"], 1)
 
+    def test_exact_full_section_copy_with_zero_padding(self):
+        protected = tool.parse_pe32(pe_fixture())
+        reference = tool.parse_pe32(pe_fixture(manifest=True))
+        sample = protected["sections"][".text"]["contents"]
+        # Distinct byte patterns prevent trivial all-zero false positives.
+        sample = bytes(((i * 73) ^ (i >> 1) ^ (i >> 4)) % 256 for i in range(512))
+        protected["sections"][".text"]["contents"] = sample
+        extra = reference["sections"][".extra2"]
+        extra["contents"] = bytes(64) + sample + bytes(96)
+        extra["raw_len"] = len(extra["contents"])
+        copies = tool.find_embedded_section_copies(protected, reference, min_bytes=256)
+        self.assertEqual(len(copies), 1)
+        result = copies[0]
+        self.assertEqual(result["protected_section"], ".text")
+        self.assertEqual(result["reference_section"], ".extra2")
+        self.assertEqual(result["reference_section_offset"], "0x40")
+        self.assertEqual(result["matched_bytes"], 512)
+        self.assertEqual(result["prefix_bytes"], 64)
+        self.assertEqual(result["suffix_bytes"], 96)
+        self.assertTrue(result["prefix_all_zero"])
+        self.assertTrue(result["suffix_all_zero"])
+
+    def test_copy_detection_requires_exact_full_nonconstant_content(self):
+        protected = tool.parse_pe32(pe_fixture())
+        reference = tool.parse_pe32(pe_fixture(manifest=True))
+        sample = bytes(((i * 73) ^ (i >> 1) ^ (i >> 4)) % 256 for i in range(512))
+        protected["sections"][".text"]["contents"] = sample
+        extra = reference["sections"][".extra2"]
+        damaged = bytearray(sample)
+        damaged[201] ^= 1
+        extra["contents"] = bytes(64) + damaged + bytes(96)
+        self.assertEqual(
+            tool.find_embedded_section_copies(protected, reference, min_bytes=256), []
+        )
+        protected["sections"][".text"]["contents"] = bytes(512)
+        extra["contents"] = bytes(64) + bytes(512) + bytes(96)
+        self.assertEqual(
+            tool.find_embedded_section_copies(protected, reference, min_bytes=256), []
+        )
+        with self.assertRaisesRegex(ValueError, "minimum section size"):
+            tool.find_embedded_section_copies(protected, reference, min_bytes=0)
+
     def test_cli_rejects_self_comparison(self):
         with tempfile.TemporaryDirectory() as folder:
             path = Path(folder)/"fixture.exe"
