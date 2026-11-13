@@ -137,10 +137,16 @@ class ReferenceDiffTests(unittest.TestCase):
             with contextlib.redirect_stdout(buf):
                 self.assertEqual(tool.main([
                     "--protected", str(a), "--reference", str(b),
+                    "--reference-origin", "GOG",
                     "--manifest-section", ".extra2",
                     "--focus-name", "file.exe",
                 ]), 0)
             result = json.loads(buf.getvalue())
+            self.assertEqual(result["reference_origin_label"], "GOG")
+            self.assertFalse(result["reference_is_pristine_retail_verified"])
+            self.assertIn("No difference is attributed to SafeDisc",
+                          result["difference_attribution"])
+            self.assertFalse(result["embedded_manifest"]["original_cd_manifest_authenticated"])
             self.assertEqual(result["embedded_manifest"]["count"], 2)
             self.assertEqual(len(result["embedded_manifest"]["focus_entries"]), 1)
             self.assertTrue(result["embedded_manifest"]["unique_names_casefold"])
