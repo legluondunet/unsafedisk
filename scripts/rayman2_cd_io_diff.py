@@ -291,6 +291,110 @@ STREAM_WORD_CHECK_COMPARE_ANCHORS = {
 }
 
 
+# Provenance of the rolling-DWORD checksum comparison: two callers feed
+# .sna snapshot paths into a mode-0x03 loader. A *different* stream
+# supplies the comparison DWORD through 0x44DC40 -> 0x44D990; its
+# resource filename can be an .rt* variant or a special Fix path.
+# This is NOT equivalent to saying that LEVELS*.DAT is a .sna file.
+SNAPSHOT_CHECKSUM_ANCHORS = {
+    0x00402A4E:'68 D8 F2 49 00',  # %s\Fix.sna
+    0x00402A71:'E8 7A AA 04 00',  # CALL 0x44D4F0
+    0x0040380D:'68 44 F3 49 00',  # %s\%s\%s.sna
+    0x00403983:'E8 68 9B 04 00',  # CALL 0x44D4F0
+    0x0044D4FF:'8B 9C 24 7C 01 00 00', # snapshot filepath arg
+    0x0044D50B:'6A 03 6A 02 53 E8 6B 35 00 00', # mode 3 reader
+    0x0044D619:'E8 22 06 00 00', # acquire separate expected-data stream
+    0x0044DC80:'E8 0B FD FF FF', # call 0x44D990 reference opener
+    0x0044DCDB:'6A 01 6A 04 68 B8 17 51 00', # expected DWORD destination
+    0x0044DCE6:'E8 A5 30 00 00', # fread expected DWORD
+    0x0044D93E:'8B 54 24 44 A1 B8 17 51 00 3B D0',
+    0x0044D94F:'74 1E',          # equal -> don't invert
+    0x0044D95A:'A1 C4 17 51 00 8B 0C 85 FC 16 51 00 F7 D1 89 0C 85 FC 16 51 00',
+    0x0044D990:'55 8B EC 81 EC 00 02 00 00',
+    0x0044D9C2:'A0 F0 16 51 00', # selector byte
+    0x0044D9CA:'3C FF 75 1C',    # special Fix path
+    0x0044D9F4:'E8 A7 0E 00 00', # alternate access path
+    0x0044DA5E:'83 F8 04 77 6B', # 0..4 suffix selection
+    0x0044DA63:'FF 24 85 CC DB 44 00', # suffix target switch
+    0x0044DACF:'6A 00 8D 85 00 FF FF FF 6A 02', # reference mode 0
+    0x004038A8:'89 3D C4 17 51 00', # index from EDI
+    0x00404317:'89 35 C4 17 51 00', # index from ESI
+    0x0040484C:'C7 05 C4 17 51 00 00 00 00 00', # clear index
+    0x0044EABD:'40 81 F1 24 D9 5B 07 A3 C4 17 51 00', # increment
+}
+SNAPSHOT_TEMPLATES = {
+    0x0049F2D8: '%s\\Fix.sna',
+    0x0049F344: '%s\\%s\\%s.sna',
+}
+REFERENCE_SUFFIXES = (
+    (0x0044DA6A,0x004A2248,'.rtb'),
+    (0x0044DA77,0x004A2240,'.rtp'),
+    (0x0044DA91,0x004A2230,'.rts'),
+    (0x0044DA84,0x004A2238,'.rtt'),
+    (0x0044DA9E,0x004A2228,'.rtl'),
+)
+
+
+def inspect_snapshot_checksum_provenance(retail: bytes, gog: bytes,
+                                         rh: dict, gh: dict) -> dict:
+    """Cross-resource static evidence, not a disk decryption or runtime trace.
+
+    Both EXE hashes are checked by inspect_pair before calling this helper.
+    The snapshot stream (mode 0x03) and reference/expected-value stream
+    (mode 0x00 or alternate caller) have separate opens; do not claim
+    the expected value comes from the .sna file being checked.
+    """
+    for img,hdr in ((retail,rh),(gog,gh)):
+        for va, hexbytes in SNAPSHOT_CHECKSUM_ANCHORS.items():
+            expected=bytes.fromhex(hexbytes)
+            if va_bytes(img,hdr,va,len(expected)) != expected:
+                raise ValueError(f'snapshot/checksum provenance mismatch at 0x{va:08X}')
+        for va,text in SNAPSHOT_TEMPLATES.items():
+            if va_cstr(img,hdr,va) != text:
+                raise ValueError(f'unknown .sna snapshot filename format at 0x{va:08X}')
+        expected_targets=tuple(target for target,_,_ in REFERENCE_SUFFIXES)
+        targets=struct.unpack('<5I',va_bytes(img,hdr,0x0044DBCC,20))
+        if targets!=expected_targets:
+            raise ValueError('changed .rt* reference suffix switch')
+        for target,string_va,suffix in REFERENCE_SUFFIXES:
+            if va_cstr(img,hdr,string_va) != suffix:
+                raise ValueError('unexpected expected-data stream suffix')
+            # All switch targets load the correct suffix string address
+            # into EDI, then share the suffix append operation.
+            if va_bytes(img,hdr,target+6,5) not in (
+                b'\xbf'+struct.pack('<I',string_va),
+                b'\xeb'+bytes([0]) * 4,
+            ):
+                # Some target entrypoints use LEA EDX then MOV EDI;
+                # the fixed switch target + 6 bytes is the MOV.
+                raise ValueError(f'unknown .rt suffix branch at 0x{target:08X}')
+    return {
+        'read_only':True,'runtime_execution_observed':False,
+        'verified_common_opcode_anchors':len(SNAPSHOT_CHECKSUM_ANCHORS),
+        'snapshot_loader_va':'0x0044D4F0',
+        'snapshot_loader_direct_callers':['0x00402A71','0x00403983'],
+        'snapshot_path_formats':list(SNAPSHOT_TEMPLATES.values()),
+        'snapshot_stream_mode':'0x03',
+        'reference_stream_builder_va':'0x0044DC40',
+        'reference_stream_opener_va':'0x0044D990',
+        'reference_stream_normal_mode':'0x00',
+        'expected_value_read_call_va':'0x0044DCE6',
+        'expected_value_destination_va':'0x005117B8',
+        'rolling_checksum_compare_va':'0x0044D947',
+        'reference_suffix_switch':[
+            {'ordinal':i,'branch_va':f'0x{entry:08X}',
+             'suffix':suffix} for i,(entry,_,suffix) in enumerate(REFERENCE_SUFFIXES)],
+        'special_Fix_reference_path_possible':True,
+        'alternate_reference_open_path_possible':True,
+        'inversion_memory_index_global_va':'0x005117C4',
+        'sample_global_index_write_sites':[
+            '0x004038A8','0x00404317','0x0040484C','0x0044EABD'],
+        'no_index_bound_verified_at_inversion_site':True,
+        'snapshot_payload_or_original_CD_checked':False,
+        'SafeDisc_integrity_attribution_proven':False,
+    }
+
+
 def stream_word_xor_checksum(data: bytes, checksum: int = 0,
                              pending: bytes = b'',
                              *, callback_success: bool = True) -> tuple[int, bytes]:
@@ -488,6 +592,7 @@ def inspect_pair(retail: bytes, gog: bytes, *, verify_hashes: bool = True) -> di
     stream_report = inspect_stream_read_variants(retail,gog,h_r,h_g)
     xor_report = inspect_stream_xor_x86(retail,gog,h_r,h_g)
     word_checksum_report = inspect_stream_word_checksum(retail,gog,h_r,h_g)
+    snapshot_provenance = inspect_snapshot_checksum_provenance(retail,gog,h_r,h_g)
     names_r = read_file_table(retail, h_r)
     names_g = read_file_table(gog, h_g)
     if names_r != names_g or names_r[0] != 'LEVELS0.DAT':
@@ -532,6 +637,7 @@ def inspect_pair(retail: bytes, gog: bytes, *, verify_hashes: bool = True) -> di
         'stream_reader_variants':stream_report,
         'stream_read_xor_exact_x86':xor_report,
         'stream_postread_DWORD_checksum':word_checksum_report,
+        'snapshot_checksum_resource_provenance':snapshot_provenance,
         'conclusion':('Verified local static I/O code changes at exact addresses: GOG omits the drive letter, '
                       'directly calls CreateFileA at one site, selects the first of 24 DAT names at a second '
                       'site, and shortens paths through other code. Runtime reachability, intent, SafeDisc '
