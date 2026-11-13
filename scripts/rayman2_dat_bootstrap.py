@@ -12,6 +12,7 @@ import argparse
 import hashlib
 import json
 import math
+import re
 from pathlib import Path
 import struct
 
@@ -133,7 +134,8 @@ def analyze_executables(retail: bytes, gog: bytes) -> dict:
         if pe_va(binary,0x44E469,8)!=bytes.fromhex('2B D0 33 D1 03 C3 03 CE'):
             raise ValueError('missing shared arithmetic on second word')
     seek_report = verify_seek_selector(retail, gog)
-    return {**seek_report, 'read_only':True,'sha256_verified':True,'sample_pair': 'retail CD and modified GOG',
+    dialog_report = verify_missing_dat_dialog(retail, gog)
+    return {**seek_report, **dialog_report, 'read_only':True,'sha256_verified':True,'sample_pair': 'retail CD and modified GOG',
             'bootstrap_filename':'LEVELS0.DAT','later_retail_alias_selector_independent':True,
             'header_length_bytes':16,'following_4byte_reads':8,'nominal_minimum_bytes':48,
             'return_values_checked_for_full_reads':False,'global_writes':checks,
@@ -164,6 +166,99 @@ SELECTOR_ANCHORS = {
     0x0044EE46:'0F AF 1D BC 17 51 00 03 DE',
 }
 
+
+
+
+def _va_span(data: bytes, start: int, end: int) -> bytes:
+    """Read a bounded code region through actual PE RVA/offset mapping."""
+    if end <= start or end-start > 512:
+        raise ValueError('invalid diagnostic code span')
+    return b''.join(pe_va(data, pos, min(64, end-pos))
+                    for pos in range(start, end, 64))
+
+
+def _recover_dat_retry_strings(code: bytes) -> tuple[str, str]:
+    """Reconstruct stack strings from two constrained x86 byte-store forms.
+
+    Only valid for the specific already hash-pinned CD and GOG code span;
+    this is not a general disassembler. Synthetic fixtures are also allowed.
+    """
+    stack: dict[int, int] = {}
+    for m in re.finditer(rb'\xc6\x45(?P<offset>.)(?P<value>.)', code, re.DOTALL):
+        disp = int.from_bytes(m['offset'], 'little', signed=True)
+        if -0x58 <= disp <= -0x0f:
+            if disp in stack and stack[disp] != m['value'][0]:
+                raise ValueError('conflicting encoded retry string bytes')
+            stack[disp] = m['value'][0]
+    for m in re.finditer(rb'\x88\x5d(?P<offset>.)', code, re.DOTALL):
+        disp = int.from_bytes(m['offset'], 'little', signed=True)
+        if -0x58 <= disp <= -0x0f:
+            if disp in stack and stack[disp] != 0x20:
+                raise ValueError('conflicting encoded retry string spaces')
+            stack[disp] = 0x20  # BL was set to ASCII space at 0x44DFD4
+    strings=[]
+    for start in (-0x58,-0x24):
+        chars=bytearray()
+        for offset in range(start,-0x0e):
+            if offset not in stack:
+                raise ValueError('incomplete encoded retry message')
+            if stack[offset]==0:
+                break
+            chars.append(stack[offset])
+        else:
+            raise ValueError('unterminated encoded retry message')
+        strings.append(chars.decode('ascii'))
+    return tuple(strings)
+
+
+def verify_missing_dat_dialog(retail: bytes, gog: bytes) -> dict:
+    """Prove a retained file-not-found Retry/Cancel path in both editions.
+
+    Caller must verify the two exact executable hashes before invoking this.
+    No program code executes and no files are opened by this function.
+    """
+    common_start, common_end = 0x0044DFC9, 0x0044E0EB
+    original = _va_span(retail, common_start, common_end)
+    reference = _va_span(gog, common_start, common_end)
+    if original != reference:
+        raise ValueError('original/GOG DAT retry dialog code differs')
+    signatures = (
+        (0x44DFC9, bytes.fromhex('83 F8 FF 8B F8 0F 85 2F 02 00 00')),
+        (0x44DFD4, bytes.fromhex('B3 20 8D 55 DC 6A 05')),
+        (0x44E0DB, bytes.fromhex('FF 15 70 C2 49 00')),
+        (0x44E0E1, bytes.fromhex('83 F8 02 75 05')),
+        (0x44E0E6, bytes.fromhex('E8 D5 30 FB FF')),
+        (0x44E15F, bytes.fromhex('6A 00 68 80 00 00 00 6A 03 6A 00 6A 00')),
+        (0x44E1F8, bytes.fromhex('83 F8 FF 8B F8 0F 84 D3 FD FF FF')),
+    )
+    for data in (retail,gog):
+        for va, expected in signatures:
+            if pe_va(data,va,len(expected)) != expected:
+                raise ValueError(f'missing retry-control instruction 0x{va:08X}')
+    if pe_va(retail,0x44E0EB,5) != bytes.fromhex('E8 90 A3 FF FF'):
+        raise ValueError('expected retail generated-API retry code missing')
+    if pe_va(gog,0x44E0EB,2) != bytes.fromhex('EB 72'):
+        raise ValueError('expected GOG direct Win32 retry jump missing')
+    if pe_va(retail,0x44E178,2) != b'\xff\xd6':
+        raise ValueError('expected retail masked CreateFileA call missing')
+    if pe_va(gog,0x44E178,6) != bytes.fromhex('FF 15 58 C0 49 00'):
+        raise ValueError('expected GOG CreateFileA IAT call missing')
+    # The fixed stack messages are rebuilt from the machine-code stores,
+    # not searched as plaintext in the executable's data section.
+    message, caption = _recover_dat_retry_strings(
+        _va_span(retail,0x44DFD4,0x44E0DB))
+    if (message,caption) != ('Please, insert Rayman II CD in CDROM Drive',
+                             'Rayman 2 CD not found'):
+        raise ValueError('unexpected Rayman 2 DAT retry dialog contents')
+    return {'missing_dat_retry_dialog_retained':True,
+            'identical_dialog_code_bytes':len(original),
+            'messageboxa_import_pointer':'0x0049C270',
+            'messagebox_buttons':'MB_RETRYCANCEL (style 5)',
+            'cancel_result':'IDCANCEL (2)',
+            'retry_dialog_text':message, 'retry_dialog_caption':caption,
+            'gog_retries_via_direct_CreateFileA':True,
+            'retail_retries_via_generated_CreateFileA':True,
+            'safedisc_authorization_proven':False}
 
 def verify_seek_selector(retail: bytes, gog: bytes) -> dict:
     """Check retained x87 code/constants and exact CRT forwarding thunks.
