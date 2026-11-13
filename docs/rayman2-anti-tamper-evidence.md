@@ -352,6 +352,61 @@ bit do not establish actual executable memory protections. No
 SafeDisc key, CD authorization exchange, decrypted executable
 payload or general SafeDisc 1.35 algorithm has been found.
 
+## Corroboration externe importante : fichiers DAT fictifs et inventaire GOG (13 novembre 2026)
+
+A [Rayman Pirate-Community discussion dated June 8, 2020](https://raymanpc.com/forum/threads/tonic-trouble-launcher-retail.27633/page-3)
+quotes RibShark describing 24 pseudo-files in Rayman 2 using the same
+scheme as Tonic Trouble: directory records with large artificial lengths
+that may point to the same physical CD region. The account explicitly
+says that GOG selects LEVELS0.DAT rather than choosing among names such
+as SOUNDS1.DAT and GRAPHICS0.DAT. This independently corroborates, but
+does not by itself prove, our original-vs-GOG static finding.
+
+The actual owner-supplied protected retail PE picks an entry from the
+24-name table at VA 0x004A2090 using EBX*4 at VA 0x0044F13A.
+The SHA-pinned GOG PE at the same VA loads the first table entry,
+LEVELS0.DAT, directly. The pointer table bytes are identical across
+the two executable files; the 24 names form eight families numbered
+0, 1, 2 under DATA/WORLD/LEVELS.
+
+**Fresh independently parsed GOG PE .extra2 data (not a retail CD):**
+the 143,360-byte section begins at file offset 0x142C00, contains
+3,716 filename/declared-length pairs occupying 139,366 bytes,
+followed by an eight-byte sentinel and 3,986 zero bytes.
+The new parse matches every entry in the saved owner GOG reference
+inventory, confirming these totals:
+
+| Names in GOG .extra2 | Combined declared bytes |
+|---|---:|
+| 24 DAT candidate entries | **6,928,033,212** |
+| Remaining 3,692 entries | **525,029,402** |
+| All 3,716 entries | **7,453,062,614** |
+
+Thus **92.9555%** of all *claimed file lengths* come from just 24
+DAT entries. The 525 MB balance is below GOG's virtual CD geometry
+(680,755,200 bytes). This explains the anomalous 7.45 GB sum,
+but cannot establish the original CD's authentic sector extents.
+
+**New, offline, read-only ISO9660 metadata probe:**
+scripts/iso9660_alias_probe.py. It reads primary descriptor and directory
+metadata only, never trusts huge file lengths as payload extents and
+never extracts the 24 DAT files. It reports per-file start LBA, declared
+length, endian-field consistency, physical-image overflow, and groups
+different names with matching start LBAs. It rejects symlinks, refuses
+unsupported 2352-byte raw BIN/CUE, and bounds record and directory
+counts; it does not claim to handle all Joliet or multi-extent cases.
+
+Reproduce on a user-owned 2048-byte-sector ISO:
+
+    python scripts/iso9660_alias_probe.py /path/to/retail-Rayman2.iso
+    python -m unittest discover -s scripts -p 'test_iso9660_alias_probe.py'
+
+Ten synthetic test cases passed locally, including duplicate fake extents,
+false oversized lengths, malformed directory metadata and symlink refusal.
+Both new GitHub file blob SHA values exactly match the locally tested
+file contents. A real original retail ISO is **not** present in the
+research environment: **no physical original-CD LBA evidence is claimed**.
+
 ## Read-only, falsifiable checks
 
 `scripts/rayman2_anti_tamper_assets.py` inspects only the two historical asset names and hashes, with case-insensitive per-component lookup, link rejection and bounded reading. Example:
