@@ -105,6 +105,76 @@ def scan_known_zero(data: bytes) -> dict:
 
 
 
+
+def _pe32_headers_in_bytes(data: bytes) -> list[int]:
+    """Look for plausible complete PE32 headers, not accidental 'MZ' bytes.
+
+    This is a strict *structural* validator for the read-only diagnostic:
+    it is not a PE loader, parser, or executable authenticity proof.
+    """
+    found = []
+    start = 0
+    limit = len(data)
+    while True:
+        pos = data.find(b"MZ", start)
+        if pos < 0:
+            return found
+        start = pos + 1
+        if pos + 0x40 > limit:
+            continue
+        nt = struct.unpack_from("<I", data, pos + 0x3C)[0]
+        if nt < 0x40 or nt > 0x1000 or pos + nt + 0x18 > limit:
+            continue
+        head = pos + nt
+        if data[head:head+4] != b"PE\\0\\0":
+            continue
+        machine, sections = struct.unpack_from("<HH", data, head + 4)
+        optional_size = struct.unpack_from("<H", data, head + 20)[0]
+        if (machine != 0x14c or not 1 <= sections <= 96 or
+                not 0x60 <= optional_size <= 0x400):
+            continue
+        optional_start = head + 24
+        table_end = optional_start + optional_size + sections * 40
+        if table_end > limit or data[optional_start:optional_start+2] != b"\\x0b\\x01":
+            continue
+        found.append(pos)
+
+
+def scan_fixed_tea_for_pe32(data: bytes) -> dict:
+    """Try all eight *naive* fixed-key TEA block alignments, never save data.
+
+    This is a falsification test for an oversimplified on-disc model.
+    The real SafeDisc loader may use a different key, sections only,
+    staging, or runtime parameters; no PE finding is not a DRM verdict.
+    """
+    if not isinstance(data, bytes) or not 8 <= len(data) <= 2 * 1024 * 1024:
+        raise ValueError("fixed-key scan accepts 8..2097152 bytes")
+    alignments = []
+    for alignment in range(8):
+        decoded = bytearray(data)
+        for off in range(alignment, len(data) - 7, 8):
+            decoded[off:off+8] = decrypt_block(data[off:off+8])
+        candidate_positions = _pe32_headers_in_bytes(decoded)
+        alignments.append({
+            "alignment": alignment,
+            "decrypted_blocks": (len(data) - alignment) // 8,
+            "incidental_mz_count": decoded.count(b"MZ"),
+            "plausible_pe32_offsets_first_16": candidate_positions[:16],
+            "plausible_pe32_header_count": len(candidate_positions),
+        })
+    return {
+        "input_sha256": __import__("hashlib").sha256(data).hexdigest(),
+        "mode": "naive-32-round-historical-TEA-four-identical-keywords",
+        "key": f"0x{KEY:08X}",
+        "assumed_delta": f"0x{DELTA:08X}",
+        "tested_alignments": 8,
+        "alignments": alignments,
+        "valid_pe32_structure_is_not_a_decryption_proof": True,
+        "absence_does_not_rule_out_section_only_or_runtime_stage": True,
+        "payload_bytes_emitted": False,
+    }
+
+
 def verify_known_prng_samples() -> dict:
     """Reconstruct BOTH owner-hash-matched opaque files in volatile memory.
 
@@ -149,9 +219,13 @@ def main(argv: list[str] | None = None) -> int:
                         help="Show the candidate plaintext for ONE 8-byte block")
     parser.add_argument("--scan", type=Path,
                         help="Read-only scan for repeated historical zero-block ciphertext")
+    parser.add_argument("--scan-fixed-tea-pe", action="store_true",
+                        help="With --scan, try all 8 historical TEA block alignments for PE32 headers")
     parser.add_argument("--verify-known-streams", action="store_true",
                         help="Regenerate owner-identified PRNG streams in RAM; never save files")
     args = parser.parse_args(argv)
+    if args.scan_fixed_tea_pe and args.scan is None:
+        parser.error("--scan-fixed-tea-pe requires --scan FILE")
     result = historical_vector()
     if args.verify_known_streams:
         result["known_streams"] = verify_known_prng_samples()
@@ -167,7 +241,10 @@ def main(argv: list[str] | None = None) -> int:
         # Reuse the existing bounded, no-symlink and file-descriptor-aware reader.
         from rayman2_cd_io_diff import safe_read
         try:
-            result["scan"] = scan_known_zero(safe_read(args.scan))
+            scan_data = safe_read(args.scan)
+        result["scan"] = scan_known_zero(scan_data)
+        if args.scan_fixed_tea_pe:
+            result["fixed_tea_pe_scan"] = scan_fixed_tea_for_pe32(scan_data)
         except (OSError, ValueError) as exc:
             parser.error(str(exc))
     print(json.dumps(result, indent=2, sort_keys=True))
