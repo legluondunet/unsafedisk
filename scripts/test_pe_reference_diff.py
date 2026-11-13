@@ -236,6 +236,66 @@ class ReferenceDiffTests(unittest.TestCase):
             self.assertEqual(traced["protected"]["mov_immediate_candidates"], [])
             self.assertEqual(traced["reference"]["mov_immediate_candidates"][0]["site_va"], "0x00401010")
 
+    def test_masked_globals_are_compared_by_file_backed_va(self):
+        protected_raw = bytearray(pe_fixture(text_offset=0x400))
+        gog_raw = bytearray(pe_fixture(text_offset=0x800))
+        first, second = 0x00401060, 0x00401070
+        for blob, raw_off in ((protected_raw, 0x400), (gog_raw, 0x800)):
+            struct.pack_into("<I", blob, raw_off+0x60, 0)
+            struct.pack_into("<I", blob, raw_off+0x70, 0x5A151926)
+        protected = tool.parse_pe32(bytes(protected_raw))
+        gog = tool.parse_pe32(bytes(gog_raw))
+        pair = tool.compare_masked_pointer_pairs(protected, gog, [(first, second)])[0]
+        self.assertEqual(pair["retail_file_values"], ["0x00000000", "0x5A151926"])
+        self.assertEqual(pair["reference_file_values"], pair["retail_file_values"])
+        self.assertEqual(pair["retail_on_disk_xor"], "0x5A151926")
+        self.assertTrue(pair["same_bytes_at_both_vas"])
+        self.assertTrue(pair["retail_first_operand_zero_on_disk"])
+        self.assertFalse(pair["runtime_pointer_known"])
+
+    def test_masked_globals_expose_divergent_retail_and_gog_values(self):
+        a = bytearray(pe_fixture())
+        b = bytearray(pe_fixture(text_offset=0x800))
+        struct.pack_into("<I", a, 0x400+0x30, 0x12)
+        struct.pack_into("<I", a, 0x400+0x40, 0x5678)
+        struct.pack_into("<I", b, 0x800+0x30, 0x12)
+        struct.pack_into("<I", b, 0x800+0x40, 0x5679)
+        result = tool.compare_masked_pointer_pairs(
+            tool.parse_pe32(bytes(a)), tool.parse_pe32(bytes(b)),
+            [(0x00401030, 0x00401040)]
+        )[0]
+        self.assertFalse(result["same_bytes_at_both_vas"])
+        self.assertEqual(result["retail_on_disk_xor"], "0x0000566A")
+        self.assertEqual(result["reference_on_disk_xor"], "0x0000566B")
+        self.assertFalse(result["retail_first_operand_zero_on_disk"])
+
+    def test_masked_global_probe_rejects_unbacked_and_invalid_vas(self):
+        a = tool.parse_pe32(pe_fixture())
+        with self.assertRaisesRegex(ValueError, "not backed"):
+            tool.read_section_u32_va(a, 0x00401999)
+        with self.assertRaisesRegex(ValueError, "32-bit range"):
+            tool.read_section_u32_va(a, 1 << 32)
+        with self.assertRaisesRegex(ValueError, "at most 64"):
+            tool.compare_masked_pointer_pairs(a, a, [(0, 0)]*65)
+
+    def test_masked_global_probe_cli_parsing(self):
+        with tempfile.TemporaryDirectory() as folder:
+            a, b = Path(folder)/"retail.exe", Path(folder)/"gog.exe"
+            a.write_bytes(pe_fixture())
+            b.write_bytes(pe_fixture(text_offset=0x800))
+            out = io.StringIO()
+            with contextlib.redirect_stdout(out):
+                self.assertEqual(tool.main([
+                    "--protected", str(a), "--reference", str(b),
+                    "--reference-origin", "GOG",
+                    "--masked-pair", "0x401030:0x401040"
+                ]), 0)
+            result = json.loads(out.getvalue())
+            pairs = result["masked_pointer_pair_observations"]
+            self.assertEqual(len(pairs["pairs"]), 1)
+            self.assertFalse(pairs["pairs"][0]["runtime_pointer_known"])
+            self.assertIn("On-disk pairs", pairs["runtime_inference"])
+
     def test_cli_rejects_self_comparison(self):
         with tempfile.TemporaryDirectory() as folder:
             path = Path(folder)/"fixture.exe"
