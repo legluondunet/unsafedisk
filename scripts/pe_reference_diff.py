@@ -60,6 +60,7 @@ def parse_pe32(data: bytes) -> dict:
         sections[name] = {
             "name": name, "rva": rva, "virtual_size": vsize,
             "raw_offset": raw_off, "raw_len": raw_len,
+            "characteristics": u32(data, at+36),
             "contents": data[raw_off:raw_off+raw_len] if raw_len else b"",
         }
     directory_count = u32(data, opt+92)
@@ -182,6 +183,10 @@ def find_embedded_section_copies(protected: dict, reference: dict,
                 "reference_section_offset": f"0x{offset:X}",
                 "reference_file_offset": f"0x{target['raw_offset'] + offset:X}",
                 "reference_rva": f"0x{target['rva'] + offset:08X}",
+                "reference_section_characteristics":
+                    f"0x{target['characteristics']:08X}",
+                "reference_section_header_marks_executable":
+                    bool(target["characteristics"] & 0x20000000),
                 "prefix_bytes": len(prefix),
                 "prefix_all_zero": not any(prefix),
                 "suffix_bytes": len(suffix),
