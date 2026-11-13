@@ -1192,6 +1192,102 @@ of native \`ReadFile\`; no conclusion about SafeDisc 1.35's physical
 disc authentication or the live data-loading path follows from
 these static GOG stubs.
 
+## Separate real-file stream I/O: two original masked ReadFile variants replaced by direct readers (13 Nov 2026)
+
+The previously identified GOG \`CreateFileA\` **virtual CD callback** at
+\`0x00448F60\` only simulates names, handles and metadata. A **different
+file-stream API** still opens real OS handles and reads actual data.
+Do not conflate these two interfaces.
+
+**Original and GOG both retain:**
+
+- A direct \`KERNEL32.dll!CreateFileA\` call through IAT
+  **0x0049C058** at **0x00450C16**, saving the resulting real
+  Windows HANDLE at **0x00450C1C**.
+- Structure constructor **0x00450A00**, called from
+  **0x00450A8E**, which writes the selected read handler into
+  **[stream + 0x24]** at **0x00450A4D / 0x00450A70**.
+- Read dispatch **0x00450D90**, with indirect call
+  **\`CALL [EBX+0x24]\` at 0x00450DD5**. Here EBX points
+  to the stream's callback-bearing state, not to a synthetic
+  GOG filename-list handle.
+
+### Exact 118-byte constructor diff: only two bytes
+
+The **entire 118-byte constructor body** from VA
+**0x00450A00..0x00450A75** was compared byte for byte between
+the two exact owner's SHA-256-known CD and modified GOG EXEs:
+
+| Location | Original x86 | GOG x86 | Effect on callback choice |
+|---|---|---|---|
+| \`0x00450A46\` / displacement byte \`0x00450A47\` | \`75 28\` | \`75 00\` | GOG always falls through to the direct-IAT, XOR-transforming reader |
+| \`0x00450A69\` / displacement byte \`0x00450A6A\` | \`75 05\` | \`75 00\` | GOG always falls through to the direct-IAT, raw reader |
+
+**Every other byte in that constructor is unchanged.**
+In the original code, the two conditions can select masked
+Windows-\`ReadFile\` variants, depending on stream flags. In GOG,
+the zero-displacement branches ensure the pointer chosen in
+EAX is overwritten by the direct-IAT variant before it is stored
+at offset +0x24.
+
+**Four original reader implementations, paired by role:**
+
+| Original reader VA | Static role | Modified GOG \`.text\` |
+|---|---|---|
+| **0x00451090** | Direct \`ReadFile\` followed by a per-byte XOR stream transformation | **128 contiguous bytes remain exactly identical** |
+| **0x00451110** | PRNG-built masked \`ReadFile\`, then a per-byte XOR stream transformation | **432 bytes replaced with \`INT3\`** |
+| **0x004512C0** | Direct \`ReadFile\` with no subsequent payload XOR | **64 contiguous bytes remain exactly identical** |
+| **0x00451300** | PRNG-built masked \`ReadFile\`, without subsequent payload XOR | **305 bytes replaced with \`INT3\`** |
+
+The two preserved direct calls are **\`CALL [0x0049C04C]\`**
+at **0x004510AE** and **0x004512DA**.
+The original masked callsites are **\`CALL ESI\`**
+at **0x004511E2** and **0x004513BB**.
+
+**Critically, the per-byte XOR transformation still exists in
+GOG.** At 0x004510CD it XORs a read byte with state
+\`[stream + 0x15]\` and updates a masked pseudo-random
+32-bit state under \`[stream + 0x14]\` (the same Park–Miller
+family seen in the earlier trampoline analysis). The masked
+original variant performs analogous XOR operations beginning
+at 0x0045126B. This supports pairing the routines by *type
+of processing*; it is **not** a runtime proof that every
+result is bit-for-bit identical, or evidence that this XOR
+is SafeDisc's native PE unwrapping cipher.
+
+The existing
+**\`scripts/rayman2_cd_io_diff.py\`** now performs exact
+two-branch-byte matching, verification of 15 shared opcode
+anchors, three original-only anchors, comparison of preserved
+reader regions, and checks that both masked-reader ranges are
+completely \`INT3\` in the GOG executable. The same file's
+read-only input loader was also made portable to Windows:
+strict \`dev/inode\` equality remains on POSIX; Windows uses
+the common size/mtime snapshot fields to avoid a false
+\`stat()/fstat()\` identity mismatch. Windows read-only input
+is still subject to general TOCTOU caveats.
+
+Five new tests in
+**\`scripts/test_rayman2_cd_io_diff.py\`** create synthetic
+PE-backed code regions and reject unexpected branch bytes,
+unneutralized GOG masked reader code and altered direct-IAT
+ReadFile. An optional exact-file test is skipped on CI
+runners that do not have the user's private PE samples.
+
+**Independent local verification actually executed:**
+12 tests against exact owner-supplied protected CD/GOG EXEs
+and synthetic validation passed, no skips.
+Saved local JSON:
+\`rayman2_stream_reader_verified_20261113.json\`.
+A complete hosted CI result should be confirmed separately
+for the final PR commit.
+
+**Interpretation boundary:** this isolates the real file I/O
+read callback contract from GOG's virtual-CD metadata callback
+contract, but does not trace which real game files use a
+particular mode at runtime, how SafeDisc authenticates a disc,
+or how post-unwrapping original game sections differ.
+
 ## Read-only, falsifiable checks
 
 `scripts/rayman2_anti_tamper_assets.py` inspects only the two historical asset names and hashes, with case-insensitive per-component lookup, link rejection and bounded reading. Example:
