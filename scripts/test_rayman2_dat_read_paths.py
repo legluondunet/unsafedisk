@@ -19,7 +19,7 @@ class DatReadPathTests(unittest.TestCase):
 
     def test_mapped_va(self):
         h={'image_base':0x400000,
-           'sections':[{'rva':0x1000,'raw_off':5,'raw_start':5,'raw_size':20}]}
+           'sections':[{'rva':0x1000,'raw_off':5,'raw_size':20}]}
         self.assertEqual(region(b'_____' + b'abcdefgh' + b'\0'*12,h,0x401002,3),b'cde')
 
     def test_invalid_range(self):
@@ -89,7 +89,7 @@ class DatReadPathTests(unittest.TestCase):
 
     def test_disallowed_bytes(self):
         h={'image_base':0x400000,
-           'sections':[{'rva':0x1000,'raw_off':0,'raw_start':0,'raw_size':10}]}
+           'sections':[{'rva':0x1000,'raw_off':0,'raw_size':10}]}
         with self.assertRaisesRegex(ValueError,'code signature mismatch'):
             want(b'abcdefghij',h,0x401001,b'\xff\xfe')
 
