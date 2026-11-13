@@ -38,6 +38,54 @@ binary, and not a universal no-SafeDisc patch blueprint. Future
 work should isolate proven DRM behavior via code-flow analysis
 or additional independently verified retail-version evidence.
 
+## New exact section-copy evidence — GOG `.extra` (13 November 2026)
+
+**Strong, fully reproducible byte identity:** The GOG reference's
+`.extra` section contains a **100%-identical copy of the protected
+retail `.text` section** (631,296 bytes), starting at offset
+`0x1000` *within the GOG `.extra` section*.
+
+| Property | Exact result |
+|---|---|
+| Source | Protected CD `.text`, RVA `0x1000`, length **631,296** |
+| Destination | GOG `.extra`, section-relative offset **`0x1000`** |
+| Destination file offset | **`0xA7C00`** |
+| Destination RVA / VA | **`0x118000` / `0x00518000`** |
+| Matching bytes | **631,296 / 631,296 (100%)** |
+| SHA-256 of both code blocks | `43ce6eff6082f2c7491cd249d3cfeffbcb56e63313a67246dd2b14f1985751c3` |
+| Before the copied block | **4,096 zero bytes** |
+| After the copied block | **3,584 zero bytes** |
+| GOG `.extra` PE characteristics | **`0x40000040`**: initialized, readable, **not marked executable** |
+
+The exact equality is stronger than coincidental x86 disassembly:
+**the supposed "new code" at GOG VA `0x00518000` is precisely
+the unchanged protected CD code copied elsewhere.** In particular,
+disassembly there **must not** be described as newly written GOG
+routines or a verified SafeDisc relocation. It is a byte-for-byte
+embedded copy with zero padding.
+
+We do **not know why** the GOG executable retains that copy.
+The non-executable section-header flag does not absolutely prohibit
+later runtime permission changes, so no claim of execution or
+non-execution is made. The original protected code contains
+absolute addresses; merely finding the same bytes at a different
+RVA is not proof that they can execute unmodified.
+
+The generic read-only Python tool `scripts/pe_reference_diff.py`
+now automatically finds such **full, nontrivial, cross-section byte
+copies**, reporting offsets, SHA-256, zero padding and PE
+section characteristics. Its synthetic tests require full byte
+identity and reject one-bit changes and constant filler.
+**No proprietary bytes** are embedded in the tool or tests.
+
+This changes the research priority: compare the **GOG-modified
+`.text`** against both the **original protected `.text`** and
+the identical preserved copy in `.extra`. Attribute individual
+edits to SafeDisc, GOG compatibility changes or other modifications
+**only when justified by control-flow or independent provenance
+evidence**. Do not generate a retail deprotection patch by blindly
+replaying the GOG differences.
+
 ## Direct protected / unprotected PE32 comparison (13 November 2026)
 
 The owner previously supplied a **GOG edition (DRM-free, potentially otherwise modified)**
@@ -75,13 +123,13 @@ This strongly indicates intentional invalidation/neutralization of
 some original code paths, **not** necessarily the exact SafeDisc
 module boundary, and does not by itself provide safe code relocation.
 
-At reference image VA **`0x00518000`** (within added section
-`.extra`, section-relative offset `0x1000`) the bytes disassemble
-as coherent x86 sequences, including references to the original
-`.data` and calls into higher addresses in the extra region.
-The `.extra` section is flagged as *read-only data*, not ordinary
-executable code, so actual runtime execution/permissions are
-**unverified**. Its semantics require careful cross-reference tracing.
+**Corrected interpretation of `0x00518000`:** this address
+marks the start of the exact, **unchanged 631,296-byte protected
+`.text` copy embedded in GOG `.extra`**, not newly discovered
+GOG-written code. A disassembler naturally sees x86 instructions
+because these are identical to the protected code. The containing
+section is flagged read-only data and is not marked executable.
+No execution path or SafeDisc patch intent is inferred.
 No additional proprietary code is committed.
 
 The `.text` byte changes occupy **14** distinct 4-KiB virtual pages,
