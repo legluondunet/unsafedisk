@@ -219,6 +219,77 @@ and a deterministic replacement simulation.
 The entire exact GitHub Python suite has **not
 been run in this environment**.
 
+### GOG-provided CD-ROM information callbacks (13 Nov 2026)
+
+A direct read-only inspection of the SHA-256-pinned **GOG reference**
+(`9bae484bd84a4afad8d4e7b1bb30a85ce1ce2367f8451463696eabab28a72713`)
+reveals three **hardcoded Win32-compatible media-information
+callbacks**, wired to the callback initializer at `0x00467130`.
+These functions are **not** inferred from SafeDisc decoder output.
+
+| Dispatch slot | GOG installer VA | GOG callback | Static operation |
+|---|---|---|---|
+| `+0x10` | `0x0046717C` / `0x00467182` | `0x00448EC4` | `MOV EAX,5; RET 4`: drive type **`DRIVE_CDROM`** |
+| `+0x28` | `0x0046718C` / `0x00467191` | `0x00448E6C` | Fills volume information outputs then `RET 0x20` |
+| `+0x0C` | `0x0046719B` / `0x004671A0` | `0x00448ED0` | Fills disk geometry outputs then `RET 0x14` |
+
+The first returns `5`, the documented **`DRIVE_CDROM`**
+code of [Microsoft `GetDriveTypeA`]
+(https://learn.microsoft.com/en-us/windows/win32/api/fileapi/nf-fileapi-getdrivetypea).
+The second matches the output-argument layout and stack
+cleanup of [`GetVolumeInformationA`]
+(https://learn.microsoft.com/en-us/windows/win32/api/fileapi/nf-fileapi-getvolumeinformationa):
+
+| Volume output | Hardcoded value |
+|---|---|
+| Volume name | **`RAYMAN2`**, NUL-terminated |
+| File-system name | **`CDFS`**, NUL-terminated |
+| Serial number | `0x6D380AE8` |
+| Maximum filename component | `110` |
+| File-system flags | `5` |
+| Return value | `TRUE` (EAX = 1) |
+
+The third matches the four output fields and one input of
+[`GetDiskFreeSpaceA`]
+(https://learn.microsoft.com/en-us/windows/win32/api/fileapi/nf-fileapi-getdiskfreespacea):
+
+| Disk geometry output | Hardcoded value |
+|---|---:|
+| Sectors per cluster | **1** |
+| Bytes per sector | **2,048** |
+| Free clusters | **0** |
+| Total clusters | **332,400** |
+| Return value | **TRUE** (EAX = 1) |
+
+These parameters imply **680,755,200 bytes (649.22 MiB)**
+of *reported* storage geometry: a plausible CD-sized
+volume. This is not a measurement of the original
+CD's actual ISO capacity, and is entirely distinct
+from the 7.45 GB of *claimed individual file lengths*
+in the GOG embedded inventory.
+
+**Evidence quality:** these precise constants,
+instruction byte patterns, callback-table stores,
+and original GOG SHA-256 were verified locally
+using the owner-supplied executable without
+executing it. The results are saved as a
+JSON report. The correspondence to these Win32
+APIs is based on their exact argument/output
+layouts and Microsoft documentation; the
+**actual call through each callback has not
+been observed**.
+
+This is stronger static evidence that **GOG
+virtualizes an expected CD-ROM environment**
+(including CD drive type, volume label and
+disk size) to accommodate the game without
+requiring the original physical disc. It
+does **not** show whether a particular edit
+was introduced by GOG itself versus an
+earlier third-party patch, nor does it
+identify a generally applicable SafeDisc
+1.35 decryption mechanism.
+
 ### Startup path: unchanged caller, GOG return stubs (13 Nov 2026)
 
 **New, independently measured evidence from both owner-supplied
