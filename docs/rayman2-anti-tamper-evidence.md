@@ -1493,6 +1493,101 @@ including independent checks on both exact SHA-256 owner
 sample binaries. No proprietary bytes are distributed.
 
 
+### Exact resource provenance: .sna snapshot stream versus reference stream (13 Nov 2026)
+
+Tracing **both direct callers** of the function that compares
+the rolling DWORD checksum reveals a material distinction
+which earlier DAT-focused research had not yet made explicit.
+
+**Snapshot body stream:** The original and GOG EXEs both
+construct a path using the same exact string formats:
+
+| Caller | Format argument VA | ASCII path format |
+|---|---|---|
+| **0x00402A71** | **0x0049F2D8** | \`%s\Fix.sna\` |
+| **0x00403983** | **0x0049F344** | \`%s\%s\%s.sna\` |
+
+Both then call **0x0044D4F0**, which receives this
+filename through its stack argument and at **0x0044D50B**
+opens a stream using **mode 0x03** (bytewise XOR
+transformation plus rolling DWORD XOR accumulator).
+The resulting stream is subsequently read and its
+rolling checksum is compared at **0x0044D947**.
+
+**The expected checksum does NOT have to come from
+the same .sna file.** The \`0x0044D4F0\` code
+also calls **0x0044DC40** at **0x0044D619**,
+which in turn invokes **0x0044D990** at
+**0x0044DC80** to obtain a **separate reference
+stream**. That separate stream reads the expected DWORD
+into global **0x005117B8** by calling
+\`0x00450D90\` at **0x0044DCE6**.
+
+The **0x0044D990 reference filename builder** has
+multiple branches. One special selector state
+(\`byte[0x005116F0] == 0xFF\`) starts from
+the format \`%s\Fix\`; other cases may attempt
+the alternative file access function
+**0x0044E8A0** before constructing a normal path.
+The normal file path uses **stream mode 0x00**
+at **0x0044DACF**, and selects a suffix by
+a **five-way jump table at 0x0044DBCC**:
+
+| Switch ordinal | Branch VA | Appended filename suffix |
+|---:|---|---|
+| 0 | 0x0044DA6A | \`.rtb\` |
+| 1 | 0x0044DA77 | \`.rtp\` |
+| 2 | 0x0044DA91 | \`.rts\` |
+| 3 | 0x0044DA84 | \`.rtt\` |
+| 4 | 0x0044DA9E | \`.rtl\` |
+
+The five jump-table target pointers, 11-byte
+\`LEA EDX\` / \`MOV EDI, suffix-string VA\`
+branch prefixes, and the underlying suffix strings
+are **identical** between the exact CD and GOG files.
+The bitwise inversion of the table element
+\`[0x005116FC + 4 * global_0x005117C4]\`
+is a separate possible **consequence** of
+a mismatch; it does not itself constitute decryption.
+
+**Safety/reachability caveats:** Four direct code stores
+of the global index at **0x005117C4** are found
+at \`0x004038A8\`, \`0x00404317\`,
+\`0x0040484C\` and \`0x0044EABD\`.
+No upper-bound test is present locally in
+the inversion sequence **0x0044D95A..0x0044D96E**,
+but bounds may be enforced elsewhere before this
+branch. Therefore **neither out-of-bounds
+writes nor intentional protection sabotage are
+proven**. Likewise, the presence of the .rt*
+suffix switch does not prove exactly which
+reference file was opened in a real session.
+
+**Conclusion:** This is best described as a
+**cross-resource game-data consistency check**:
+a stream opened from a \`.sna\` filename is
+compared against a value acquired through a
+separately opened reference stream.
+It is **not simply the DAT payload checksum**
+and is **not established as a SafeDisc 1.35
+physical-CD authentication or decryption
+routine**. No original physical CD resource
+bytes or runtime memory observations were
+available.
+
+The existing \`scripts/rayman2_cd_io_diff.py\`
+now verifies **24 exact shared code anchors**,
+two snapshot path strings, the five raw
+suffix-switch pointers and their exact
+instructions in both owner SHA-256-known
+executable files. Six additional synthetic
+and optional private-integration test cases
+were added to \`scripts/test_rayman2_cd_io_diff.py\`,
+bringing that module to **48 test methods**.
+A separate local audit ran **12/12 tests** against
+both private files; no proprietary content
+was committed.
+
 ### Another precise GOG edit: the original masked CreateFileA opener is removed
 
 In addition to the two reader-selector JNE bytes and masked
