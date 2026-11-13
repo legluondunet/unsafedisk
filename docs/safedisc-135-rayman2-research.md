@@ -150,6 +150,75 @@ protected counterpart has no ordinary resource directory. These
 differences **do not establish how the unprotected EXE was produced**
 or imply a general-purpose SafeDisc 1.35 decoding method.
 
+### Bootstrap guard `0x5113EC`: precise static branches and bounded xrefs
+
+An independent read-only linear-disassembly scan of the two
+SHA-256-matched executables refines the unresolved bootstrap path:
+
+1. Both builds call `0x449360` from `0x401EFA`.
+2. `0x449366` reads the DWORD at **`0x5113EC`**, a
+   **virtual zero-filled** `.data` location (not a file-backed value).
+3. `0x449370` branches to `0x44938D` **if that DWORD is zero**,
+   entering the normal body. With a **nonzero** value, the alternate
+   path stores `0x44938D` at `0x510DC8` and `0x4494A4`
+   at `0x510C08`, then returns at `0x44938C` without calling
+   the preparation functions.
+4. In the normal body, the nonzero argument supplied by the
+   startup `PUSH 1` selects `0x4493F8`; the subsequent
+   `CALL` instructions are identical in the two executables,
+   even though the GOG callees are return stubs.
+
+The existing generic `descriptor_asm_xrefs.py` scanner was
+run against independent `objdump -d -M intel` listings,
+treating `0x5113EC` as **one watched address**, not a
+descriptor-array entry:
+
+```sh
+python scripts/descriptor_asm_xrefs.py \
+  --objdump retail-objdump.txt \
+  --base 0x5113ec --stride 4 --count 1 --slot-offset 0
+
+python scripts/descriptor_asm_xrefs.py \
+  --objdump gog-objdump.txt \
+  --base 0x5113ec --stride 4 --count 1 --slot-offset 0
+```
+
+| Linear-disassembly reference class | Retail-CD `.text` | GOG `.text` |
+|---|---:|---:|
+| Direct absolute-address reads/comparisons | **28** | **16** |
+| Direct absolute-address candidate writes | **0** | **0** |
+| Address-only literal uses | **0** | **0** |
+
+**This is *not* a proof that the guard is always zero.**
+The scan cannot see computed-address stores, generated
+instructions, loader-time patching or other memory writers.
+The first-run value must be established by observing a
+real Windows/Wine process or proving every prior
+write path; no execution was performed here.
+
+### Hardened PE reference-file ingestion
+
+The generic `pe_reference_diff.py` reader no longer
+trusts just a pathname `stat()` followed by an
+unbounded reopen. It now opens each candidate through
+`os.open()` with `O_NOFOLLOW` on supporting platforms,
+checks **the opened descriptor** for regular-file type
+and the 16 MiB limit, compares device/inode against
+pre-open metadata, reads at most **16 MiB + 1 byte**,
+and checks size/mtime again after reading.
+These checks are best effort, not an atomic snapshot
+against a malicious concurrent writer.
+
+Two synthetic GitHub regression tests cover
+oversized/symlink paths and replacement between
+stat/open. In a separate local reproduction of
+the new reader, **5/5 checks passed**, including
+reading the owner's two actual EXEs to their
+preverified SHA-256, symlinks, sparse oversize
+and a deterministic replacement simulation.
+The entire exact GitHub Python suite has **not
+been run in this environment**.
+
 ### Startup path: unchanged caller, GOG return stubs (13 Nov 2026)
 
 **New, independently measured evidence from both owner-supplied
