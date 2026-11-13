@@ -610,6 +610,102 @@ executed synthetic/integration tests (including the earlier
 the full repository Python/Rust test suite or new GitHub Actions
 have been executed. The GitHub PR remains a draft.
 
+## Bootstrap DAT 48-byte metadata model and floating-point selector (13 November 2026)
+
+The earlier exploration established how individual DAT words are decoded, but
+did not identify **where the six global parameters came from**. Rechecking the
+owner's exact original-CD PE32 and the separately modified GOG PE32 provides
+the missing static dependency chain:
+
+- The initialization function at VA **0x0044DE90 .. 0x0044E748**
+  opens an initial DAT path and requests a **16-byte header**, with
+  its 16-byte ReadFile call at **0x0044E28D**.
+- It requests **eight further 4-byte words** at VAs
+  **0x44E387, 0x44E43C, 0x44E4FE, 0x44E5B8, 0x44E662,
+  0x44E6B0, 0x44E6E5, 0x44E71A**.
+  The first five of these are indirect calls through the dynamically
+  generated retail ReadFile trampoline; the last three are direct CALLs
+  to the shared wrapper at 0x44E750. GOG uses direct IAT calls for the
+  first five and retains the last three direct wrapper calls.
+- The 16-byte header initializes little-endian DWORDs A, B, C, D.
+  The code increments A by C and B by D between subsequent words, in
+  unsigned 32-bit arithmetic. For the word with zero-based index i,
+  starting at i=1, the decoded value is
+
+      value_i = ((word_i - (A+i*C)) mod 2^32) XOR ((B+i*D) mod 2^32)
+
+  Six result values are saved as globals. The first (i=0) and last
+  (i=7) additional words are **not assigned to those six globals**
+  in this local function; their ReadFile calls still happen on the
+  analyzed path and may have other side effects.
+- The value for i=2 is additionally shifted **right by two bits**
+  before assignment.
+
+| Additional 4-byte read | Global variable written | Write instruction |
+|---|---|---|
+| word 1 (second) | 0x005117B0 | 0x0044E471 |
+| word 2 (third) | 0x00511750, decoded value >> 2 | 0x0044E52C |
+| word 3 (fourth) | 0x005117B4 | 0x0044E6AA |
+| word 4 (fifth) | 0x005117C0 | 0x0044E6CA |
+| word 5 (sixth) | 0x00511754 | 0x0044E714 |
+| word 6 (seventh) | 0x005117BC | 0x0044E732 |
+
+**This implies a nominal 48-byte initialization window**
+(16 + 8*4), not a full authenticated DAT format.
+The code's file reads are requests; return values are not proven
+to indicate full-length successful reads in a runtime trace.
+No original CD LEVELS0.DAT bytes were present for validation.
+Both retail and GOG preserve the six global arithmetic/write sites
+byte-for-byte even though GOG simplifies Win32 calls.
+
+**New independent reproducible diagnostic**:
+scripts/rayman2_dat_bootstrap.py, with
+scripts/test_rayman2_dat_bootstrap.py.
+Only the two known exact PE SHA-256 pairs pass the binary comparison.
+The pure mathematical helper, decode_bootstrap_48, accepts only 48 bytes
+and has no game code or proprietary-data fixture. A real local Python
+unittest run completed **11/11 tests**, including private integration
+against both exact binaries (absent on other computers: that integration
+test safely skips). The new GitHub files were compared against the
+tested local Python files and verified by exact Git blob SHA.
+There is **no** claim that 48 bytes from the authentic CD were decoded.
+
+### Next dependency: the floating-point seek offset
+
+At **0x0044ED92 .. 0x0044EE4D**, the word decoder derives its
+starting file position from additional global values just identified.
+
+- A third state byte at VA 0x005116F2 is reduced modulo the
+  *decoded* positive divisor at 0x005117B4. If its remainder m is
+  zero, the branch at **0x0044EDB2** returns before the indexed
+  file read. Thus an index 0..1023 does *not* imply a read on every call.
+- For m > 0, original x87 instructions compute an accumulator
+  initialized to **1.06913**, then iterate i=0..m-1, adding
+  **0.69314 * abs(sin(1.69314 * i*i)) + 0.52658**.
+- CRT calls through original IAT pointers **0x49C12C (modf)**,
+  **0x49C13C (floor)** and **0x49C1AC (_ftol)** respectively
+  retain the fractional part, quantize it to six decimal places,
+  and convert a resulting scaled value to an integer j.
+  The exact double constants also include **1,000,000.0**
+  and **0.000001**. The corresponding six double values from VA
+  0x0049C940..0x0049C96F are bit-identical between retail and GOG.
+- At VA **0x0044EE39**, the CRT _ftol returns j. Instructions at
+  **0x0044EE40..0x0044EE4D** compute
+
+      position_P = global_0x511754 + j * global_0x5117BC  (modulo 2^32)
+
+  These code bytes are unchanged in the two sample EXEs.
+  The exact x87/CRT rounding and signed 32-bit conversion behavior,
+  unknown actual global values, and I/O success require further
+  verification before claiming a fully bit-for-bit standalone emulator.
+
+**The original file-position selector therefore uses a decoded DAT
+base and stride plus a nontrivial x87 trig/quantization calculation,
+rather than simply seeking to a random multiple of 4.**
+This is evidence about Rayman 2's resource-access logic, *not*
+a SafeDisc 1.35 decryption algorithm.
+
+
 ## Read-only, falsifiable checks
 
 `scripts/rayman2_anti_tamper_assets.py` inspects only the two historical asset names and hashes, with case-insensitive per-component lookup, link rejection and bounded reading. Example:
