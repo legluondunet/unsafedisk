@@ -753,6 +753,72 @@ safety. A separate local inspection of the owner's
 actual SHA-256-pinned binaries confirms the **35+1
 record structure and full 2,736-byte identity**.
 
+### Independent GOG CD-ROM API shims: volume, drive type and free space (13 Nov 2026)
+
+A further **read-only x86 disassembly**, with both input SHA-256
+values rechecked, identifies three more GOG-installed callback
+functions besides the previously documented manifest-name and
+manifest-size handlers. These are **static compatibility shims**
+that return preset optical-disc properties; they **do not prove**
+that a drive is contacted, nor authenticate the original CD
+volume or geometry.
+
+| GOG initializer VA | Callback-table slot | Installed function VA | Observed static result |
+|---|---|---|---|
+| `0x46718C` / store `0x467191` | `+0x28` | `0x448E6C` | Volume-information-style shim |
+| `0x46717C` / store `0x467182` | `+0x10` | `0x448EC4` | Drive-type-style shim |
+| `0x46719B` / store `0x4671A0` | `+0x0C` | `0x448ED0` | Disk-free-space-style shim |
+
+The corresponding function bodies have **fixed literal results**:
+
+- `0x448E6C` (volume information): when optional output
+  pointers are non-null, it writes volume label **`RAYMAN2`**,
+  filesystem **`CDFS`**, filesystem flags **`5`**,
+  maximum component length **`110`**, and volume serial
+  **`0x6D380AE8`**. It returns **success (1)** and ends
+  with `RET 0x20`.
+- `0x448EC4`: `MOV EAX,5; RET 4`, returning the Win32
+  **`DRIVE_CDROM`** drive-type constant.
+- `0x448ED0`: fills disk geometry output pointers with
+  **1 sector/cluster**, **2,048 bytes/sector**, **0 free
+  clusters**, **332,400 total clusters**, and returns **1**.
+  This corresponds to a *claimed* total of 680,755,200 bytes.
+  It is a hardcoded API response, **not** a measurement of
+  the owner's physical CD or its ISO extents.
+
+These 32-bit x86 instructions and the initializer's
+`MOV reg, immediate` / `MOV [table+offset], reg`
+pairs were independently checked against the
+GOG PE by GNU binutils. A local read-only verification
+script checks the exact opcode/immediate patterns and
+the pairings without executing GOG or the retail EXE.
+
+This strengthens the explanation of **GOG's disc-less
+compatibility layer**: one dispatch table contains
+filename and declared-file-size lookups **and**
+optical-media information shims. It does **not**
+demonstrate that these functions are invoked at
+runtime, that their behavior is sufficient by
+itself to bypass SafeDisc, or that the results
+describe the original CD faithfully. Avoid
+transplanting GOG-specific values into the
+generic retail SafeDisc unwrap.
+
+The existing general-purpose RVA comparison tool
+can collect candidate function pointer references:
+
+```sh
+python scripts/pe_reference_diff.py \
+  --protected Rayman2-CD-protected.exe \
+  --reference Rayman2-GOG.exe --reference-origin GOG \
+  --trace-va 0x448E6C \
+  --trace-va 0x448EC4 \
+  --trace-va 0x448ED0 \
+  --code-span 0x448E6C:84 \
+  --code-span 0x448EC4:8 \
+  --code-span 0x448ED0:47
+```
+
 ### Dispatch-table linkage: GOG filename/size routines are assigned to game callbacks
 
 A follow-up read-only **two-binary disassembly and byte comparison**
