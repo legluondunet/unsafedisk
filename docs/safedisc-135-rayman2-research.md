@@ -150,6 +150,20 @@ protected counterpart has no ordinary resource directory. These
 differences **do not establish how the unprotected EXE was produced**
 or imply a general-purpose SafeDisc 1.35 decoding method.
 
+### Exact extent of GOG `.extra2` inventory
+
+The entire `143,360` backed bytes of GOG `.extra2` consist
+of **139,366 bytes of 3,716 length-prefixed records**, followed by
+the **8-byte termination sentinel** `FF FF FF FF 00 00 00 00`,
+followed by **3,986 bytes of zeros**. There are no additional
+nonzero bytes after the manifest terminator within this section.
+
+The read-only parser now reports `bytes_after_sentinel` and
+`remaining_bytes_all_zero` independently of the claimed file sizes.
+This is evidence about the actual **GOG section contents**,
+not a certificate that this table came from the original CD or that
+its 7.45 GB of claimed sizes were physically present.
+
 ### Embedded file inventory inside `.extra2`
 
 The first part of the GOG reference's `.extra2` has a reproducible,
