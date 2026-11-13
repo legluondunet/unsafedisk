@@ -150,6 +150,114 @@ protected counterpart has no ordinary resource directory. These
 differences **do not establish how the unprotected EXE was produced**
 or imply a general-purpose SafeDisc 1.35 decoding method.
 
+### Dispatch-table linkage: GOG filename/size routines are assigned to game callbacks
+
+A follow-up read-only **two-binary disassembly and byte comparison**
+establishes a much stronger static link than literal references alone.
+
+**At identical virtual address `0x00467130`**, both the retail-CD
+protected EXE and the GOG reference implement a callback-table
+initializer. **Two direct `CALL rel32` instructions to that same
+initializer are byte-identical in both files**:
+
+- `0x004674C8`: `CALL 0x00467130`, passing a stack-resident
+  callback table.
+- `0x0047B01B`: `CALL 0x00467130`, passing a second stack-resident
+  callback table.
+
+The **GOG initializer** stores explicit code addresses into the
+table at several offsets. The two connections to the file-list
+functions are particularly clear:
+
+| Callback-table offset | GOG initializer instruction | Target |
+|---|---|---|
+| `+0x08` | `0x00467151: MOV EDX, 0x00448F60`, then `MOV [EAX+8], EDX` | Manifest filename lookup at `0x00448F60` |
+| `+0x1C` | `0x00467160: MOV ECX, 0x00449010`, then `MOV [EAX+0x1C], ECX` | A GOG callback which invokes the size lookup |
+| `+0x20` | `0x004671DF: MOV EDX, 0x00448FD0`, followed by `MOV [EAX+0x20], EDX` at `0x004671FB` | Manifest index-to-size lookup at `0x00448FD0` |
+
+The GOG code also has `CALL 0x00448FD0` at
+`0x0044905A` inside the `0x00449010` callback.
+
+At precisely the same table slots, the retail protected
+initializer obtains pointer values from XOR-masked global memory
+rather than from literal function addresses:
+
+| Offset | Retail-CD masked pointer source |
+|---|---|
+| `+0x08` | `[0x004A1660] XOR [0x004A1630]` |
+| `+0x1C` | `[0x004A1D34] XOR [0x004A1D04]` |
+| `+0x20` | `[0x004A1958] XOR [0x004A1928]` |
+
+In the **on-disk original retail image**, the first member
+of each of these pairs is **zero** and the second appears
+masked/random. A direct XOR of the *on-disk* values does **not**
+produce the GOG callback addresses. **This is not proof of an
+incorrect file or a particular SafeDisc key**: the runtime
+initialization and mutation of those global variables must
+be traced before inferring the original callback targets.
+
+#### Path-matching behavior
+
+The GOG `0x00448F60` callback only enters the manifest
+search after testing its input path has a **drive prefix**:
+the two bytes at offsets 1 and 2 must be `:\` (x86
+`CMP WORD PTR [ESI+1],0x5C3A`). It then skips the initial
+three path bytes (`ADD ESI,3`) and compares the
+remaining path against the manifest's names, converting
+lowercase ASCII letters to uppercase during comparison.
+
+The `0x00448FD0` callback traverses the entries by a
+zero-based index and returns the entry's **declared size**,
+or zero at the sentinel. These are **static instruction-level
+observations**; no actual runtime call through the table
+has been observed or claimed.
+
+**Interpretation:** GOG does more than merely store a CD file
+list: it installs path and size lookup callbacks in a shared
+game-level dispatch structure. Because the two initializer
+call sites are common to the protected EXE, we have a
+concrete correspondence for studying original file-handling
+behavior. Still, do **not** treat the GOG replacements as
+pure SafeDisc deprotection, or the list as an authenticated
+original-CD manifest.
+
+#### Reproducible reference tracing
+
+`scripts/pe_reference_diff.py` supports optional **generic**
+`--trace-va` arguments. It scans executable sections for raw
+x86 `E8 rel32` call patterns and `B8..BF imm32`
+register-loading patterns, then reports candidate instruction
+virtual addresses in both input PE files.
+
+```sh
+python scripts/pe_reference_diff.py \
+  --protected "Rayman2-protected.exe" \
+  --reference "Rayman2-GOG.exe" \
+  --reference-origin GOG \
+  --trace-va 0x467130 \
+  --trace-va 0x448F60 \
+  --trace-va 0x448FD0 \
+  --trace-va 0x449010
+```
+
+Expected, separately inspected static candidates:
+
+- `0x467130`: two identical `CALL rel32` sites
+  `0x4674C8` and `0x47B01B` in **both** binaries.
+- `0x448F60`: GOG `MOV r32,imm32` at
+  `0x467151`; no direct equivalent in the protected
+  bytes at that address.
+- `0x448FD0`: GOG `MOV` at `0x4671DF`
+  and GOG direct `CALL` at `0x44905A`;
+  neither candidate occurs in the protected binary.
+- `0x449010`: GOG `MOV` at `0x467160`,
+  not in protected bytes.
+
+The scanner **is not a disassembler** and must not be
+used alone to assert that matched bytes are executable
+instructions or reachable code. The listed sites above
+were **independently checked with GNU objdump**.
+
 ### Static GOG code references to the embedded file inventory
 
 Unlike the inert-looking byte-copy hypothesis for `.extra`,
