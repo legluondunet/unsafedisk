@@ -466,6 +466,7 @@ class FileIoDiffTests(unittest.TestCase):
     def index_alias_fixture(self):
         # Synthetic PE-backed code; sections model virtual-only .data BSS.
         a,b,h=self.snapshot_provenance_fixture()
+        h['sections'][0]['name']='.text' # mirror real parse_headers section schema
         h={'image_base':h['image_base'],'sections':h['sections']+[{
             'name':'.data','rva':0x9f000,
             'raw_off':0,'raw_size':0x7c00,'virtual_size':0x776d0
