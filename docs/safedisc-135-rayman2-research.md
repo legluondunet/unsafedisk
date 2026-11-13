@@ -111,6 +111,81 @@ run, original CD disc-image verification, Rust compilation,
 new GitHub Actions run, unwrapping or PR merge was performed.
 
 
+## Exhaustive original-vs-GOG data delta: 127 bytes, no changed API descriptors (13 Nov 2026)
+
+A new exact-SHA, read-only audit of **both entire PE32 section byte arrays**,
+not just selected opcode sites, accounts for all backed bytes changed in
+the shared \`.data\` and \`.rdata\` sections of the user's two samples:
+
+| Item | Verified result |
+|---|---:|
+| Original and GOG \`.rdata\` (12,288 bytes) | **Byte-identical** |
+| Shared \`.data\` backed bytes (31,744 each) | **127 changed** |
+| Contiguous edit ranges in \`.data\` | **16** |
+| Seven encoded DLL names converted to padded plaintext | **107 changed bytes** |
+| Nine path/config string edit ranges | **20 changed bytes** |
+| Masked API descriptors (35 × 76 bytes = 2,660 bytes) | **Byte-identical** |
+| Original and GOG descriptor SHA-256 | \`69055fdb231a4c88226978030386473a66fa3dc119363914f0c7f19513560a75\` |
+| Masked pointer field at offset +0x30 | **35/35 zero on disk in both** |
+
+**Seven changed module-name records** (45 bytes each), beginning at
+VA \`0x004A1268\` and separated by stride \`0x2D\`:
+\`Kernel32.dll\`, \`User32.dll\`, \`PSAPI.dll\`, \`ADVAPI32.dll\`,
+\`GDI32.dll\`, \`VERSION.dll\`, \`WINMM.dll\`.
+The retail strings use the additive/XOR encoding; GOG replaces them
+with uppercase ASCII names followed by zero padding. The names are
+case-insensitively identical (Windows DLL name semantics). The exact
+GOG plaintext array therefore changes only *their storage encoding*
+and not which seven modules those descriptor records name.
+
+The nine remaining changed ranges are at original-data virtual
+addresses: \`0x49F128\`, \`0x49F134\`, \`0x49F396\`,
+\`0x49F3A6\`, \`0x49F40C\`, \`0x49F410\` (12 bytes),
+\`0x4A06DA\`, \`0x4A2266\`, \`0x4A268A\`. They change
+path separators, drive-format text, and shorten an \`Ubi.ini\` path.
+Their combined changed-byte count is exactly **20**; seven module-name
+regions account for the other **107**. There are no unexplained
+data-byte changes in these two shared backed sections.
+
+The **35 masked export-name records** at VA \`0x004A141C\` through
+the 35th 76-byte record (last one-based record no. 35) have exactly
+the same encoded content, pointer fields and SHA-256 in retail and GOG.
+In particular the generated Win32 forwarding stubs and their encoded
+name records must not be conflated: GOG modified *how* several APIs
+are called in \`.text\`, not the on-disk records containing all 35
+names in this specific shared \`.data\`.
+
+**Independent standard PE import inventory:** the two known EXEs
+contain the same **163 ordinary imported functions** in the same
+seven import DLL groups (USER32 26, GDI32 1, WINMM 4, MSVCRT 70,
+KERNEL32 60, SHELL32 1, DINPUT 1). Neither ordinary import table
+includes \`DeviceIoControl\`, \`VirtualProtect\` or \`VirtualAlloc\`.
+The 35 separately encoded export names also do not include those
+three APIs. **Absence from these two inventories is not proof of
+runtime non-use**: \`LoadLibraryA\` and \`GetProcAddress\` are
+available, the game's other modules and kernel-driver stage were not
+instrumented, and dynamically generated API names are possible.
+The 35 masked names **do** include file, disk/volume and
+process/module enumeration functions, so generic user-mode
+inspection capabilities are present on disk.
+
+This is a *static differentiation of the exact original CD versus
+modified GOG EXE*, not evidence of an original-CF SafeDisc key,
+a safe patch, or any physical CD authorization transaction.
+
+**Tool and validation:** extend existing
+\`scripts/rayman2_sample_provenance.py\` with a complete
+\`audit_cd_gog_data_changes\` check; reject unexpected byte ranges,
+unexpected name encoding, unequal 35-record tables and nonzero
+uninitialized pointer slots.
+Five additional synthetic tests raised
+\`scripts/test_rayman2_sample_provenance.py\` from **12 to 17 tests**.
+**All 17 passed in a real local run, including integration on the
+four exact private samples**, and both committed Git blobs match the
+locally executed scripts byte for byte. No game, CD extraction,
+Rust compilation or GitHub Actions execution occurred.
+
+
 ## Source correction — GOG reference is not an original retail no-DRM image
 
 **Owner clarification (13 November 2026):** the 1,468,928-byte
