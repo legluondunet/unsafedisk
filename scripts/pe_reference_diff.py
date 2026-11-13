@@ -199,6 +199,45 @@ def find_embedded_section_copies(protected: dict, reference: dict,
     return matches
 
 
+def find_added_section_base_literals(protected: dict, reference: dict) -> list[dict]:
+    """Find literal 32-bit VA values pointing to GOG/reference-only sections.
+
+    These are raw byte-pattern matches in executable-designated
+    sections, not verified disassembled instructions or reachable
+    runtime accesses.
+    """
+    results = []
+    for target_name, target in reference["sections"].items():
+        if target_name in protected["sections"]:
+            continue
+        va = reference["image_base"] + target["rva"]
+        if va > 0xFFFF_FFFF:
+            continue
+        pattern = va.to_bytes(4, "little")
+        refs = []
+        for source_name, source in reference["sections"].items():
+            if not source["characteristics"] & 0x2000_0000:
+                continue
+            start = 0
+            while (offset := source["contents"].find(pattern, start)) >= 0:
+                refs.append({
+                    "source_section": source_name,
+                    "immediate_va": f"0x{reference['image_base'] + source['rva'] + offset:08X}",
+                })
+                start = offset + 1
+        if refs:
+            results.append({
+                "reference_only_section": target_name,
+                "section_base_va": f"0x{va:08X}",
+                "literal_candidates": refs,
+                "interpretation": (
+                    "Raw absolute VA byte matches; manual disassembly and "
+                    "control-flow analysis required before claiming runtime use."
+                ),
+            })
+    return results
+
+
 def scan_manifest(data: bytes) -> dict:
     """Read <u32 claimed size><u32 name length><NUL-terminated name> records."""
     offset, records = 0, []
@@ -261,6 +300,7 @@ def main(argv=None) -> int:
             "modifications. No difference is attributed to SafeDisc."
         )
         result["exact_embedded_section_copies"] = find_embedded_section_copies(a, b)
+        result["reference_added_section_base_literals"] = find_added_section_base_literals(a, b)
         if args.manifest_section:
             section = b["sections"].get(args.manifest_section)
             if section is None:
