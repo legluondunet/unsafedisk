@@ -24,6 +24,59 @@ The 2009 Wine report describes Rayman 2 media as approximately **650 MB physical
 
 This is a **notable two-number correlation**: a historical original-disc observer used rounded “650 MB / 6.9 GB” and the GOG-emulated numbers round to approximately **649 MiB / 6.94 GiB**. Decimal GB versus binary GiB usage in the 2009 post is unspecified; no exact match is asserted. The witness and GOG executable are independent observations but this does **not** prove the 3,716 individual GOG records are the authentic CD directory, or that this is the same regional disc edition. Falsifiable next check: compare directory counts, names and declared sizes against the same-edition retail ISO filesystem (not against GOG alone), explicitly accounting for ISO9660 extents and deliberately bogus lengths.
 
+
+## Exact SHA-pinned executable comparison: CD file access (13 November 2026)
+
+New independent read-only **byte-level and x86-assembly analysis of the owner's
+two actual files**, after validating both SHA-256 identifiers:
+
+- retail protected Rayman2.exe 676,352 bytes: \`7927a106ac4f2244e304e57c196170f6cfb311af87ddf59eb6e6c48b9bb0d5e3\`;
+- GOG reference Rayman2.exe 1,468,928 bytes: \`9bae484bd84a4afad8d4e7b1bb30a85ce1ce2367f8451463696eabab28a72713\`.
+
+The data from VA **\`0x004A2090\`** consists of **24 little-endian pointer entries**, byte-identical across the two builds (SHA-256 of the 96-byte pointer block:
+\`55816453eb99c6e442f0d1303e117efb19ff9be61b5f52f9737c5b78acf27911\`). Each points to a readable filename in an identical adjacent string table. Three numbered banks (0/1/2) each contain the eight names \`LEVELS\`, \`MAP\`, \`TEXTURES\`, \`ANIMS\`, \`SOUNDS\`, \`MUSIC\`, \`GRAPHICS\`, \`MENU\` with \`.DAT\` extension.
+
+**11 independently inspected code anchors** expose differences beyond the earlier generic callback map:
+
+| VA | Protected CD | GOG |
+|---|---|---|
+| \`0x0044EB82\`, \`0x0044EB89\`, \`0x0044EB94\` | Passes the drive letter to a formatter with \`%c:\%s\%s\` | Omits the drive-letter argument and uses \`%s\%s\` |
+| \`0x0044EB97\` | Calls \`0x00448480\` while constructing an obfuscated file opener | Short jump to \`0x0044EC0B\`; old instruction range replaced by \`INT3\` |
+| \`0x0044EC24\` | \`CALL ESI\`, an indirect file-open call | \`CALL [0x0049C058]\`; PE import table confirms \`KERNEL32.dll!CreateFileA\` |
+| \`0x0044F133\` | \`SUB [ESI], ECX\` | Two NOPs |
+| \`0x0044F13A\` | \`MOV EDX,[EBX*4+0x004A2090]\`: chooses among 24 DAT file names | \`MOV EDX,[0x004A2090]\`: chooses **\`LEVELS0.DAT\`** at this specific site |
+| \`0x0044F155\`, \`0x0044F156\`, \`0x0044F161\` | Drive-letter formatter at another file-I/O site | Formatter without a drive-letter argument |
+| \`0x0044F1CC\` | Continues further file operations | Short jump to the \`0x0044F1F1\` epilogue |
+
+**Correction of an easy misreading:** the GOG format string at \`0x004A2268\` is \`%s\%s\`, **without** a leading backslash; the original at \`0x004A2264\` is \`%c:\%s\%s\`. The second string is an interior pointer into the first string.
+
+The changed instructions offer a *specific* investigation target: they simplify
+legacy file I/O and indexing, and skip certain retail code paths. They **do not**
+prove that \`LEVELS0.DAT\` is the whole anti-tamper mechanism, nor that the GOG
+changes are solely SafeDisc removals. GOG may also carry unrelated game fixes.
+
+**Reproducible tool, no code execution:**
+
+\`\`\`sh
+python scripts/rayman2_cd_io_diff.py \
+  --retail /path/to/retail/Rayman2.exe \
+  --gog /path/to/gog/Rayman2.exe
+python -m unittest discover -s scripts -p 'test_rayman2_cd_io_diff.py'
+\`\`\`
+
+The script uses strict SHA-256 gating, actual PE RVA-to-file mapping and IAT
+lookup, and checks each original/GOG opcode anchor. It reports 24 names and
+11 anchors, never emits proprietary executable bytes and never changes input.
+**11/11 synthetic Python tests pass locally**; exact known retail and GOG
+file integration analysis succeeded locally. Rust, Wine gameplay and GitHub
+Actions were **not** run for this study.
+
+**Next research experiment:** construct a bounded *control-flow*
+reconstruction at \`0x0044EB40\` and \`0x0044F130\` to determine which
+branches can actually execute and how the indexed data-file bank feeds
+integrity checks. Compare all three numbered file groups in an independently
+verified same-edition CD image/install, without assuming GOG is original.
+
 ## Read-only, falsifiable checks
 
 `scripts/rayman2_anti_tamper_assets.py` inspects only the two historical asset names and hashes, with case-insensitive per-component lookup, link rejection and bounded reading. Example:
