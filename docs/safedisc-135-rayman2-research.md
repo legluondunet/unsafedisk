@@ -120,6 +120,27 @@ E8-relative CALL instructions.
 | **0x0044949A** | **0x00447DE0** | **RET + INT3 padding**; original runtime masked-API-dependent helper |
 | **0x0044949F** | **0x00448E30** | Retains its first 42 bytes, then changes original logic at **0x00448E5A** into a short path initializer that writes the character **\`.\`** at global **0x004A6AD8** |
 
+**A new distinction among the disabled callees:** the original
+fourth function at **0x00447DE0** is not an
+identified ICD decryptor. Its initial five
+pointer-presence checks at **0x00447E04**,
+**0x00447E11**, **0x00447E1E**,
+**0x00447E2B** and **0x00447E38**
+use masked API descriptors 19–23. Those
+descriptors decode exactly as
+\`CreateToolhelp32Snapshot\`, \`Process32First\`,
+\`Process32Next\`, \`Module32First\` and
+\`Module32Next\`. This directly establishes a
+**process/module enumeration dependency**.
+It is consistent with environment inspection,
+but does **not** by itself establish an
+anti-debug verdict, copy-protection challenge,
+SafeDisc driver exchange, or decrypted code.
+GOG makes the entire function immediately return.
+The five descriptor-name matches and their
+five original x86 pointer-load instructions are
+now verified by the existing diagnostic.
+
 The last two CALLs are behind a branch at **0x00449496**:
 they require a nonzero \`EBX\` (the routine's caller-supplied
 argument). The first three CALLs are outside that branch.
