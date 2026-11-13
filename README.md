@@ -240,6 +240,31 @@ for this exact address. These counts do
 not exclude indirect writes or demonstrate
 the live guard value.
 
+**GOG virtual CD-ROM compatibility callbacks (static evidence,
+13 Nov 2026):** The GOG callback initializer assigns:
+`+0x10 → 0x448EC4` (returns **5 = `DRIVE_CDROM`**),
+`+0x28 → 0x448E6C` (writes volume label
+**`RAYMAN2`**, file system **`CDFS`**,
+serial `0x6D380AE8`, component length 110,
+flags 5), and `+0x0C → 0x448ED0`
+(writes **1 sector per cluster, 2,048 bytes per
+sector, 0 free clusters and 332,400 total clusters**).
+The last values describe a **680,755,200-byte /
+649.22-MiB apparent CD-ROM**. The function
+signatures and stack cleanups correspond to the
+Win32 APIs `GetDriveTypeA`,
+`GetVolumeInformationA` and
+`GetDiskFreeSpaceA`.
+
+These constants and callback-table stores were
+verified against the owner-supplied GOG EXE's exact
+SHA-256. **No live invocation or real CD geometry
+was measured**; this cannot be attributed to SafeDisc
+alone or copied directly into a retail-CD fix.
+See [the Rayman 2 research notes](docs/safedisc-135-rayman2-research.md)
+for the three instruction addresses, verification
+limits and source references.
+
 **GOG startup bypass identified statically (13 Nov 2026):**
 The direct CD/GOG startup call `0x401EFA → 0x449360`
 and the **complete 331-byte initializer at `0x449360`**
