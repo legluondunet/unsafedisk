@@ -234,6 +234,28 @@ which is consistent with a simpler modern Win32 I/O path. This
 observation is **not** an instruction to make writable memory
 executable or to disable system security features.
 
+## Original loader's instruction-cache protocol — verified four times (13 November 2026)
+
+A new, **SHA-256-locked, read-only PE32 diagnostic** now independently verifies the *exact opcode sequences* which were previously only described in disassembly:
+
+- Original descriptors **1** and **2** decode to `FlushInstructionCache` and `GetCurrentProcess`, respectively; **all 35 one-based descriptors** have a zero `+0x30` pointer field *on disk*. These are not runtime resolved function addresses.
+- Four original masked Win32 wrappers, for `CloseHandle`, `ReadFile`, `CreateFileA` and `SetFilePointer`, build either a 6-byte `PUSH resolvedVA; RET` trampoline or a 13-byte `MOV EAX,[ptr]; XOR EAX,[mask]; PUSH EAX; RET` / `...; JMP EAX` trampoline. Each builds its code using its own masked API-descriptor record (**11**, **10**, **8**, **12**, respectively).
+- **All four wrappers call through descriptor 2 (`GetCurrentProcess`), then descriptor 1 (`FlushInstructionCache`)** with a buffer base `0x00510EA0` and byte count `0x464` (1,124), before invoking the generated stub via `CALL ESI`. Exact code-generation and helper-call signatures have been checked on all four instruction regions.
+- PRNG relocation uses a signed remainder of `0x455` (1,109). For a nonnegative state the selected offset lies in **0..1,108**. The maximum used region for a 13-byte generated stub is **1,121 bytes**, inside the **1,124-byte** cache-flush region. *Caveat:* without dynamic observation, the residue's actual sign and buffer bounds in all runtime states have not been established.
+- The `0x00510EA0` buffer lies in zero-filled virtual `.data` space; its PE section flags are **read/write but not marked executable** (`0xC0000040`). Both the exact original CD and GOG EXEs have `DllCharacteristics=0x0000` and therefore **`IMAGE_DLLCHARACTERISTICS_NX_COMPAT` is absent**. This contextualizes, rather than proves, a DEP/NX compatibility concern. The original PE's 163 directly imported functions and the 35 decoded masked exports do not list `VirtualProtect` or `VirtualAlloc` (though computed/dynamic routes and operating-system behavior are not ruled out).
+- Microsoft specifies that `FlushInstructionCache` synchronizes generated instructions, **not** that it changes page-execution protection. Executable memory permissions are separately governed by mechanisms such as `VirtualProtect`. Neither the static PE flags nor the absence of an NX opt-in determines actual runtime permissions. References: https://learn.microsoft.com/en-us/windows/win32/api/processthreadsapi/nf-processthreadsapi-flushinstructioncache and https://learn.microsoft.com/en-us/windows/win32/api/memoryapi/nf-memoryapi-virtualprotect and https://learn.microsoft.com/en-us/windows/win32/debug/pe-format
+
+Reproduction on the owner's exact protected CD executable:
+
+```sh
+python scripts/rayman2_trampoline_proof.py Rayman2.exe
+python -m unittest discover -s scripts -p 'test_rayman2_trampoline_proof.py'
+```
+
+**Local validation:** exact SHA-pinned private original executable passed all 4 code-generator signatures, all 4 helper-call signatures, all 4 indirect-call signatures, 35 encoded export records and the virtual section check. **8/8 synthetic tests for the repo-ready implementation succeeded locally** using compatibility shims for the existing repository helper APIs; 14 more tests for a separate standalone independent local verifier passed. No game byte, file write, Wine gameplay, Rust compilation, or new GitHub Actions job was involved. The exact remote GitHub script/test have not yet run in a CI job.
+
+This is a **static validation of pointer masking and cache flushing**, not a decryption of the Rayman 2 SafeDisc layer. It does **not** establish whether the same code is dynamically reached during a specific gameplay transition, whether the loader would run under particular DEP policies, or the actual runtime value of any masked pointer.
+
 ## Read-only, falsifiable checks
 
 `scripts/rayman2_anti_tamper_assets.py` inspects only the two historical asset names and hashes, with case-insensitive per-component lookup, link rejection and bounded reading. Example:
