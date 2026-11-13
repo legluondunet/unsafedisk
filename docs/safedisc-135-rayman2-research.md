@@ -10,6 +10,139 @@ reported file lengths** in the GOG reference, but does not authenticate the
 3,716 GOG entries as the original CD directory.
 
 
+## Five owner-supplied SafeDisc-era filenames are exact PRNG streams (13 November 2026)
+
+**New primary input evidence: all FIVE exact samples were retrieved again
+from the owner's private file library and independently hashed and
+checked, not merely inferred from the earlier two-file metadata.**
+The three newly inspected files were uploaded on 9 November 2026,
+before the subsequent 12 November ICD/DPLAYERX duplicate submissions.
+They require no opaque decompression to account for every byte.
+
+| File | Physical bytes | Exact PRNG start | Prefix | GOG virtual-CD index |
+|---|---:|---|---:|---:|
+| `RAYMAN2.ICD` | 683,565 | `0x6EE4C08A` | `5B` | 18 |
+| `DPLAYERX.DLL` | 165,888 | `0x0030FBEC` | none | 6 |
+| `CLOKSPL.EXE` | 177,152 | `0x67EC2AF6` | none | 5 |
+| `CLCD32.DLL` | 27,648 | `0x4F2BFCA6` | none | 4 |
+| `DRVMGT.DLL` | 32,256 | `0x2B38CA9A` | none | 7 |
+
+All states are 32-bit **little-endian** words, beginning after
+the optional one-byte ICD prefix; all five obey the same
+`state_next = (16807 * (state XOR 0x075BD924)) mod 2147483647`
+for **every word**. An **independent complete regeneration**
+of each file in RAM matched both the original bytes and
+their complete SHA-256 hashes:
+
+- `RAYMAN2.ICD`: `4daeae51ded23687fccecd5046dd366b1c083d4931af0a381a0ad0b64bd3d1a6`
+- `DPLAYERX.DLL`: `0d5160b1b123636e03a09ae00714f0ff66bbdd759a3f2b639734ecaa487018ee`
+- `CLOKSPL.EXE`: `6efcb3f4ba8052ab8bbd58be703a1de0f9e6eacc8f47c0d6501b0981380edaeb`
+- `CLCD32.DLL`: `432074cae948d0cee2704f66b47f72a4dee2f9bed288e23912fbc531b041f2a5`
+- `DRVMGT.DLL`: `6111ab0664948e05171468835be20b00f6b69d366fab28d7cd1ca9d9b67af35b`
+
+**None of these five owner-provided bytes, at their current on-disk
+stage, is a directly loadable Win32 PE32 image.** The exact GOG
+edited executable's separate `.extra2` record list contains
+all five matching *declared sizes*, strengthening the evidence
+that the filenames belong to the same Rayman 2 release lineage.
+This does **not** validate the physical CD filesystem, installer
+transformations, CD defect-sector key or the GOG metadata as
+an authentic original CD manifest.
+
+**Cross-version control:** a separately preserved Crimson Skies
+`DPLAYERX.DLL` of **138,752 bytes**, SHA-256
+`dc43dbae45a8bfc39299ab0d1d5dbc72302f3bc37faf7c3b41e8ffdf4c6838ff`,
+is a **valid six-section PE32 DLL**, not a complete instance of
+this masked-MINSTD stream. Thus the observed pseudo-file pattern
+is not a universal property of all SafeDisc 1.x `DPLAYERX.DLL`
+files. Different game/version/installation stages remain possible.
+
+**Most important conclusion:** the original-CD installation path
+and the historical **loaded** DPLAYERX with working `.rdata`
+must still be distinguished from the five **provided opaque
+on-disk streams**. It would be premature to label them inert
+junk, genuine installed DLLs, or directly decryptable ciphertext.
+A raw PRNG stream cannot directly satisfy a Windows PE DLL
+loader without an additional transformation or substitute.
+Do not remove these files from installation logic based solely
+on the mathematical reconstruction.
+
+**Reproducible tool:** `scripts/rayman2_auxiliary_stream_audit.py`
+reads any subset of the five **exact SHA-256-pinned** owner
+references (with arbitrary pathnames) and optionally checks
+their declared lengths in the exact GOG executable. It reports
+metadata only. No proprietary file bytes or executable output
+are written to the repository:
+
+```sh
+python scripts/rayman2_auxiliary_stream_audit.py \\
+  --icd /local/RAYMAN2.ICD \\
+  --dplayerx /local/DPLAYERX.DLL \\
+  --clokspl /local/CLOKSPL.EXE \\
+  --clcd32 /local/CLCD32.DLL \\
+  --drvmgt /local/DRVMGT.DLL \\
+  --gog /local/GOG-Rayman2.exe
+python -m unittest discover -s scripts -p 'test_rayman2_auxiliary_stream_audit.py'
+```
+
+A standalone, independently written local verifier reproduced
+**5/5 byte-exact files** and checked all five specified GOG
+manifest records. The newly committed Python test module remains
+**untested on GitHub/CI**. SafeDisc executable unwrapping is still
+unimplemented.
+
+## Exact on-disk historical-TEA negative controls, checked twice (13 November 2026)
+
+Four SHA-256-identified owner's inputs were scanned literally for
+the historical TEA **key `0xC15CF2E5`**, **delta `0x9E3779B9`**,
+**32-round aggregate `0xC6EF3720`**, and the
+**zero-block ciphertext `3ECDDE58A275017F`**: none of these
+literals occur in any of the four disk files. This is NOT
+evidence that an unloaded/transformed runtime DPLAYERX lacks
+those constants or that TEA is unused.
+
+The original masked-PRNG XOR salt `0x075BD924` appears **73
+times** in the protected original PE `.text`.
+The GOG executable has **29 occurrences in its active `.text`**,
+and **73 more inside the archival non-executable `.extra`** copy
+of retail `.text`, for 102 occurrences when naively scanning
+the whole GOG *file*. **102 must not be confused with 102
+occurrences in live executable code.**
+
+Two **independent implementations (C11 and Python)** of
+historical standard TEA with repeated word key
+`0xC15CF2E5`, 32 rounds, delta `0x9E3779B9`
+decrypted every complete 8-byte block in the owner's exact
+ICD and DPLAYERX byte streams at each of **eight possible
+block alignments**. Both returned the same incidental
+`MZ` counts, but **ZERO `MZ` plus `PE\\0\\0`**
+header pairs with a plausible PE layout for either file
+on any alignment. This specifically rejects a **naïve
+whole-file, fixed-key, raw-TEA-to-PE** reconstruction
+model; it does not refute section-only TEA decryption,
+a different container or dynamic loaded-memory parameters.
+
+**Reproduction without original game payload output:**
+
+```sh
+python scripts/rayman2_historical_tea.py \\
+  --scan /local/RAYMAN2.ICD --scan-fixed-tea-pe
+python scripts/rayman2_historical_tea.py \\
+  --scan /local/DPLAYERX.DLL --scan-fixed-tea-pe
+```
+
+The Python scanner does not emit transformed file contents.
+A **synthetic 4-KiB one-section PE32** was encrypted in
+8-byte blocks beginning at alignment 5 and then tested
+across all eight offsets: the independent positive-control
+scanner recovered exactly one valid PE header at alignment
+5, none elsewhere. This demonstrates detection ability
+without using any proprietary PE data. New tests in
+`scripts/test_rayman2_historical_tea.py` enforce this
+positive case and malformed-input refusal; its exact
+GitHub version has not yet run on CI. The historical
+algorithm remains a lead, **not a decoded Rayman 2 executable**.
+
 ## Newly reproduced Rayman 2-specific historical TEA known-answer vector (13 November 2026)
 
 **Independent mathematical result; historical cipher only, NOT an
