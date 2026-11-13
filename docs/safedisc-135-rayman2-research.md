@@ -2,12 +2,48 @@
 
 Status: **read-only classification implemented; native unwrapping not implemented.**
 
+## Source correction — GOG reference is not an original retail no-DRM image
+
+**Owner clarification (13 November 2026):** the 1,468,928-byte
+`Rayman2.exe` (SHA-256
+`9bae484bd84a4afad8d4e7b1bb30a85ce1ce2367f8451463696eabab28a72713`)
+is supplied by the **GOG release**, **not** a verified reconstruction of
+the unmodified original retail executable with only SafeDisc removed.
+
+The comparisons below remain **accurate byte-level observations
+between two specific files**, but they **do not identify SafeDisc
+patches**. GOG could have introduced unrelated compatibility patches,
+code changes, resources, version-specific alterations, installer
+metadata, or additional sections; the origin of each change remains
+unknown. In particular:
+
+- The 10,851 changed bytes that became `0xCC` (`INT3`) **cannot
+  all be attributed to DRM neutralization** without an independent
+  call-path proof. The same applies to `0x90` (`NOP`) changes.
+- The `.extra`, `.extra2`, and `.rsrc` sections may have been
+  introduced or changed by GOG or an earlier third party. Their
+  presence **does not establish** the original SafeDisc unpacking
+  format or the origin of the embedded manifest.
+- The `.extra2` file list of 3,716 entries **is found in the
+  GOG executable**. Its filenames and claimed sizes can be
+  independently compared to the owner's original disc, but the
+  list **must not be presented as a verified original CD manifest**
+  without that comparison.
+
+**Required research separation:** "retail protected EXE" is one
+input; "GOG executable, DRM-free but potentially otherwise modified"
+is a second input. Use the latter as a **comparative reference only**,
+not a pristine ground truth, not an automatically valid original
+binary, and not a universal no-SafeDisc patch blueprint. Future
+work should isolate proven DRM behavior via code-flow analysis
+or additional independently verified retail-version evidence.
+
 ## Direct protected / unprotected PE32 comparison (13 November 2026)
 
-The owner previously supplied an independent **unprotected**
+The owner previously supplied a **GOG edition (DRM-free, potentially otherwise modified)**
 `Rayman2.exe` (**1,468,928 bytes**, SHA-256
 `9bae484bd84a4afad8d4e7b1bb30a85ce1ce2367f8451463696eabab28a72713`).
-This SHA-256 is also recorded as the approved unprotected runtime in
+This SHA-256 is also recorded as the approved GOG-derived runtime in
 [Rayman2Fix architecture](https://github.com/legluondunet/Rayman2Fix/blob/main/docs/architecture.md).
 The protected source `Rayman2.exe` is **676,352 bytes**, SHA-256
 `7927a106ac4f2244e304e57c196170f6cfb311af87ddf59eb6e6c48b9bb0d5e3`.
@@ -20,7 +56,7 @@ empty launcher: much of the original game code is present already.
 
 **Compare section contents at matching virtual RVAs**, not at file
 offsets: the protected `.text` begins at raw offset `0x400`,
-whereas the unprotected counterpart begins at raw offset `0x1000`.
+whereas the GOG reference begins at raw offset `0x1000`.
 A naive file-position byte comparison misleadingly reports massive
 differences. Correctly aligned by RVA:
 
@@ -34,7 +70,7 @@ differences. Correctly aligned by RVA:
 changed backed bytes in shared `.text`, **10,851 bytes** are
 replaced by `0xCC` (`INT3`) and **1,520 bytes** are replaced by
 `0x90` (`NOP`). A large original code range beginning at
-RVA `0x474B0` is filled with `INT3` in the unprotected reference.
+RVA `0x474B0` is filled with `INT3` in the GOG reference.
 This strongly indicates intentional invalidation/neutralization of
 some original code paths, **not** necessarily the exact SafeDisc
 module boundary, and does not by itself provide safe code relocation.
@@ -52,7 +88,7 @@ The `.text` byte changes occupy **14** distinct 4-KiB virtual pages,
 with the largest concentrations in page ranges near RVAs
 `0x47000`, `0x48000` and `0x4E000`. Changed-byte addresses
 and density are diagnostics only: they are **not** automatically
-identified as SafeDisc routines. The unprotected reference has
+identified as SafeDisc routines. The GOG reference has
 three additional sections:
 
 | Additional section | RVA | Backed length | Remark |
@@ -61,14 +97,14 @@ three additional sections:
 | `.extra2` | `0x1B3000` | 143,360 | Begins with a size/name-length file inventory |
 | `.rsrc` | `0x1D6000` | 3,584 | PE resource section, absent from the protected EXE |
 
-The unprotected EXE's PE resource data directory is nonzero; the
+The GOG EXE's PE resource data directory is nonzero; the
 protected counterpart has no ordinary resource directory. These
 differences **do not establish how the unprotected EXE was produced**
 or imply a general-purpose SafeDisc 1.35 decoding method.
 
 ### Embedded file inventory inside `.extra2`
 
-The first part of unprotected `.extra2` has a reproducible,
+The first part of the GOG reference's `.extra2` has a reproducible,
 length-prefixed sequence of **3,716 distinct filenames**:
 
 ```text
@@ -114,7 +150,7 @@ scans such a length-prefixed manifest (no file extraction):
 ```sh
 python scripts/pe_reference_diff.py \
   --protected "Rayman2-protected.exe" \
-  --reference "Rayman2-unprotected.exe" \
+  --reference "Rayman2-GOG.exe" \
   --manifest-section .extra2 \
   --focus-name RAYMAN2.EXE \
   --focus-name RAYMAN2.ICD \
