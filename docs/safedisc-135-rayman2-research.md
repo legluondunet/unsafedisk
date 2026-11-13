@@ -170,7 +170,7 @@ process/module enumeration functions, so generic user-mode
 inspection capabilities are present on disk.
 
 This is a *static differentiation of the exact original CD versus
-modified GOG EXE*, not evidence of an original-CF SafeDisc key,
+modified GOG EXE*, not evidence of an original-CD SafeDisc key,
 a safe patch, or any physical CD authorization transaction.
 
 **Tool and validation:** extend existing
