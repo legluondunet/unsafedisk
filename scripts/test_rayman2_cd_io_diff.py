@@ -14,7 +14,8 @@ from rayman2_cd_io_diff import (
     stream_xor_step32, stream_xor_transform, inspect_stream_xor_x86,
     STREAM_XOR_SEED, STREAM_XOR_SALT, STREAM_XOR_DIRECT_ANCHORS,
     STREAM_XOR_RETAIL_MASKED_ANCHORS,
-    STREAM_WORD_CHECK_ANCHORS, stream_word_xor_checksum, inspect_stream_word_checksum,
+    STREAM_WORD_CHECK_ANCHORS, STREAM_WORD_CHECK_COMPARE_ANCHORS,
+    stream_word_xor_checksum, inspect_stream_word_checksum,
 )
 
 
@@ -325,7 +326,8 @@ class FileIoDiffTests(unittest.TestCase):
         def store(data,va,bytecode):
             ofs=va-0x401000
             data[ofs:ofs+len(bytecode)]=bytecode
-        for addr,hexa in STREAM_WORD_CHECK_ANCHORS.items():
+        for addr,hexa in (*STREAM_WORD_CHECK_ANCHORS.items(),
+                          *STREAM_WORD_CHECK_COMPARE_ANCHORS.items()):
             for data in (retail,gog):
                 store(data,addr,bytes.fromhex(hexa))
         store(retail,0x450ADE,bytes.fromhex('56 E8 EC 03 00 00 83 C4 04 84 C0 0F'))
@@ -340,6 +342,26 @@ class FileIoDiffTests(unittest.TestCase):
         self.assertEqual(result['common_opcode_anchors_checked'],26)
         self.assertEqual(result['gog_disabled_stream_open_INT3_bytes'],290)
         self.assertEqual(result['checksum_accumulator_offset'],'stream+0x10')
+
+    def test_word_checksum_expected_value_and_inversion_static(self):
+        retail,gog,h=self.word_check_fixture()
+        report=inspect_stream_word_checksum(bytes(retail),bytes(gog),h,h)
+        self.assertEqual(report['checksum_compare_anchors_checked'],9)
+        self.assertEqual(report['expected_checksum_global_va'],'0x005117B8')
+        self.assertTrue(report['mismatch_gate_returns_true_on_disk'])
+        self.assertEqual(report['expected_checksum_stream_read_call_va'],'0x0044DCE6')
+
+    def test_word_checksum_reject_changed_mismatch_branch(self):
+        retail,gog,h=self.word_check_fixture()
+        gog[0x44D95A-0x401000] ^= 1
+        with self.assertRaisesRegex(ValueError,'XOR checksum compare'):
+            inspect_stream_word_checksum(bytes(retail),bytes(gog),h,h)
+
+    def test_word_checksum_reject_changed_expected_read_call(self):
+        retail,gog,h=self.word_check_fixture()
+        gog[0x44DCE6-0x401000] ^= 1
+        with self.assertRaisesRegex(ValueError,'XOR checksum compare'):
+            inspect_stream_word_checksum(bytes(retail),bytes(gog),h,h)
 
     def test_word_checksum_reject_changed_open_byte(self):
         retail,gog,h=self.word_check_fixture()
@@ -362,6 +384,7 @@ class FileIoDiffTests(unittest.TestCase):
         result=inspect_pair(safe_read(retail),safe_read(gog))
         self.assertEqual(result['stream_postread_DWORD_checksum']['common_opcode_anchors_checked'],26)
         self.assertEqual(result['stream_postread_DWORD_checksum']['gog_disabled_stream_open_INT3_bytes'],290)
+        self.assertEqual(result['stream_postread_DWORD_checksum']['checksum_compare_anchors_checked'],9)
 
     def test_safe_read_rejects_symlink(self):
         if not hasattr(os,'symlink'):self.skipTest('no symlink support')
