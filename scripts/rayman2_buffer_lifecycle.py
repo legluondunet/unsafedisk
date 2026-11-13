@@ -121,7 +121,7 @@ def main(argv=None):
     p=argparse.ArgumentParser(description=__doc__)
     p.add_argument('--retail',type=Path,required=True)
     p.add_argument('--gog',type=Path,required=True)
-    args=p.parse_args()
+    args=p.parse_args(argv)
     try: print(json.dumps(inspect(safe_read(args.retail),safe_read(args.gog)),indent=2))
     except (OSError,ValueError) as exc:p.exit(1,f'ERROR: {exc}\n')
 
