@@ -71,6 +71,36 @@ ISO omission log, independent of the research file's SHA-256.
 This establishes a **size/name crosscheck**, not a sector-by-sector
 hash match.
 
+## The 23 oversized DAT references match exactly, separately
+
+The original ISO inspection logs **explicitly omit 23** of the
+24 family-number file paths of the form
+`DATA/WORLD/LEVELS/{ANIMS,GRAPHICS,LEVELS,MAP,MENU,MUSIC,SOUNDS,TEXTURES}{0,1,2}.DAT`;
+the retained 24th path is the genuine `LEVELS0.DAT`.
+The 23 omitted records have **6,777,257,404 declared bytes
+in aggregate**, about ten times the size of the entire
+678,168,576-byte ISO. They are individual nominal-size
+metadata entries, **not** proof of 6.78 GB of data present
+in the 678 MB physical image.
+
+**All 23 paths and their individual nominal byte lengths
+match the GOG virtual-CD table exactly, in both independently
+generated ISO logs.** This is especially useful for
+understanding why GOG preserves implausibly large original
+file-size metadata alongside its modified executable.
+It cannot independently prove that a particular in-game
+anti-tamper check reads those paths or that their data
+can/should be physically extracted.
+
+The read-only verifier now reports an explicit structured
+`historical_23_omitted_dat` result, requiring all
+**23/23** matches before marking this subgroup complete.
+Its sixth synthetic test exercises both the complete
+positive case and a missing-record negative case.
+Locally, both original owner logs produce
+`all_23_confirmed_in_both: true` and the exact sum
+`6777257404`.
+
 ## Why this matters for actual SafeDisc decryption
 
 The historical Rayman 2 investigation
@@ -117,9 +147,9 @@ python -m unittest discover -s scripts -p 'test_rayman2_cd_log_gog_compare.py'
 
 The exact GitHub source and test file blob hashes match the
 locally executed Python files:
-`258a1c4e0f35741c39da7910578a5b2e97ceea98` and
-`a8bab9f824d756fc09c1aaee9f9bcb441d8c45a4`.
-**5/5 synthetic tests passed**; both owner log + GOG
+`3ddbf51470432779930e86f3eeed530d54a27dfe` and
+`44f1c496a5323f3e35bcf0fc44ef6d8c933f151f`.
+**6/6 synthetic tests passed**; both owner log + GOG
 comparisons were run locally. No GitHub Actions job or native
 Rust rebuild was triggered.
 
