@@ -166,7 +166,7 @@ class TrampolineProofTests(unittest.TestCase):
     def test_synthetic_relay_rejects_missing_original_helper(self):
         b,h=self.synthetic_retail_relay()
         b[0x00447DE0-0x00401000]=0xc3
-        with self.assertRaisesRegex(ValueError,'retail callee'):
+        with self.assertRaisesRegex(ValueError,'original callee unexpectedly'):
             verify_retained_bootstrap_chain(bytes(b),h)
 
     def test_flush_span_covers_all_generated_code(self):
