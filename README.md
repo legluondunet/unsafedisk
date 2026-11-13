@@ -145,6 +145,24 @@ python scripts/safedisc_prng_recurrence.py RAYMAN2.ICD --auto-align
 python scripts/safedisc_prng_recurrence.py dplayerx.dll --auto-align
 ```
 
+**Extended five-file finding (13 Nov 2026):** three further
+owner-supplied files — `CLOKSPL.EXE` (177,152 bytes),
+`CLCD32.DLL` (27,648 bytes) and `DRVMGT.DLL`
+(32,256 bytes) — are also **entirely reproducible with the same
+masked Park–Miller recurrence**. They are individually SHA-256
+verified, and their names/declared sizes occur in GOG's virtual-CD
+manifest alongside the ICD and DPLAYERX. This does **not**
+authenticate the original physical CD or establish whether an
+original installer produces different working files.
+
+Use `python scripts/rayman2_auxiliary_stream_audit.py --help`
+to verify any subset of the five exact owner samples in read-only
+mode. Separately, `scripts/rayman2_historical_tea.py`
+reproduces the 2000 historical TEA known-answer vector
+and can optionally test all eight naive fixed-key block
+alignments for a PE header. **No native Rayman 2 SafeDisc
+unwrapping is implemented or claimed.**
+
 The two streams have no shared 31-bit state in their sampled ranges
 and do not follow one another immediately. This does **not** prove
 their seeds are globally independent, only that these two specific
