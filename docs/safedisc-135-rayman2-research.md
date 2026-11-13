@@ -75,6 +75,50 @@ with the committed Git blobs verified to be exactly the
 locally tested files. **No Windows/Wine runtime decryption,
 Rust compilation or CI was performed.**
 
+## Historical Rayman 2 paper vs the exact owner EXE (14 November 2026)
+
+A separate [read-only binary-anchor audit]
+(rayman2-january2000-binary-anchor-audit.md)
+checked the *January 2000* paper's Rayman 2
+**decoded ICD** entrypoint and three additional
+specified code addresses against **the exact
+SHA-256-pinned 676,352-byte CD EXE** and
+the separately edited **GOG EXE**.
+
+The **original disk EXE already has the historical
+0x0045FCC0 prologue** and 0x9A200-byte raw
+`.text`, but three other location-specific
+historical opcode prefixes **do not match**
+in either on-disk EXE, and three original
+paper patch signatures are absent from both
+`.text` sections. **All four sampled 32-byte
+address spans are mutually identical between
+retail and GOG**. The GOG `.text` is 0x9B000
+raw bytes (rather than retail's 0x9A200); its
+extra 0xE00 bytes are zero padding, not
+new game code.
+
+The historical author **tentatively** called
+the analyzed CD's protection *r3*;
+the historical CDMediaWorld size table
+associates the **165,888-byte DPLAYERX** size
+with *r2* rather than its reported *r3*
+size of 172,544. A **different SafeDisc
+revision, transformed runtime stage, or
+historical address mismatch** could explain
+the inconsistencies. **None is proven**.
+This is critical: neither the historical TEA
+key nor the historic function offsets should
+be used as an edition-locked decryption
+proof for our actual ICD/DPLAYERX files.
+
+**Execution:** 5 synthetic unit tests passed;
+full owner-EXE integration passed; exact
+GitHub script/test blobs match the local
+files, no CI or Wine game execution.
+`scripts/rayman2_historical_anchors.py`
+generates only metadata.
+
 ## Five owner-supplied SafeDisc-era filenames are exact PRNG streams (13 November 2026)
 
 **New primary input evidence: all FIVE exact samples were retrieved again
