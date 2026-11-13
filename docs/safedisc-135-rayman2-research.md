@@ -42,10 +42,11 @@ printed known-answer suffix; it does not prove the first byte
 in the original printed document was missing or correct the
 original text with certainty.
 
-**Transcription warning:** an adjacent example in the historical
-document prints the bytes `E5 2F 55 C1`, which represent
-`0xC1552FE5`, a different key from the written
-`0xC15CF2E5`; the alternative fails the known-answer vector
+**Transcription warning:** the historical essay separately prints
+an original code-patch instruction `B9 E5 F2 5C C1`, which correctly
+loads `ECX=0xC15CF2E5` (matching its written key), but another
+example prints the inconsistent bytes `E5 2F 55 C1`, which represent
+`0xC1552FE5`. The latter alternative fails the known-answer vector
 (the eight-byte ciphertext for zero under that alternative,
 with the same delta/rounds, is `12 43 84 B8 EC 16 31 15`).
 Do not silently substitute the inconsistent byte sequence.
