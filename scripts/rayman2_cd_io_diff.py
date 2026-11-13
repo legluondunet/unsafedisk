@@ -428,7 +428,10 @@ SNAPSHOT_INDEX_ANCHORS = {
     0x0044D968:'89 0C 85 FC 16 51 00',
     0x0044EA80:'8B 0D C4 17 51 00',
     0x0044EA8C:'89 14 8D 60 17 51 00',
+    0x0044EA93:'8D 4D F8', # address of output read-count variable
+    0x0044EAA0:'E8 EB 22 00 00', # 0x450D90 read with output count
     0x0044EAA5:'A1 C4 17 51 00',
+    0x0044EAAA:'8B 55 F8', # read returned count from [EBP-8]
     0x0044EAB6:'89 14 85 00 17 51 00',
     0x0044EABD:'40',
     0x0044EAC4:'A3 C4 17 51 00',
@@ -477,6 +480,15 @@ def inspect_snapshot_index_alias(retail: bytes, gog: bytes,
     if (snapshot_inversion_address(0)!=INDEX_FIRST_TABLE_VA-4 or
             snapshot_inversion_address(50)!=INDEX_GLOBAL_VA):
         raise ValueError('unexpected first-table/index-global address alias')
+    # In the ordinary sequential 0x44E8A0 append path, the current
+    # record is saved at FIRST + 4*k, then the count becomes k+1.
+    # The later mismatch target INVERT_BASE + 4*(k+1) is identical.
+    # Therefore the -4 displacement is not by itself an off-by-one
+    # bug. Other nonsequential writers of the index remain possible.
+    for k in (0,1,7,23,24,49):
+        stored=(INDEX_FIRST_TABLE_VA+4*k) & 0xFFFFFFFF
+        if snapshot_inversion_address(k+1)!=stored:
+            raise ValueError('last-appended-record alias mismatch')
     return {
         'read_only':True,'runtime_reachability_observed':False,
         'identical_cd_gog_opcode_anchors':len(SNAPSHOT_INDEX_ANCHORS),
@@ -497,6 +509,12 @@ def inspect_snapshot_index_alias(retail: bytes, gog: bytes,
         'two_table_load_sites':{
             'first':'0x004672CC','second':'0x004672AD'},
         'inversion_base_is_one_dword_before_first_table':True,
+        'sequential_append_store_then_increment_sites':[
+            '0x0044EAB6','0x0044EABD','0x0044EAC4'],
+        'stream_read_count_out_pointer_va':'0x0044EA93',
+        'stream_read_returned_count_loaded_va':'0x0044EAAA',
+        'sequential_append_mismatch_inverts_last_written_record':True,
+        'same_sequence_not_proven_for_PRNG_index_writer':True,
         'inversion_address_examples':examples,
         'index_49_aliases_adjacent_global_0x5117c0':True,
         'index_50_aliases_index_global_itself':True,
