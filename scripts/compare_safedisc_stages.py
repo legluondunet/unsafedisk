@@ -17,6 +17,25 @@ MAX_INPUT_BYTES = 16 * 1024 * 1024
 TARGETS = ("rayman2.exe", "rayman2.icd", "dplayerx.dll", "dxplayerx.dll")
 
 
+
+def opened_snapshot_matches(before, opened, *, platform: str | None = None) -> bool:
+    """Check an opened file without assuming stable Windows inode reporting.
+
+    On POSIX, matching device+inode distinguishes path replacement from a
+    race. On Windows, DirEntry.stat and os.fstat can report different
+    st_dev/st_ino for the very same file (as observed in GitHub Actions).
+    There, compare size and modification time as the common best-effort
+    identity information; reject symlinks before opening and read only
+    through the obtained handle. This cannot fully eliminate a TOCTOU
+    replacement race on Windows, and must not be called authentication.
+    """
+    if (opened.st_size, opened.st_mtime_ns) != (before.st_size, before.st_mtime_ns):
+        return False
+    if (os.name if platform is None else platform) != "nt":
+        return (opened.st_dev, opened.st_ino) == (before.st_dev, before.st_ino)
+    return True
+
+
 def inventory(root: Path) -> dict[str, dict]:
     if root.is_symlink() or not root.is_dir():
         raise ValueError(f"refusing symlink or non-directory input: {root}")
@@ -41,7 +60,7 @@ def inventory(root: Path) -> dict[str, dict]:
                 opened = os.fstat(handle.fileno())
                 if not stat.S_ISREG(opened.st_mode) or opened.st_size > MAX_INPUT_BYTES:
                     raise ValueError(f"file changed type or size: {item.name}")
-                if (opened.st_dev, opened.st_ino) != (info.st_dev, info.st_ino):
+                if not opened_snapshot_matches(info, opened):
                     raise ValueError(f"file replaced during opening: {item.name}")
                 while chunk := handle.read(1024 * 1024):
                     read_count += len(chunk)
