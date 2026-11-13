@@ -392,6 +392,56 @@ def compare_entry_stubs(protected: dict, reference: dict,
     return results
 
 
+def describe_virtual_address(pe: dict, va: int, length: int = 4) -> dict:
+    """Classify RVA storage in PE image without guessing current runtime data.
+
+    File-backed bytes and zero-initialized virtual tail are different:
+    the latter may be populated by the program after loading.
+    """
+    if not 0 <= va <= 0xFFFF_FFFF or not 1 <= length <= 65536:
+        raise ValueError("invalid address or length")
+    rva = va - pe["image_base"]
+    sections = [
+        section for section in pe["sections"].values()
+        if section["rva"] <= rva
+        and rva + length <= section["rva"] + max(
+            section["virtual_size"], section["raw_len"]
+        )
+    ]
+    if not sections:
+        return {"va": f"0x{va:08X}", "length": length,
+                "storage": "not_in_any_section"}
+    if len(sections) > 1:
+        return {"va": f"0x{va:08X}", "length": length,
+                "storage": "ambiguous_overlapping_sections"}
+    section = sections[0]
+    offset = rva - section["rva"]
+    backed = section["raw_len"]
+    virtual = section["virtual_size"]
+    if offset + length <= backed:
+        storage = "file_backed"
+    elif offset >= backed and offset + length <= virtual:
+        storage = "virtual_zero_fill_at_load"
+    elif offset < backed and offset + length <= virtual:
+        storage = "crosses_file_and_zero_fill"
+    else:
+        storage = "outside_declared_virtual_extent"
+    return {
+        "va": f"0x{va:08X}", "length": length,
+        "section": section["name"],
+        "section_rva": f"0x{section['rva']:08X}",
+        "section_virtual_size": virtual,
+        "section_raw_length": backed,
+        "section_delta": f"0x{offset:X}",
+        "storage": storage,
+        "runtime_value_inferred": False,
+        "note": (
+            "Virtual zero-fill describes loader mapping, not the "
+            "possibly modified in-memory value during execution."
+        ),
+    }
+
+
 def compare_code_spans(protected: dict, reference: dict,
                        spans: list[tuple[int, int]]) -> list[dict]:
     """Compare exact file-backed VA spans without assigning patch intent.
@@ -533,6 +583,8 @@ def main(argv=None) -> int:
                         help="Provenance label, e.g. GOG (metadata only; not authentication)")
     parser.add_argument("--manifest-section")
     parser.add_argument("--focus-name", action="append", default=[])
+    parser.add_argument("--map-va", action="append", default=[],
+                        help="PE virtual address to classify as file-backed or zero-fill")
     parser.add_argument("--entry-va", action="append", default=[],
                         help="x86 entrypoint VA to classify, repeatable")
     parser.add_argument("--code-span", action="append", default=[],
@@ -559,6 +611,16 @@ def main(argv=None) -> int:
         )
         result["exact_embedded_section_copies"] = find_embedded_section_copies(a, b)
         result["reference_added_section_base_literals"] = find_added_section_base_literals(a, b)
+        if args.map_va:
+            if len(args.map_va) > 64:
+                raise ValueError("at most 64 mapped addresses")
+            result["virtual_address_storage"] = [
+                {
+                    "protected": describe_virtual_address(a, int(item, 0)),
+                    "reference": describe_virtual_address(b, int(item, 0)),
+                }
+                for item in args.map_va
+            ]
         if args.entry_va:
             if len(args.entry_va) > 64:
                 raise ValueError("at most 64 entrypoints")
