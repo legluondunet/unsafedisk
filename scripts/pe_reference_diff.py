@@ -115,6 +115,14 @@ def compare_pe32(protected: dict, reference: dict) -> dict:
             "rva": f"0x{a['rva']:08X}",
             "compared_bytes": common, "equal_bytes": common-len(diffs),
             "different_bytes": len(diffs),
+            "changed_to_int3_bytes": sum(
+                a["contents"][i] != 0xCC and b["contents"][i] == 0xCC
+                for i in diffs
+            ),
+            "changed_to_nop_bytes": sum(
+                a["contents"][i] != 0x90 and b["contents"][i] == 0x90
+                for i in diffs
+            ),
             "identical_percent": round(100*(common-len(diffs))/common, 4) if common else None,
             "raw_length_protected": a["raw_len"],
             "raw_length_reference": b["raw_len"],
