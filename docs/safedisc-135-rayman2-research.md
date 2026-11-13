@@ -77,7 +77,9 @@ not match the current file's actual GUI event-dispatch instructions
 paper explicitly discusses **post-deciphering in-memory sections**,
 whereas our file checks are of **protected on-disk bytes**; a
 different code stage or an edition/revision difference could explain
-these discrepancies. Do **not** infer an actionable patch offset
+these discrepancies. The original retail and GOG **on-disk code is
+identical at both these addresses**, so merely comparing the two
+available disk EXEs cannot resolve the historical discrepancy. Do **not** infer an actionable patch offset
 or unwrapping key from such historical VA matches alone.
 
 Taken together, the historically observed *in-memory decrypted
