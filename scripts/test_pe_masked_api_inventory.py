@@ -1,6 +1,6 @@
 """Synthetic obfuscated-name fixtures; no original game data."""
 import unittest
-from pe_masked_api_inventory import decode_name, file_backed_bytes, inspect
+from pe_masked_api_inventory import decode_name, decode_plain_name, file_backed_bytes, inspect
 
 
 def encode_name(name, a=0x18,b=0xBC,da=0x14,db=0x05, stride=45):
@@ -55,6 +55,26 @@ class DecoderTests(unittest.TestCase):
             ['KERNEL32.dll','PSAPI.dll','KERNEL32.dll'])
         self.assertEqual(r['zero_on_disk_slots'],3)
         self.assertFalse(r['runtime_exports_resolved'])
+
+    def test_plaintext_module_names_are_strictly_padded(self):
+        self.assertEqual(decode_plain_name(b'KERNEL32.DLL\0'+bytes(10)),'KERNEL32.DLL')
+        for invalid in (b'NO_TERMINATOR', b'WRONG\0X\0', b'\0ABC'):
+            with self.assertRaises(ValueError):
+                decode_plain_name(invalid)
+
+    def test_gog_style_modules_keep_api_descriptors(self):
+        p=fake_pe()
+        blob=bytearray(p['sections']['.data']['contents'])
+        for i, name in enumerate(('KERNEL32.DLL','PSAPI.DLL')):
+            blob[0x20+i*45:0x20+(i+1)*45]=name.encode('ascii').ljust(45,b'\0')
+        p['sections']['.data']['contents']=bytes(blob)
+        r=inspect(p,0x401020,45,2,0x401120,76,3,0x34,0x30,'plain')
+        self.assertEqual(
+            [x['api_name'] for x in r['apis']], ['ReadFile','EnumProcesses','GetFileSize'])
+        self.assertEqual(r['module_name_encoding'],'plain')
+        self.assertEqual(
+            [x['module_name'] for x in r['apis']],
+            ['KERNEL32.DLL','PSAPI.DLL','KERNEL32.DLL'])
 
     def test_invalid_module_reference(self):
         p=fake_pe()
