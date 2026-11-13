@@ -329,6 +329,35 @@ JSON were locally checked against the original
 GOG SHA-256. The one IAT-fed slot must **not**
 be represented as a constant target address.
 
+The reproducible **generic** read-only parser
+[`scripts/pe_callback_table_map.py`](../scripts/pe_callback_table_map.py)
+was added to the research branch. It requires a narrowly
+specified VA interval and recognizes only simple
+`MOV`/register-to-slot assignments in existing
+`objdump -d -M intel` text. It distinguishes
+**literal targets** from **pointers loaded from an
+import slot**, refuses missing or duplicate callback
+entries, and labels its output **candidate assignments**,
+not verified runtime execution.
+
+```sh
+objdump -d -M intel Rayman2-GOG.exe > gog-disasm.txt
+python scripts/pe_callback_table_map.py \
+  --objdump gog-disasm.txt \
+  --start-va 0x467130 --end-va 0x467206 \
+  --expected-slots 16
+python -m unittest discover -s scripts \
+  -p 'test_pe_callback_table_map.py'
+```
+
+The parser's **five synthetic tests** passed locally,
+as did the real-file 16-slot validation using the
+previously generated GOG disassembly (15 literal
+assignments and one imported-pointer assignment).
+**The exact GitHub version has not run in CI**.
+Do not use this narrow parser as a general-purpose
+x86 disassembler.
+
 The table combines file lookups, volume/drive
 metadata and other callbacks. Its structure
 supports a **GOG-specific replacement of
