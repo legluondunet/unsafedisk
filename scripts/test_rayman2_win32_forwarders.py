@@ -5,7 +5,9 @@ from pathlib import Path
 import struct
 import unittest
 
-from rayman2_win32_forwarders import (EXPECTED, FORWARDER, analyze, get_va, scan_forwarders, CD_CALLBACKS, CD_CALLBACK_LOCALS, CD_CALLBACK_NAMES)
+from rayman2_win32_forwarders import (EXPECTED, FORWARDER, analyze, get_va, scan_forwarders, CD_CALLBACKS, CD_CALLBACK_LOCALS, CD_CALLBACK_NAMES,
+                                    VIRTUAL_CD_KNOWN, VIRTUAL_HANDLE_ANCHORS,
+                                    virtual_open_index, virtual_get_size)
 
 
 def sample_stub(n=2, iat=0x49C058, cleanup=None, ascending=False):
@@ -93,6 +95,56 @@ class ForwarderTests(unittest.TestCase):
         self.assertEqual(callbacks['gog_direct_IAT_entries'],1)
         self.assertEqual(callbacks['gog_local_compatibility_entries'],11)
         self.assertEqual(callbacks['gog_emulated_cdrom']['geometry_bytes'],680755200)
+
+    def test_virtual_handle_first_and_second_indices(self):
+        records=[("A.TXT",9),("DIR\\B.DAT",123)]
+        self.assertEqual(virtual_open_index("C:\\A.TXT",0,records),0)
+        self.assertEqual(virtual_open_index("x:\\dir\\b.dat",0,records),1)
+        self.assertEqual(virtual_get_size(1,records),123)
+
+    def test_virtual_handle_requires_drive_prefix(self):
+        for path in ("A.TXT","C:/A.TXT","C:","", "\\A.TXT"):
+            with self.subTest(path=path):
+                self.assertEqual(virtual_open_index(path,0,[("A.TXT",9)]),-1)
+
+    def test_virtual_handle_rejects_write_access_and_bad_name(self):
+        records=[("A.TXT",9)]
+        self.assertEqual(virtual_open_index("C:\\A.TXT",0x40000000,records),-1)
+        self.assertEqual(virtual_open_index("C:\\Z.TXT",0,records),-1)
+        self.assertEqual(virtual_open_index("C:\\A.TXT",2**32,records),-1)
+        self.assertEqual(virtual_open_index("C:\\A.TXT",True,records),-1)
+        self.assertEqual(virtual_open_index("C:\\Ä.TXT",0,records),-1)
+
+    def test_virtual_get_size_failure_returns_zero(self):
+        records=[("A.TXT",9)]
+        self.assertEqual(virtual_get_size(-1,records),0)
+        self.assertEqual(virtual_get_size(1,records),0)
+        self.assertEqual(virtual_get_size(True,records),0)
+        self.assertEqual(virtual_get_size(0,records),9)
+
+    def test_known_virtual_index_mapping(self):
+        self.assertEqual(VIRTUAL_CD_KNOWN["RAYMAN2.EXE"],(17,676352))
+        self.assertEqual(VIRTUAL_CD_KNOWN["DPLAYERX.DLL"],(6,165888))
+        self.assertEqual(VIRTUAL_CD_KNOWN["RAYMAN2.ICD"],(18,683565))
+        self.assertEqual(VIRTUAL_CD_KNOWN["DATA\\WORLD\\LEVELS\\LEVELS0.DAT"],
+                         (43,150775808))
+
+    def test_virtual_handle_instruction_anchor_count(self):
+        self.assertEqual(len(VIRTUAL_HANDLE_ANCHORS),30)
+
+    def test_gog_virtual_manifest_exact_private_integration_when_available(self):
+        root=Path(os.environ.get("UNSAFEDISK_SAMPLES","/no-private-samples"))
+        retail=root/"Rayman2(3).exe"
+        gog=root/"rayman2(4).exe"
+        if not retail.is_file() or not gog.is_file():
+            self.skipTest("private owner game PE samples not installed")
+        data=analyze(retail.read_bytes(),gog.read_bytes())
+        virtual=data["gog_virtual_handle_protocol"]
+        self.assertTrue(virtual["read_only"])
+        self.assertEqual(virtual["virtual_manifest_entries"],3716)
+        self.assertEqual(virtual["bytecode_signatures_verified"],30)
+        self.assertEqual(virtual["verified_example_records"]["RAYMAN2.EXE"]["zero_based_handle"],17)
+        self.assertFalse(virtual["runtime_callback_calls_observed"])
 
     def test_bad_va_length_refused(self):
         with self.assertRaisesRegex(ValueError, "invalid VA"):
