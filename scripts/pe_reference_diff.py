@@ -211,6 +211,8 @@ def scan_manifest(data: bytes) -> dict:
                 "entries": records, "count": len(records),
                 "claimed_total_bytes": sum(x["claimed_size_bytes"] for x in records),
                 "manifest_bytes_before_sentinel": offset,
+                "bytes_after_sentinel": len(data) - offset - 8,
+                "remaining_bytes_all_zero": not any(data[offset+8:]),
                 "warning": "Claimed file sizes are not verified physical CD extents",
             }
         if not 1 < name_len <= 512 or offset+8+name_len > len(data):
