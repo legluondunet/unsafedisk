@@ -11,6 +11,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import math
 from pathlib import Path
 import struct
 
@@ -131,13 +132,99 @@ def analyze_executables(retail: bytes, gog: bytes) -> dict:
             raise ValueError('missing two-bit shift on third read')
         if pe_va(binary,0x44E469,8)!=bytes.fromhex('2B D0 33 D1 03 C3 03 CE'):
             raise ValueError('missing shared arithmetic on second word')
-    return {'read_only':True,'sha256_verified':True,'sample_pair': 'retail CD and modified GOG',
+    seek_report = verify_seek_selector(retail, gog)
+    return {**seek_report, 'read_only':True,'sha256_verified':True,'sample_pair': 'retail CD and modified GOG',
             'bootstrap_filename':'LEVELS0.DAT','later_retail_alias_selector_independent':True,
             'header_length_bytes':16,'following_4byte_reads':8,'nominal_minimum_bytes':48,
             'return_values_checked_for_full_reads':False,'global_writes':checks,
             'two_unused_read_indices':[0,7],
             'actual_cd_DAT_payload_verified':False,
             'warning':'Static read-path structure, not proof of actual data or SafeDisc decryption.'}
+
+
+# Core x87 selector instructions are identical across the two exact samples.
+SELECTOR_VA = 0x0044ED8E
+SELECTOR_LENGTH = 192
+SELECTOR_CONSTANTS = (1.06913, 1.69314, -0.69314, -0.52658, 1000000.0, 1e-6)
+SELECTOR_ANCHORS = {
+    0x0044ED92:'A0 F2 16 51 00',
+    0x0044ED99:'F7 35 B4 17 51 00',
+    0x0044EDB2:'0F 86 42 04 00 00',
+    0x0044EDC8:'DC 0D 48 C9 49 00',
+    0x0044EDCE:'D9 FE D9 E1',
+    0x0044EDD2:'DC 0D 50 C9 49 00',
+    0x0044EDDC:'DC 25 58 C9 49 00',
+    0x0044EDF7:'E8 56 11 01 00',
+    0x0044EDFC:'DC 0D 60 C9 49 00',
+    0x0044EE0B:'E8 3C 11 01 00',
+    0x0044EE18:'DC 0D 68 C9 49 00',
+    0x0044EE31:'E8 16 11 01 00',
+    0x0044EE39:'E8 72 10 01 00',
+    0x0044EE40:'8B 35 54 17 51 00',
+    0x0044EE46:'0F AF 1D BC 17 51 00 03 DE',
+}
+
+
+def verify_seek_selector(retail: bytes, gog: bytes) -> dict:
+    """Check retained x87 code/constants and exact CRT forwarding thunks.
+
+    Assumes the two samples have already passed analyze_executables' exact
+    SHA-256 gates. Do not use it by itself to authenticate unknown samples.
+    """
+    chunks = range(0, SELECTOR_LENGTH, 64)
+    original = b''.join(pe_va(retail, SELECTOR_VA+i, 64) for i in chunks)
+    reference = b''.join(pe_va(gog, SELECTOR_VA+i, 64) for i in chunks)
+    if original != reference:
+        raise ValueError('original/GOG x87 selector code mismatch')
+    for binary in (retail, gog):
+        if struct.unpack('<6d', pe_va(binary, 0x0049C940, 48)) != SELECTOR_CONSTANTS:
+            raise ValueError('unexpected six floating-point selector constants')
+        for va, bytecode in SELECTOR_ANCHORS.items():
+            expected = bytes.fromhex(bytecode)
+            if pe_va(binary, va, len(expected)) != expected:
+                raise ValueError(f'wrong selector instruction at VA 0x{va:08X}')
+        # These thunk locations correspond to imported CRT modf/floor/_ftol.
+        for va, iat in ((0x45ff52, 0x49c12c), (0x45ff4c, 0x49c13c),
+                        (0x45feb0, 0x49c1ac)):
+            if pe_va(binary, va, 6) != b'\xff\x25'+struct.pack('<I',iat):
+                raise ValueError('unexpected imported CRT forwarding thunk')
+    return {'x87_selector_retained_identical':True,
+            'x87_selector_verified_bytes':len(original),
+            'x87_instruction_anchors_verified':len(SELECTOR_ANCHORS),
+            'six_float_constants_verified':True,
+            'bit_exact_x87_runtime_reproduction':False}
+
+
+def approximate_dat_seek(state_byte:int, modulus:int, count:int,
+                         base:int, stride:int) -> dict:
+    """Binary64 mathematical approximation, NOT exact x87 FSIN/CRT behavior.
+
+    A normal (m>0) path calculates m=state_byte%modulus, accumulates the
+    sine terms, keeps the fractional part with modf, floors a 1e6 scale,
+    then multiplies by count and floors again. Large counts can overflow
+    the original signed 32-bit _ftol conversion, which is NOT emulated.
+    """
+    fields=(state_byte,modulus,count,base,stride)
+    if any(type(x) is not int for x in fields) or not (
+        0<=state_byte<=255 and 1<=modulus<=0xffffffff and
+        0<=count<=0x7fffffff and 0<=base<=0xffffffff and
+        0<=stride<=0xffffffff
+    ):
+        raise ValueError('invalid DAT selector parameters or unsupported _ftol width')
+    m=state_byte%modulus
+    if m == 0:
+        return {'read_occurs':False,'m':0,'j_approximate':None,
+                'position_approximate':None,'bit_exact_x87':False}
+    acc=1.06913
+    for i in range(m):
+        acc += 0.69314*abs(math.sin(1.69314*i*i))+0.52658
+    fraction=math.modf(acc)[0]
+    quantized=math.floor(fraction*1000000.0)*1e-6
+    j=math.floor(quantized*count)
+    return {'read_occurs':True,'m':m,'j_approximate':j,
+            'position_approximate':(base+j*stride)&0xffffffff,
+            'quantized_fraction_approximate':quantized,
+            'bit_exact_x87':False}
 
 
 def main(argv=None):
