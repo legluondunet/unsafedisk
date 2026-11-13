@@ -192,6 +192,8 @@ def main(argv=None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--protected", type=Path, required=True)
     parser.add_argument("--reference", type=Path, required=True)
+    parser.add_argument("--reference-origin", default="unspecified",
+                        help="Provenance label, e.g. GOG (metadata only; not authentication)")
     parser.add_argument("--manifest-section")
     parser.add_argument("--focus-name", action="append", default=[])
     args = parser.parse_args(argv)
@@ -201,6 +203,13 @@ def main(argv=None) -> int:
         a, b = (parse_pe32(read_bounded(args.protected)),
                 parse_pe32(read_bounded(args.reference)))
         result = compare_pe32(a, b)
+        result["reference_origin_label"] = args.reference_origin
+        result["reference_is_pristine_retail_verified"] = False
+        result["difference_attribution"] = (
+            "Byte differences are observations only. The reference may "
+            "contain GOG, compatibility, third-party, or unrelated "
+            "modifications. No difference is attributed to SafeDisc."
+        )
         if args.manifest_section:
             section = b["sections"].get(args.manifest_section)
             if section is None:
@@ -217,6 +226,11 @@ def main(argv=None) -> int:
                 )[:10],
                 "unique_names_casefold":
                     len({x["name"].casefold() for x in manifest["entries"]}) == manifest["count"],
+                "original_cd_manifest_authenticated": False,
+                "origin_warning": (
+                    "File inventory is embedded in the reference image, "
+                    "not independently verified against the original CD"
+                ),
             }
     except (OSError, ValueError) as exc:
         parser.exit(1, f"ERROR: {exc}\n")
