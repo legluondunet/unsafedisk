@@ -419,6 +419,63 @@ class ReferenceDiffTests(unittest.TestCase):
             self.assertTrue(report["on_disk_code_span_comparison"][0]["reference_all_int3_bytes"])
             self.assertFalse(report["on_disk_code_span_comparison"][0]["protection_change_asserted"])
 
+    def test_minimal_x86_function_stub_classification(self):
+        cases = [
+            (bytes.fromhex("c3") + bytes(11), "ret"),
+            (bytes.fromhex("33 c0 c3") + bytes(9), "returns_zero"),
+            (bytes.fromhex("33 c0 40 c3") + bytes(8), "returns_one"),
+            (bytes.fromhex("b8 2a 00 00 00 c3") + bytes(6), "returns_constant"),
+            (bytes.fromhex("c2 08 00") + bytes(9), "ret_imm16"),
+            (bytes.fromhex("cc") + bytes(11), "int3_at_entry"),
+            (bytes.fromhex("55 8b ec") + bytes(9), "other_or_longer_function"),
+        ]
+        for blob, expected in cases:
+            with self.subTest(expected=expected):
+                r = tool.classify_x86_entry_stub(blob)
+                self.assertEqual(r["kind"], expected)
+        self.assertEqual(tool.classify_x86_entry_stub(cases[3][0])["value"], "0x0000002A")
+        self.assertEqual(tool.classify_x86_entry_stub(cases[4][0])["stack_pop_bytes"], 8)
+
+    def test_entry_stub_comparison_matches_virtual_addresses_not_file_offsets(self):
+        retail = bytearray(pe_fixture())
+        gog = bytearray(pe_fixture(text_offset=0x800))
+        gog[0x800+0x80] = 0xC3
+        gog[0x800+0x90:0x800+0x94] = bytes.fromhex("33 c0 40 c3")
+        a = tool.parse_pe32(bytes(retail))
+        b = tool.parse_pe32(bytes(gog))
+        out = tool.compare_entry_stubs(a, b, [0x00401080, 0x00401090])
+        self.assertEqual([x["reference"]["kind"] for x in out],
+                         ["ret", "returns_one"])
+        self.assertTrue(all(not x["runtime_execution_asserted"] for x in out))
+        self.assertTrue(all(not x["safe_disc_only_change_asserted"] for x in out))
+
+    def test_entry_stub_invalid_addresses_and_limits(self):
+        pe = tool.parse_pe32(pe_fixture())
+        with self.assertRaisesRegex(ValueError, "at most 64"):
+            tool.compare_entry_stubs(pe, pe, [0x401000]*65)
+        with self.assertRaisesRegex(ValueError, "unavailable"):
+            tool.compare_entry_stubs(pe, pe, [0x4011ff])
+
+    def test_cli_entry_stubs_preserve_gog_origin_warning(self):
+        with tempfile.TemporaryDirectory() as folder:
+            retail = Path(folder)/"retail.exe"
+            gog = Path(folder)/"gog.exe"
+            retail.write_bytes(pe_fixture())
+            raw = bytearray(pe_fixture(text_offset=0x800))
+            raw[0x800+0x80] = 0xC3
+            gog.write_bytes(raw)
+            out = io.StringIO()
+            with contextlib.redirect_stdout(out):
+                self.assertEqual(tool.main([
+                    "--protected", str(retail),
+                    "--reference", str(gog), "--reference-origin", "GOG",
+                    "--entry-va", "0x401080",
+                ]), 0)
+            item = json.loads(out.getvalue())
+            self.assertEqual(item["reference_origin_label"], "GOG")
+            self.assertFalse(item["reference_is_pristine_retail_verified"])
+            self.assertEqual(item["entrypoint_stub_comparison"][0]["reference"]["kind"], "ret")
+
     def test_cli_rejects_self_comparison(self):
         with tempfile.TemporaryDirectory() as folder:
             path = Path(folder)/"fixture.exe"
