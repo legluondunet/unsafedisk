@@ -349,9 +349,19 @@ def audit_executable_code_boundary(retail: bytes, gog: bytes,
     if (len(startup)!=16384 or startup!=gog_active[off:off+16384] or
             not startup.startswith(bytes.fromhex('55 8b ec 6a ff 68 d0 c9 49 00'))):
         raise ValueError('changed or unknown original startup prologue')
+    # Original and GOG also share the real x86 direct CALL from the
+    # PE startup into the ordinary application setup routine, at 0x401D40.
+    call_va=0x0045FE11
+    call_off=call_va-0x00401000
+    call_bytes=b'\xe8'+struct.pack('<i',0x00401D40-(call_va+5))
+    if (original[call_off:call_off+5]!=call_bytes or
+            gog_active[call_off:call_off+5]!=call_bytes):
+        raise ValueError('unexpected startup-to-application direct CALL')
     return {'read_only':True,'dynamic_unwrapping_observed':False,
             'retail_and_gog_entry_va':'0x0045FCC0',
             'startup_16_kib_identical':True,
+            'startup_direct_application_call_va':'0x0045FE11',
+            'startup_direct_application_call_target_va':'0x00401D40',
             'gog_archived_retail_text_sha256':hashlib.sha256(original).hexdigest(),
             'gog_archived_copy_exact':True,
             'gog_archive_section_marked_executable':False,
