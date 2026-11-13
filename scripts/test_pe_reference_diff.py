@@ -138,6 +138,8 @@ class ReferenceDiffTests(unittest.TestCase):
         self.assertEqual(result["suffix_bytes"], 96)
         self.assertTrue(result["prefix_all_zero"])
         self.assertTrue(result["suffix_all_zero"])
+        self.assertFalse(result["reference_section_header_marks_executable"])
+        self.assertEqual(result["reference_section_characteristics"], "0x40000040")
 
     def test_copy_detection_requires_exact_full_nonconstant_content(self):
         protected = tool.parse_pe32(pe_fixture())
