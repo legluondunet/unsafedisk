@@ -124,6 +124,11 @@ STREAM_XOR_MAGIC = 0x069C16BD
 STREAM_XOR_MULTIPLIER = 16807
 STREAM_XOR_MASK = 0xFFFFFFFF
 STREAM_XOR_DIRECT_ANCHORS = {
+    0x00450EC0: '8B 44 24 04 8A 40 18 D1 E8 83 E0 01 C3', # flag bit 1: enable XOR
+    0x00450ED0: '8B 44 24 04 8A 40 18 C1 E8 02 83 E0 01 C3', # flag bit 2: masked I/O
+    0x00450A20: 'E8 9B 04 00 00',             # check XOR bit 1
+    0x00450A37: 'E8 94 04 00 00',             # check masked-I/O bit 2
+    0x004510B8: '89 47 04 8B 44 24 14 3B C8 74 06 32 C0 5F 5E 5B C3', # no XOR if short read
     0x00450A2D: 'C7 46 14 79 CC B5 6A',       # when mode bit 1 is set
     0x004510CD: '8A 4F 15 8A 16 32 D1',       # key = state byte +1
     0x004510D4: 'B8 BD 16 9C 06',
@@ -222,6 +227,9 @@ def inspect_stream_xor_x86(retail: bytes, gog: bytes, rh: dict, gh: dict) -> dic
         'read_only': True, 'actual_file_read_traced': False,
         'seed_when_stream_flag_bit_1_set':f'0x{STREAM_XOR_SEED:08X}',
         'key_byte':'(state >> 8) & 0xFF',
+        'XOR_enabled_only_with_stream_flag_bit_1':True,
+        'masked_ReadFile_choice_controlled_by_stream_flag_bit_2_original':True,
+        'short_ReadFile_byte_count_skips_XOR_loop':True,
         'direct_reader_opcodes_verified_per_executable':len(STREAM_XOR_DIRECT_ANCHORS),
         'original_masked_reader_opcodes_verified':len(STREAM_XOR_RETAIL_MASKED_ANCHORS),
         'original_masked_XOR_bytes_disabled_in_gog':True,
