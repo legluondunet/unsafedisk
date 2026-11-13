@@ -476,6 +476,54 @@ class ReferenceDiffTests(unittest.TestCase):
             self.assertFalse(item["reference_is_pristine_retail_verified"])
             self.assertEqual(item["entrypoint_stub_comparison"][0]["reference"]["kind"], "ret")
 
+    def test_virtual_pe_tail_is_not_stored_in_the_file(self):
+        pe = tool.parse_pe32(pe_fixture())
+        pe["sections"][".text"]["virtual_size"] = 768
+        backed = tool.describe_virtual_address(pe, 0x4011F0)
+        tail = tool.describe_virtual_address(pe, 0x401200)
+        self.assertEqual(backed["storage"], "file_backed")
+        self.assertEqual(tail["storage"], "virtual_zero_fill_at_load")
+        self.assertFalse(tail["runtime_value_inferred"])
+        self.assertEqual(tail["section_delta"], "0x200")
+
+    def test_section_boundary_and_unmapped_addresses(self):
+        pe = tool.parse_pe32(pe_fixture())
+        pe["sections"][".text"]["virtual_size"] = 768
+        self.assertEqual(
+            tool.describe_virtual_address(pe, 0x4011FE, 4)["storage"],
+            "crosses_file_and_zero_fill"
+        )
+        self.assertEqual(
+            tool.describe_virtual_address(pe, 0x402FFF)["storage"],
+            "not_in_any_section"
+        )
+        with self.assertRaisesRegex(ValueError, "invalid address or length"):
+            tool.describe_virtual_address(pe, 0x401100, 0)
+
+    def test_cli_virtual_storage_comparison(self):
+        with tempfile.TemporaryDirectory() as folder:
+            retail = Path(folder)/"retail.exe"
+            gog = Path(folder)/"gog.exe"
+            sample = bytearray(pe_fixture())
+            # VirtualSize 0x300 exceeds RawSize 0x200 by 256.
+            import struct
+            struct.pack_into("<I", sample, 0x178+8, 0x300)
+            retail.write_bytes(sample)
+            sample2 = bytearray(pe_fixture(text_offset=0x800))
+            struct.pack_into("<I", sample2, 0x178+8, 0x300)
+            gog.write_bytes(sample2)
+            buf = io.StringIO()
+            with contextlib.redirect_stdout(buf):
+                self.assertEqual(tool.main([
+                    "--protected", str(retail), "--reference", str(gog),
+                    "--reference-origin", "GOG", "--map-va", "0x401204"
+                ]), 0)
+            result = json.loads(buf.getvalue())
+            record = result["virtual_address_storage"][0]
+            self.assertEqual(record["protected"]["storage"], "virtual_zero_fill_at_load")
+            self.assertEqual(record["reference"]["storage"], "virtual_zero_fill_at_load")
+            self.assertFalse(record["reference"]["runtime_value_inferred"])
+
     def test_cli_rejects_self_comparison(self):
         with tempfile.TemporaryDirectory() as folder:
             path = Path(folder)/"fixture.exe"
