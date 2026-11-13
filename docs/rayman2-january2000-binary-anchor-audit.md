@@ -32,6 +32,40 @@ Three longer literal hexadecimal signatures explicitly suggested in the original
 
 These are **literal byte scans, not exhaustive decompilation**, and the study's various code snippets may describe **memory after decoding** rather than the CD-sourced bytes. Differences could be a variant version, installed-stage transformations, runtime modifications, or historical transcription errors; *this result alone does not settle which*.
 
+## Independent original game-program identity evidence
+
+Both exact SHA-256-pinned owner files have an identical PE32 export
+directory with **110 export-address entries**, an internal
+export-module name **`MainWinf.exe`**, and COFF/PE timestamp
+`0x3807B68B` (15 October 1999, 23:19:39 UTC).
+Among its human-readable exports are `SND_PrintUsedStaticMemory`,
+`SND_fn_bInitDataLoadSnd` and multiple
+`_SND_fn_b...@` engine audio functions.
+
+These are independently obtained with GNU binutils:
+```sh
+objdump -p /private/original-Rayman2.exe
+objdump -p /private/GOG-Rayman2.exe
+```
+This is positive evidence of actual native game code with a
+game-engine API/export table already present **on disk**,
+not merely a tiny generic opaque SafeDisc bootstrap.
+It is **not** an assertion that all the original game
+code has been unwrapped, that a runtime CD check
+cannot exist, or that a PE timestamp proves provenance.
+
+Both editions also import `KERNEL32.dll!GetModuleFileNameA`,
+`GetFileAttributesA`, `CreateFileA` and
+`GetProcAddress` under their usual PE import names;
+**neither file has a direct `GetDriveTypeA` nor
+`DeviceIoControl` import**. Because the game already
+resolves Windows API pointers dynamically, that
+absence does **not** rule out a delayed or obfuscated
+API resolution at runtime. It does mean that the
+historical essay's CD check must **not** be presumed
+to reside unchanged at its old address in this
+file, simply because the entrypoint matches.
+
 ## PE code layout caution
 
 The original `.text` has `0x9A200` raw bytes (631,296) and virtual size `0x9A1D0`. GOG `.text` occupies `0x9B000` physical bytes (634,880). **Its additional 3,584 trailing bytes are all zero padding**. For meaningful original/GOG comparison only the first `0x9A200` bytes are comparable as corresponding content, and previous 97.8981% identity pertains to this common span. The extra GOG `.extra` section copies this *original* 631,296-byte `.text` separately as non-executable data.
