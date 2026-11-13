@@ -344,6 +344,54 @@ def read_section_bytes_va(pe: dict, va: int, length: int) -> bytes:
     raise ValueError(f"file bytes unavailable at 0x{va:08X} (length {length})")
 
 
+def classify_x86_entry_stub(raw: bytes) -> dict:
+    """Recognize a few exact tiny x86 function-entry stubs.
+
+    A byte-pattern classifier only. No symbol boundaries, runtime
+    reachability, calling conventions or DRM attribution are inferred.
+    """
+    if raw.startswith(b"\xC3"):
+        return {"kind": "ret", "immediate_return": True}
+    if len(raw) >= 3 and raw[0] == 0xC2:
+        return {
+            "kind": "ret_imm16", "immediate_return": True,
+            "stack_pop_bytes": struct.unpack_from("<H", raw, 1)[0],
+        }
+    if raw[:3] in (b"\x31\xC0\xC3", b"\x33\xC0\xC3"):
+        return {"kind": "returns_zero", "immediate_return": True}
+    if raw[:4] in (b"\x31\xC0\x40\xC3", b"\x33\xC0\x40\xC3"):
+        return {"kind": "returns_one", "immediate_return": True}
+    if len(raw) >= 6 and raw[0] == 0xB8 and raw[5] == 0xC3:
+        return {
+            "kind": "returns_constant", "immediate_return": True,
+            "value": f"0x{struct.unpack_from('<I', raw, 1)[0]:08X}",
+        }
+    if raw.startswith(b"\xCC"):
+        return {"kind": "int3_at_entry", "immediate_return": False}
+    return {"kind": "other_or_longer_function", "immediate_return": False}
+
+
+def compare_entry_stubs(protected: dict, reference: dict,
+                        entries: list[int]) -> list[dict]:
+    """Compare selected *on-disk* x86 function entrypoints by VA."""
+    if len(entries) > 64:
+        raise ValueError("at most 64 entrypoints")
+    results = []
+    for va in entries:
+        source = read_section_bytes_va(protected, va, 12)
+        target = read_section_bytes_va(reference, va, 12)
+        results.append({
+            "va": f"0x{va:08X}",
+            "protected": classify_x86_entry_stub(source),
+            "reference": classify_x86_entry_stub(target),
+            "first_12_bytes_equal": source == target,
+            "reference_is_pristine_retail_verified": False,
+            "runtime_execution_asserted": False,
+            "safe_disc_only_change_asserted": False,
+        })
+    return results
+
+
 def compare_code_spans(protected: dict, reference: dict,
                        spans: list[tuple[int, int]]) -> list[dict]:
     """Compare exact file-backed VA spans without assigning patch intent.
@@ -485,6 +533,8 @@ def main(argv=None) -> int:
                         help="Provenance label, e.g. GOG (metadata only; not authentication)")
     parser.add_argument("--manifest-section")
     parser.add_argument("--focus-name", action="append", default=[])
+    parser.add_argument("--entry-va", action="append", default=[],
+                        help="x86 entrypoint VA to classify, repeatable")
     parser.add_argument("--code-span", action="append", default=[],
                         help="VA:SIZE (file-backed code region), repeatable")
     parser.add_argument("--descriptor-layout",
@@ -509,6 +559,12 @@ def main(argv=None) -> int:
         )
         result["exact_embedded_section_copies"] = find_embedded_section_copies(a, b)
         result["reference_added_section_base_literals"] = find_added_section_base_literals(a, b)
+        if args.entry_va:
+            if len(args.entry_va) > 64:
+                raise ValueError("at most 64 entrypoints")
+            result["entrypoint_stub_comparison"] = compare_entry_stubs(
+                a, b, [int(item, 0) for item in args.entry_va]
+            )
         if args.code_span:
             if len(args.code_span) > 64:
                 raise ValueError("at most 64 code spans")
