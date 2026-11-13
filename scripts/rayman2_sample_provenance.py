@@ -113,11 +113,106 @@ def check_opaque_prng(data: bytes, *, prefix: bytes, seed: int) -> bool:
     return out == data
 
 
+
+def changed_runs(a: bytes, b: bytes) -> list[tuple[int,int]]:
+    """Exclusive-end spans of byte differences; reject unlike raw lengths."""
+    if len(a) != len(b):
+        raise ValueError('incomparable section raw lengths')
+    out=[]
+    start=None
+    for i,(x,y) in enumerate(zip(a,b)):
+        if x != y and start is None:
+            start=i
+        if x == y and start is not None:
+            out.append((start,i))
+            start=None
+    if start is not None:
+        out.append((start,len(a)))
+    return out
+
+
+def decode_masked_module(record: bytes) -> str:
+    """Decode original keyed/XOR DLL-name layout; no execution."""
+    if len(record) != 45:
+        raise ValueError('expected 45-byte encoded DLL record')
+    sub, key, delta_sub, delta_key, count = record[:5]
+    if not 1 <= count <= 40:
+        raise ValueError('invalid encoded DLL name length')
+    letters=[]
+    for value in record[5:5+count]:
+        letters.append(((value-sub)&255)^key)
+        sub=(sub+delta_sub)&255
+        key=(key+delta_key)&255
+    return bytes(letters).decode('ascii','strict')
+
+
+def audit_cd_gog_data_changes(original_sections:dict[str,bytes],
+                              gog_sections:dict[str,bytes]) -> dict:
+    """Classify ALL of the exact 127 original/GOG .data byte edits.
+
+    Not a generic version diff: these records and address spans are for the
+    two exact SHA-256-pinned samples that inspect() validates first.
+    """
+    for sect in ('.data','.rdata'):
+        if sect not in original_sections or sect not in gog_sections:
+            raise ValueError('missing required PE section')
+    if original_sections['.rdata'] != gog_sections['.rdata']:
+        raise ValueError('unexpected read-only data changes')
+    original=original_sections['.data']
+    changed=gog_sections['.data']
+    runs=changed_runs(original,changed)
+    offsets_expected=((0x128,0x129),(0x134,0x135),
+        (0x396,0x397),(0x3a6,0x3a7),(0x40c,0x40d),
+        (0x410,0x41c),(0x16da,0x16db),
+        (0x2268,0x2279),(0x2295,0x22a4),
+        (0x22c2,0x22d0),(0x22ef,0x2300),
+        (0x231c,0x232a),(0x2349,0x2359),
+        (0x2376,0x2384),(0x3266,0x3267),(0x368a,0x368b))
+    if tuple(runs) != offsets_expected:
+        raise ValueError('unexpected .data edit positions or lengths')
+    changed_count=sum(end-start for start,end in runs)
+    if len(runs)!=16 or changed_count!=127:
+        raise ValueError('unexpected .data edit count')
+    base_va=0x49F000
+    orig_mods=[];new_mods=[]
+    for i,expected_name in enumerate(('KERNEL32.DLL','USER32.DLL','PSAPI.DLL',
+          'ADVAPI32.DLL','GDI32.DLL','VERSION.DLL','WINMM.DLL')):
+        off=0x2268+i*0x2d
+        orig=decode_masked_module(original[off:off+45])
+        gog=changed[off:off+45]
+        if orig.upper()!=expected_name or gog!=expected_name.encode()+b'\0'*(45-len(expected_name)):
+            raise ValueError(f'changed module name does not match original at index {i}')
+        orig_mods.append(orig);new_mods.append(gog.split(b'\0',1)[0].decode('ascii'))
+    api_off=0x241c
+    apis=35*0x4c
+    orig_api=original[api_off:api_off+apis]
+    gog_api=changed[api_off:api_off+apis]
+    if len(orig_api)!=apis or orig_api!=gog_api:
+        raise ValueError('masked API descriptor bytes differ')
+    if any(orig_api[0x30+i*0x4c:0x34+i*0x4c]!=b'\0'*4 for i in range(35)):
+        raise ValueError('unexpected nonzero on-disk API pointers')
+    module_changed=sum(end-start for start,end in runs[7:14])
+    other_changed=changed_count-module_changed
+    if module_changed!=107 or other_changed!=20:
+        raise ValueError('unexpected DLL names versus file-path byte counts')
+    return {'rdata_byte_identical':True,
+            'data_diff_bytes':changed_count,'data_diff_runs':len(runs),
+            'data_diff_va_ranges':[[f'0x{base_va+a:08X}',f'0x{base_va+b:08X}'] for a,b in runs],
+            'seven_module_names_original_encoded':orig_mods,
+            'gog_module_names_plaintext':new_mods,
+            'module_name_diff_bytes':module_changed,
+            'path_config_diff_bytes':other_changed,
+            'masked_api_descriptor_records_identical':35,
+            'masked_api_descriptor_sha256':hashlib.sha256(orig_api).hexdigest(),
+            'all_masked_api_slots_zero_on_disk':True,
+            'module_name_changes_do_not_imply_live_resolution':True}
+
 def inspect(samples: dict[str, bytes]) -> dict:
     for key, (sha, size) in REFS.items():
         if key not in samples or len(samples[key]) != size or hashlib.sha256(samples[key]).hexdigest() != sha:
             raise ValueError(f'unknown or changed {key} sample')
     retail, gog = pe_sections(samples['retail']), pe_sections(samples['gog'])
+    data_delta = audit_cd_gog_data_changes(retail,gog)
     if '.text' not in retail or '.extra' not in gog or '.extra2' not in gog:
         raise ValueError('expected reference PE sections missing')
     text = retail['.text']
@@ -160,6 +255,7 @@ def inspect(samples: dict[str, bytes]) -> dict:
         raise ValueError('DLL PRNG complete-byte reconstruction failed')
     return {
         'read_only':True, 'all_four_exact_sha256_verified':True,
+        'original_to_gog_data_changes':data_delta,
         'private_input_bytes_reproduced_in_report':False,
         'gog_virtual_cd_record_count':len(entries),
         'gog_manifest_end_offset':used,
