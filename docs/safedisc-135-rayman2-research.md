@@ -10,6 +10,105 @@ reported file lengths** in the GOG reference, but does not authenticate the
 3,716 GOG entries as the original CD directory.
 
 
+## New four-sample provenance and contemporary Rayman 2-specific study (13 November 2026)
+
+A **full, independent byte-level crosscheck** now links the user's exact
+four known Rayman 2 samples to the *GOG release's virtual-CD file inventory*.
+Every owner-supplied source is locked by exact SHA-256 before any conclusion.
+
+The **GOG .extra2 virtual-CD manifest**, parsed directly as 3,716
+\`(declared_size_u32, filename_length_u32, ASCII_NUL_filename)\` entries
+with a \`FFFFFFFF 00000000\` sentinel at offset **139,366**, declares:
+
+| Filename | GOG-declared bytes | Owner file bytes | Match |
+|---|---:|---:|---|
+| RAYMAN2.EXE | 676,352 | 676,352 | Exact length |
+| RAYMAN2.ICD | 683,565 | 683,565 | Exact length |
+| DPLAYERX.DLL | 165,888 | 165,888 | Exact length |
+| SECDRV.SYS | 14,368 | **not supplied** | Not tested |
+
+Additionally, the entirety of the **631,296-byte protected retail
+\`.text\` section** is present, unchanged byte-for-byte, beginning
+at **offset 0x1000 inside GOG .extra** (virtual VA \`0x00518000\`).
+All bytes before and after this embedded section within the
+\`.extra\` raw section are zero padding. This strong lineage/metadata
+correlation does **not** authenticate that a file with the same name
+and size on the physical original disc contains identical bytes.
+The source is specifically **modified GOG**, not original CD ISO.
+
+The same four-reference verifier rechecked that every byte of the
+683,565-byte ICD and 165,888-byte DLL follows their previously
+reconstructed masked Park–Miller stream; the code generated no game
+files and never executed proprietary PE instructions. **Crucial
+interpretation correction:** complete PRNG reconstructibility of
+these inputs does **NOT** establish that they are inert dummy files,
+nor rule out a multi-stage transformation involving on-disk EXE
+content or an authenticated CD-dependent key. Static stream structure
+cannot settle the processing stage or physical source.
+
+### Historical primary source: The Twilight of Safedisc (25 January 2000)
+
+A contemporary 2000 research paper by **ArthaXerXès**,
+[*The Twilight of Safedisc*](https://www.scribd.com/document/659005728/safedisc),
+uses **Rayman 2 itself** as its worked example. The author describes
+DPLAYERX processing, recovery of reconstructed/decrypted executable
+sections **in memory**, separate checks against original CD media,
+and additional game-managed CD checks. Because the accessible
+historical online transcription has some damaged filename links, its
+anecdotal procedures are best treated as technical research leads.
+
+Two independent numeric anchors match the owner's actual protected
+on-disk reference exactly:
+
+- Described original entrypoint **0x0045FCC0**: identical to this
+  PE32's \`ImageBase+AddressOfEntryPoint\` and on-disk entrypoint
+  prologue (\`55 8B EC 6A FF 68 D0 C9 49 00\`).
+- Described \`.text\` dump length **0x9A200**: exactly the raw
+  section length of the owner's protected PE.
+
+**But the paper's reported code addresses are NOT universally
+transferable to our on-disk sample.** For example, it describes
+a protection-checking function at **0x004064D0** whose
+prologue is different from the actual on-disk code at the same VA,
+which begins \`53 8B 5C 24 08 55 8B\`. At
+**0x004028FD** its described decrypted checksum code does
+not match the current file's actual GUI event-dispatch instructions
+(the latter lie inside an x86 instruction at that VA). The
+paper explicitly discusses **post-deciphering in-memory sections**,
+whereas our file checks are of **protected on-disk bytes**; a
+different code stage or an edition/revision difference could explain
+these discrepancies. Do **not** infer an actionable patch offset
+or unwrapping key from such historical VA matches alone.
+
+Taken together, the historically observed *in-memory decrypted
+state* and our *on-disk PRNG streams* suggest a concrete next
+experiment: independently establish exactly which bytes and
+sections exist before versus after any SafeDisc loader stage,
+without inferring the real target from GOG substitutions alone.
+No runtime dump of the owner's original CD session is presently
+available. We **do not claim to have decrypted SafeDisc 1.35**.
+
+Read-only exact-reference reproduction:
+
+\`\`\`sh
+python scripts/rayman2_sample_provenance.py \
+  --retail /path/to/original/Rayman2.exe \
+  --gog /path/to/GOG/Rayman2.exe \
+  --icd /path/to/original/RAYMAN2.ICD \
+  --dplayerx /path/to/original/dplayerx.dll
+
+python -m unittest discover -s scripts -p 'test_rayman2_sample_provenance.py'
+\`\`\`
+
+**12/12 local Python tests actually passed**, including private
+integration with all four SHA-pinned owner files, the complete
+GOG manifest and full-stream PRNG regeneration; all synthetic
+fixtures contain no commercial bytes. Both GitHub script/test
+blob hashes exactly matched the tested local files. No game
+run, original CD disc-image verification, Rust compilation,
+new GitHub Actions run, unwrapping or PR merge was performed.
+
+
 ## Source correction — GOG reference is not an original retail no-DRM image
 
 **Owner clarification (13 November 2026):** the 1,468,928-byte
