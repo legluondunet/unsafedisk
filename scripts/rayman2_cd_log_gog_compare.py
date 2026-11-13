@@ -15,6 +15,9 @@ import struct
 from pathlib import Path
 
 GOG_SHA256 = '9bae484bd84a4afad8d4e7b1bb30a85ce1ce2367f8451463696eabab28a72713'
+# Previously statically verified virtual CD-ROM capacity of the exact SHA-pinned GOG EXE.
+# This is reference provenance, NOT inferred from the .extra2 filename catalog.
+GOG_VIRTUAL_VOLUME_BYTES = 680_755_200
 DISC_RE = re.compile(r'^DISC: format=ISO9660 / 2048-byte sectors volume=RAYMAN2\b.*$', re.M)
 OMIT_RE = re.compile(r'^DISC-OMIT: .+? path=(.+?) declared_bytes=(\d+) \(not copied;', re.M)
 
@@ -131,6 +134,16 @@ def compare(log_data: dict, catalog: dict[str, int]) -> dict:
             'gog_nominal_bytes_without_23': gog_remainder,
             'iso_physical_image_bytes': stats['image_bytes'],
             'iso_image_bytes_minus_remaining_nominal': stats['image_bytes'] - iso_remainder,
+            'iso_reported_volume_bytes': stats.get('volume_bytes'),
+            'iso_volume_minus_remaining_nominal': (
+                stats['volume_bytes'] - iso_remainder
+                if 'volume_bytes' in stats else None),
+            'gog_statically_verified_virtual_volume_bytes': GOG_VIRTUAL_VOLUME_BYTES,
+            'gog_virtual_volume_minus_remaining_nominal': GOG_VIRTUAL_VOLUME_BYTES - gog_remainder,
+            'iso_vs_gog_volume_slack_difference': (
+                stats['volume_bytes'] - iso_remainder -
+                (GOG_VIRTUAL_VOLUME_BYTES - gog_remainder)
+                if 'volume_bytes' in stats else None),
             'gog_total_catalog_declared_bytes': gog_total,
             'source_status': 'nominal size arithmetic only; does not establish physical file extents',
         }
