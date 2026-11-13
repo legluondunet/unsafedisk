@@ -1550,6 +1550,47 @@ The bitwise inversion of the table element
 is a separate possible **consequence** of
 a mismatch; it does not itself constitute decryption.
 
+**Resource cross-check independent of the x86 instructions:**
+The owner-supplied edited GOG EXE's exact 3,716-entry
+virtual-CD manifest declares the following adjacent
+\`Data\World\Levels\Fix.*\` records:
+
+| GOG zero-based record | Filename | Declared bytes |
+|---:|---|---:|
+| 34 | \`FIX.RTB\` | 235,995 |
+| 35 | \`FIX.RTP\` | 547 |
+| 36 | \`FIX.RTS\` | 2,259 |
+| 37 | \`FIX.RTT\` | 2,067 |
+| 38 | \`FIX.SNA\` | 7,682,868 |
+
+There is **no \`FIX.RTL\` record** in this edited GOG
+manifest, though the original code supports the \`.rtl\`
+suffix for one conditional branch. This is a distinction
+between a *supported filename template* and a *file
+actually listed by one release's metadata*.
+
+Two independent public cross-references corroborate that
+these are ordinary Rayman 2 game resources:
+the [Steam distribution file manifest]
+(https://steamdb.info/depot/15061/subs/) contains
+\`Fix.rtb\`, \`Fix.rtp\`, \`Fix.rts\`, \`Fix.rtt\`, and
+\`Fix.sna\` in \`Data/World/Levels\`, while the
+[Rayman Pirate-Community translation guide]
+(https://raymanpc.com/forum/threads/rayman-2-translations-text-modding.25265/)
+specifically describes the \`Fix.sna\` data as containing
+in-game text for localization. These independent
+observations **favor a normal game-resource-consistency
+purpose over an isolated physical SafeDisc challenge**,
+but they do not authenticate the owner's original
+CD contents, establish checksum values, or prove a
+live anti-tamper failure.
+
+The existing \`scripts/rayman2_sample_provenance.py\`
+now verifies these five exact GOG metadata ordinals
+and sizes, and its synthetic tests reject incorrect
+lengths and an unexpected \`.rtl\` record. It reads
+metadata only, never proprietary payload bytes.
+
 **Safety/reachability caveats:** Four direct code stores
 of the global index at **0x005117C4** are found
 at \`0x004038A8\`, \`0x00404317\`,
