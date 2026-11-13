@@ -180,6 +180,62 @@ class ReferenceDiffTests(unittest.TestCase):
         reference["sections"][".text"]["contents"] = bytes(512)
         self.assertEqual(tool.find_added_section_base_literals(protected, reference), [])
 
+    def test_x86_rel32_and_mov_imm32_reference_candidates(self):
+        # Two identical relative CALLs at the same virtual address can
+        # live at different raw file offsets. GOG adds an explicit
+        # MOV r32,imm32 pointer where the retail image does not.
+        target = 0x004011A0
+        retail = bytearray(pe_fixture(text_offset=0x400))
+        gog = bytearray(pe_fixture(text_offset=0x800))
+        site = 0x00401040
+        call_bytes = b"\\xE8" + struct.pack("<i", target - (site + 5))
+        retail[0x400+0x40:0x400+0x45] = call_bytes
+        gog[0x800+0x40:0x800+0x45] = call_bytes
+        gog[0x800+0x90:0x800+0x95] = b"\\xBA" + struct.pack("<I", target)
+        a = tool.find_x86_reference_candidates(tool.parse_pe32(bytes(retail)), target)
+        b = tool.find_x86_reference_candidates(tool.parse_pe32(bytes(gog)), target)
+        self.assertEqual(a["direct_call_candidates"], b["direct_call_candidates"])
+        self.assertEqual(a["direct_call_candidates"][0]["site_va"], "0x00401040")
+        self.assertEqual(a["mov_immediate_candidates"], [])
+        self.assertEqual(b["mov_immediate_candidates"][0]["site_va"], "0x00401090")
+        self.assertEqual(b["mov_immediate_candidates"][0]["register_code"], 2)
+
+    def test_x86_reference_scan_handles_negative_displacements(self):
+        target = 0x00401008
+        sample = bytearray(pe_fixture())
+        site = 0x00401110
+        sample[0x400+0x110:0x400+0x115] = b"\\xE8" + struct.pack("<i", target-(site+5))
+        pe = tool.parse_pe32(bytes(sample))
+        result = tool.find_x86_reference_candidates(pe, target)
+        self.assertEqual(
+            result["direct_call_candidates"],
+            [{"site_va": "0x00401110", "section": ".text",
+              "candidate_opcode": "E8 rel32"}]
+        )
+        with self.assertRaisesRegex(ValueError, "32 bits"):
+            tool.find_x86_reference_candidates(pe, 1<<32)
+
+    def test_cli_optional_x86_trace_identifies_labeled_reference(self):
+        with tempfile.TemporaryDirectory() as folder:
+            a, b = Path(folder)/"retail.exe", Path(folder)/"gog.exe"
+            a.write_bytes(pe_fixture())
+            sample = bytearray(pe_fixture(text_offset=0x800))
+            sample[0x800+0x10:0x800+0x15] = b"\\xBA" + struct.pack("<I", 0x004011A0)
+            b.write_bytes(sample)
+            out = io.StringIO()
+            with contextlib.redirect_stdout(out):
+                self.assertEqual(tool.main([
+                    "--protected", str(a), "--reference", str(b),
+                    "--reference-origin", "GOG",
+                    "--trace-va", "0x4011a0"
+                ]), 0)
+            report = json.loads(out.getvalue())
+            self.assertFalse(report["reference_is_pristine_retail_verified"])
+            traced = report["x86_reference_candidates"][0]
+            self.assertEqual(traced["target"], "0x004011A0")
+            self.assertEqual(traced["protected"]["mov_immediate_candidates"], [])
+            self.assertEqual(traced["reference"]["mov_immediate_candidates"][0]["site_va"], "0x00401010")
+
     def test_cli_rejects_self_comparison(self):
         with tempfile.TemporaryDirectory() as folder:
             path = Path(folder)/"fixture.exe"
