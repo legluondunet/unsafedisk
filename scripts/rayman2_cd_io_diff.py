@@ -131,8 +131,10 @@ def inspect_stream_read_variants(retail: bytes, gog: bytes,
     # Four reader addresses are still encoded in both on-disk initializers.
     shared_anchors={
         0x00450A41:'B8 10 11 45 00', # masked XOR reader
+        0x00450A46:'75',                # short JNE, GOG patches displacement only
         0x00450A48:'B8 90 10 45 00', # direct-IAT XOR reader
         0x00450A64:'B8 00 13 45 00', # masked raw reader
+        0x00450A69:'75',                # short JNE, GOG patches displacement only
         0x00450A6B:'B8 C0 12 45 00', # direct-IAT raw reader
         0x00450A4D:'89 46 24',       # structure->reader at +0x24
         0x00450A70:'89 46 24',
