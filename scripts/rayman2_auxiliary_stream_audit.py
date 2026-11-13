@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""Read-only, exact-SHA audit of five owner-supplied Rayman 2 pseudo-files.
+"""Read-only, exact-SHA audit of eight owner-supplied Rayman 2 pseudo-files.
 
-All five have been independently reproduced as complete masked Park-Miller
+All eight have been independently reproduced as complete masked Park-Miller
 streams. The edited GOG EXE can optionally corroborate *declared sizes* via
 its own virtual-CD inventory, but it cannot authenticate original CD sectors.
 
@@ -40,6 +40,15 @@ KNOWN: dict[str, tuple[int, int, bytes, str]] = {
     "DRVMGT.DLL": (
         32256, 0x2B38CA9A, b"",
         "6111ab0664948e05171468835be20b00f6b69d366fab28d7cd1ca9d9b67af35b"),
+    "00000001.TMP": (
+        20, 0x2D1B9F61, b"",
+        "06ba601c966e6770747d84fe1c3fafaab9f48b07db6eae07a9250f7232415396"),
+    "0000040C.016": (
+        153718, 0x6B5C5E78, bytes.fromhex("abde"),
+        "5c53568c900404bea863ef5ac6e87e49193d95a06674f3a49d70dcefd3f28608"),
+    "0000040C.256": (
+        308278, 0x777390EF, bytes.fromhex("4dc7"),
+        "5f25849ffa80abb15d3897ba5f4bc44ffa6f06819e370b873e9d172fc00f9933"),
 }
 
 
@@ -82,6 +91,31 @@ def inspect_pinned(name: str, data: bytes) -> dict:
     }
 
 
+def observed_stream_state_overlap(inspected: dict[str, dict]) -> dict:
+    """Pairwise overlap of finite, independently verified PRNG windows only.
+
+    This is a statement about the exact inspected *ranges*, NOT the full
+    mathematical periods, disc authenticity, or independent seed sources.
+    """
+    seen: set[int] = set()
+    n = duplicates = 0
+    for report in inspected.values():
+        state = int(report["initial_state"], 16)
+        for _ in range(report["little_endian_words"]):
+            if state in seen:
+                duplicates += 1
+            seen.add(state)
+            n += 1
+            state = ((state ^ MASKED_SALT) * MULTIPLIER) % MODULUS
+    return {
+        "observed_words": n,
+        "distinct_observed_states": len(seen),
+        "observed_state_collisions": duplicates,
+        "no_state_overlap_in_observed_intervals": duplicates == 0,
+        "global_seed_independence_proven": False,
+    }
+
+
 def compare_gog_manifest(manifest: dict[str, int], inspected: dict[str, dict]) -> dict:
     """Compare selected record sizes without confusing GOG with retail CD."""
     out = {}
@@ -101,8 +135,10 @@ def compare_gog_manifest(manifest: dict[str, int], inspected: dict[str, dict]) -
 def inspect(samples: dict[str, bytes], gog: bytes | None = None) -> dict:
     if not samples:
         raise ValueError("at least one sample is required")
-    result = {"samples": {name: inspect_pinned(name, blob)
-                          for name, blob in samples.items()},
+    checked = {name: inspect_pinned(name, blob)
+               for name, blob in samples.items()}
+    result = {"samples": checked,
+              "finite_stream_overlap": observed_stream_state_overlap(checked),
               "decrypted_pe_recovered": False,
               "physical_cd_source_authenticated": False}
     if gog is not None:
@@ -122,7 +158,7 @@ def inspect(samples: dict[str, bytes], gog: bytes | None = None) -> dict:
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    for arg in ("icd", "dplayerx", "clokspl", "clcd32", "drvmgt"):
+    for arg in ("icd", "dplayerx", "clokspl", "clcd32", "drvmgt", "tmp", "file016", "file256"):
         parser.add_argument("--" + arg, type=Path, metavar="FILE")
     parser.add_argument("--gog", type=Path,
                         help="Optional exact-hash GOG executable for size-only metadata check")
@@ -133,6 +169,9 @@ def main(argv: list[str] | None = None) -> int:
         "CLOKSPL.EXE": args.clokspl,
         "CLCD32.DLL": args.clcd32,
         "DRVMGT.DLL": args.drvmgt,
+        "00000001.TMP": args.tmp,
+        "0000040C.016": args.file016,
+        "0000040C.256": args.file256,
     }
     if not any(paths.values()):
         parser.error("supply at least one named original sample")
