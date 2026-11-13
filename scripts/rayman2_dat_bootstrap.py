@@ -226,7 +226,6 @@ def approximate_dat_seek(state_byte:int, modulus:int, count:int,
             'quantized_fraction_approximate':quantized,
             'bit_exact_x87':False}
 
-
 def main(argv=None):
     ap=argparse.ArgumentParser(description=__doc__)
     ap.add_argument('--retail',type=Path,required=True)
