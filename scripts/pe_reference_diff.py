@@ -8,6 +8,8 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import os
+import stat
 import struct
 from pathlib import Path
 
@@ -566,12 +568,31 @@ def scan_manifest(data: bytes) -> dict:
 
 
 def read_bounded(path: Path) -> bytes:
-    if path.is_symlink() or not path.is_file() or path.stat().st_size > MAX_BYTES:
-        raise ValueError(f"non-file, symlink or >16 MiB input: {path}")
-    with path.open("rb") as file:
-        data = file.read(MAX_BYTES+1)
-    if len(data) > MAX_BYTES:
-        raise ValueError(f"input grew past limit: {path}")
+    """Read an untrusted PE through one bounded, inspected file descriptor.
+
+    A prior path-only stat could be invalidated by a symlink or file
+    substitution between stat() and open(). O_NOFOLLOW is used where
+    supported; inode/device and size are checked on the opened file.
+    """
+    before = path.lstat()
+    if not stat.S_ISREG(before.st_mode) or before.st_size > MAX_BYTES:
+        raise ValueError(f"non-regular, symlink or >16 MiB input: {path}")
+    flags = os.O_RDONLY | getattr(os, "O_BINARY", 0) | getattr(os, "O_NOFOLLOW", 0)
+    fd = os.open(path, flags)
+    with os.fdopen(fd, "rb") as handle:
+        opened = os.fstat(handle.fileno())
+        if not stat.S_ISREG(opened.st_mode) or opened.st_size > MAX_BYTES:
+            raise ValueError(f"opened file changed type or size: {path}")
+        if (opened.st_dev, opened.st_ino) != (before.st_dev, before.st_ino):
+            raise ValueError(f"file replaced between stat and open: {path}")
+        data = handle.read(MAX_BYTES + 1)
+        after = os.fstat(handle.fileno())
+        if len(data) != opened.st_size or len(data) > MAX_BYTES:
+            raise ValueError(f"file size changed while reading: {path}")
+        if (after.st_dev, after.st_ino, after.st_size, after.st_mtime_ns) != (
+            opened.st_dev, opened.st_ino, opened.st_size, opened.st_mtime_ns
+        ):
+            raise ValueError(f"file modified or replaced while reading: {path}")
     return data
 
 
