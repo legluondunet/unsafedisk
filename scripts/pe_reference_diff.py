@@ -279,6 +279,59 @@ def find_x86_reference_candidates(pe: dict, target_va: int) -> dict:
     }
 
 
+def read_section_u32_va(pe: dict, va: int) -> dict:
+    """Read an exact, file-backed DWORD using PE virtual address mapping.
+
+    On-disk PE data cannot prove runtime pointer values; zero-initialized
+    globals can be populated or transformed by other startup code.
+    """
+    if not 0 <= va <= 0xFFFF_FFFF:
+        raise ValueError("virtual address out of 32-bit range")
+    rva = va - pe["image_base"]
+    for section in pe["sections"].values():
+        delta = rva - section["rva"]
+        if 0 <= delta and delta + 4 <= section["raw_len"]:
+            return {
+                "va": f"0x{va:08X}",
+                "section": section["name"],
+                "file_offset": f"0x{section['raw_offset'] + delta:X}",
+                "value_u32": f"0x{struct.unpack_from('<I', section['contents'], delta)[0]:08X}",
+            }
+    raise ValueError(f"VA 0x{va:08X} is not backed by four file bytes")
+
+
+def compare_masked_pointer_pairs(protected: dict, reference: dict,
+                                 pairs: list[tuple[int, int]]) -> list[dict]:
+    """Compare two file-backed operands of an XOR-derived pointer.
+
+    The XOR of on-disk values is NOT asserted to be a runtime callback
+    or original SafeDisc key. Never patch source or reference binaries.
+    """
+    if len(pairs) > 64:
+        raise ValueError("at most 64 pairs can be examined")
+    results = []
+    for first, second in pairs:
+        retail_first = read_section_u32_va(protected, first)
+        retail_second = read_section_u32_va(protected, second)
+        gog_first = read_section_u32_va(reference, first)
+        gog_second = read_section_u32_va(reference, second)
+        a, b = int(retail_first["value_u32"], 16), int(retail_second["value_u32"], 16)
+        c, d = int(gog_first["value_u32"], 16), int(gog_second["value_u32"], 16)
+        results.append({
+            "first_va": f"0x{first:08X}",
+            "second_va": f"0x{second:08X}",
+            "retail_file_values": [f"0x{a:08X}", f"0x{b:08X}"],
+            "reference_file_values": [f"0x{c:08X}", f"0x{d:08X}"],
+            "same_bytes_at_both_vas": a == c and b == d,
+            "retail_first_operand_zero_on_disk": a == 0,
+            "reference_first_operand_zero_on_disk": c == 0,
+            "retail_on_disk_xor": f"0x{a ^ b:08X}",
+            "reference_on_disk_xor": f"0x{c ^ d:08X}",
+            "runtime_pointer_known": False,
+        })
+    return results
+
+
 def scan_manifest(data: bytes) -> dict:
     """Read <u32 claimed size><u32 name length><NUL-terminated name> records."""
     offset, records = 0, []
@@ -326,6 +379,8 @@ def main(argv=None) -> int:
                         help="Provenance label, e.g. GOG (metadata only; not authentication)")
     parser.add_argument("--manifest-section")
     parser.add_argument("--focus-name", action="append", default=[])
+    parser.add_argument("--masked-pair", action="append", default=[],
+                        help="two PE virtual addresses FIRST:SECOND, repeatable")
     parser.add_argument("--trace-va", action="append", default=[],
                         help="x86 VA in hex (0x...) or decimal; repeatable")
     args = parser.parse_args(argv)
@@ -344,6 +399,22 @@ def main(argv=None) -> int:
         )
         result["exact_embedded_section_copies"] = find_embedded_section_copies(a, b)
         result["reference_added_section_base_literals"] = find_added_section_base_literals(a, b)
+        if args.masked_pair:
+            if len(args.masked_pair) > 64:
+                raise ValueError("at most 64 masked pointer pairs")
+            pairs = []
+            for item in args.masked_pair:
+                left, separator, right = item.partition(":")
+                if not separator or not left or not right:
+                    raise ValueError("masked pair must be FIRST:SECOND")
+                pairs.append((int(left, 0), int(right, 0)))
+            result["masked_pointer_pair_observations"] = {
+                "pairs": compare_masked_pointer_pairs(a, b, pairs),
+                "runtime_inference": (
+                    "On-disk pairs are observations, not runtime pointers. "
+                    "Changes from initialization, loading or runtime writes are unknown."
+                ),
+            }
         if args.trace_va:
             # Bound output and prevent accidental exhaustive RVA scanning.
             if len(args.trace_va) > 32:
