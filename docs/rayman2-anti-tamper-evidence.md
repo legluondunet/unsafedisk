@@ -521,6 +521,95 @@ No original ISO or physical LEVELS0.DAT payload was available for
 decoding. This study never runs game code or edits protected bytes.
 
 
+## 1024-entry DAT window and preserved caller/alias arithmetic (13 Nov 2026)
+
+The previously modeled DAT word index was validated too loosely: the
+diagnostic originally allowed up to 65,535 indices. A new independent
+disassembly and byte check on **both SHA-256-pinned owner executables**
+identifies the actual four-branch computation at
+\`0x0044ED2C..0x0044ED8E\`. The four-way switch table at
+\`0x0044F204\` contains the exact target addresses:
+\`0x44ED8E\`, \`0x44ED80\`, \`0x44ED83\`, \`0x44ED88\` for cases
+0, 1, 2 and 3, respectively. Both code and table are **identical
+between CD and GOG**.
+
+Let \`b0\` be the zero-extended low byte at \`0x005116F0\`, let
+\`b1\` be the next state byte at \`0x005116F1\`, and \`d\` be the
+nonzero 32-bit runtime modulus at \`0x00511750\`. The original
+unsigned division and switch implement:
+
+    q = b0 % d                       # 0 <= q <= 255, if d >= 1
+    r = b1 & 3                      # r = 0..3
+    n = 4*q + r                     # n = 0..1023
+
+The previously identified four-DWORD header (16 bytes) followed by
+4-byte indexed words is therefore capable of selecting **at most
+1,024 entries** in a **4,112-byte window**:
+
+    16-byte header + (1,024 x 4-byte words) = 4,112 bytes
+
+The last legal word begins at offset \`16+4*1023=4108\` and ends
+at byte offset 4111 inclusive. **This is a structural upper bound
+deduced from the code; no original physical DAT file was inspected
+to confirm that an actual 4,112-byte table begins at every
+runtime-selected base position.**
+
+The conditional caller chain is likewise present in both files:
+
+    0x44D9F4 -> 0x44E8A0 -> 0x44EB40
+    [the inner function writes a decoded DWORD via caller pointer]
+    0x44E8D3     exact direct CALL to 0x44EB40
+    0x44E99F     seek with SetFilePointer(handle, decoded/adjusted R,
+                                               0, FILE_BEGIN)
+    0x44EA97     caller saves the returned handle in its state structure
+
+The caller is **conditional**: the test at \`0x44D9EF\` may bypass
+it, and the original loader also has a guard at \`0x44E8A6\`.
+An identical call instruction is **not proof of a runtime reachability
+trace**. At \`0x44E8F2\` GOG skips an original PRNG-generated
+\`SetFilePointer\` trampoline and at \`0x44E9A5\` performs the
+same seek through its plain \`KERNEL32.dll!SetFilePointer\` import.
+This demonstrates a retained *functional* data-read call chain
+in GOG, not simply a dead chunk of unreferenced original code.
+
+**Additional 24-name alias selection derivation:**
+both binaries still compute a runtime-dependent unit
+
+    unit = ((global_0x5117B0 // global_0x5117C0) << 11) modulo 2^32
+    bucket_count = R // unit       # requires nonzero unit
+    k = PRNG % bucket_count        # if bucket_count > 0; otherwise k=0
+
+The original at \`0x44F133\` subtracts \`k*unit\` from the
+decoded file position, then at \`0x44F13A\` uses
+\`DAT_name_table[k]\`. The GOG EXE **still contains the unit,
+quotient and PRNG-remainder instructions** at \`0x44F0DA\`,
+\`0x44F0F4\` and \`0x44F12A\`, but it NOPs the subtraction and
+selects the first table name \`LEVELS0.DAT\`. All exact
+instruction anchors were independently byte-verified. The runtime
+values of the globals and \`k\` have not been observed; **we cannot
+guarantee \`k<24\` or a valid seek for arbitrary synthetic inputs**.
+The above describes only an execution path assuming valid, nonzero
+divisors and a nonnegative PRNG result. It does not reconstruct
+a SafeDisc 1.35 decryption key.
+
+**Diagnostics updated in place**, not duplicated:
+\`scripts/rayman2_dat_read_paths.py\` now verifies the 4-case
+branch table, the three-entry conditional call chain, and the
+retained alias-selection arithmetic. It exposes the pure helper
+\`derive_dat_index(byte0, byte1, divisor)\` and restricts
+\`derive_dat_word\` to **0..1023**. Eight additional synthetic tests
+raised \`scripts/test_rayman2_dat_read_paths.py\` from 13 to
+**21 tests**.
+
+**Tests actually executed in this research session:** an
+independent Python verifier rechecked both exact on-disk EXE
+SHA-256 hashes, 16 shared and 2/3 edition-specific x86
+sites, the four switch-target pointers, and 19 locally
+executed synthetic/integration tests (including the earlier
+16+4-byte read inspection). These are **not** claims that
+the full repository Python/Rust test suite or new GitHub Actions
+have been executed. The GitHub PR remains a draft.
+
 ## Read-only, falsifiable checks
 
 `scripts/rayman2_anti_tamper_assets.py` inspects only the two historical asset names and hashes, with case-insensitive per-component lookup, link rejection and bounded reading. Example:
