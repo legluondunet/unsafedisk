@@ -1,9 +1,11 @@
 """Synthetic-only unit tests: no commercial executable bytes or execution."""
 import hashlib
+import os
+from pathlib import Path
 import struct
 import unittest
 
-from rayman2_win32_forwarders import EXPECTED, FORWARDER, analyze, get_va, scan_forwarders
+from rayman2_win32_forwarders import (EXPECTED, FORWARDER, analyze, get_va, scan_forwarders, CD_CALLBACKS, CD_CALLBACK_LOCALS, CD_CALLBACK_NAMES)
 
 
 def sample_stub(n=2, iat=0x49C058, cleanup=None, ascending=False):
@@ -52,6 +54,45 @@ class ForwarderTests(unittest.TestCase):
         self.assertEqual(set(r[0] for r in EXPECTED.values()),
                          {"CloseHandle", "ReadFile", "CreateFileA", "SetFilePointer"})
         self.assertEqual(len(set(EXPECTED)), 4)
+
+    def test_original_callback_table_has_exactly_sixteen_fields(self):
+        original={row[0] for row in CD_CALLBACKS}
+        local=set(CD_CALLBACK_LOCALS)
+        self.assertEqual(len(CD_CALLBACKS),12)
+        self.assertEqual(len(local),4)
+        self.assertFalse(original & local)
+        self.assertEqual(original|local,set(range(0,64,4)))
+
+    def test_masked_callback_descriptor_ids_unique(self):
+        indices=[row[1] for row in CD_CALLBACKS]
+        self.assertEqual(len(indices),len(set(indices)))
+        self.assertEqual(set(indices),set(CD_CALLBACK_NAMES))
+
+    def test_original_and_gog_media_functions_mapped(self):
+        rows={row[0]:row for row in CD_CALLBACKS}
+        self.assertEqual(CD_CALLBACK_NAMES[rows[0x10][1]],'GetDriveTypeA')
+        self.assertEqual(rows[0x10][4],0x448EC4)
+        self.assertEqual(CD_CALLBACK_NAMES[rows[0x0c][1]],'GetDiskFreeSpaceA')
+        self.assertEqual(rows[0x0c][4],0x448ED0)
+        self.assertEqual(CD_CALLBACK_NAMES[rows[0x28][1]],'GetVolumeInformationA')
+        self.assertEqual(rows[0x28][4],0x448E6C)
+
+    def test_virtual_cd_geometry_expected_capacity(self):
+        self.assertEqual(1*2048*0x51270,680755200)
+
+    def test_private_exact_samples_when_available(self):
+        base=Path(os.environ.get('UNSAFEDISK_SAMPLES','/no-private-samples'))
+        retail=base/'Rayman2(3).exe'
+        gog=base/'rayman2(4).exe'
+        if not retail.is_file() or not gog.is_file():
+            self.skipTest("private owner game PE samples not installed")
+        report=analyze(retail.read_bytes(),gog.read_bytes())
+        callbacks=report['original_to_gog_cd_callback_table']
+        self.assertEqual(callbacks['callback_count'],16)
+        self.assertEqual(callbacks['original_masked_api_entries'],12)
+        self.assertEqual(callbacks['gog_direct_IAT_entries'],1)
+        self.assertEqual(callbacks['gog_local_compatibility_entries'],11)
+        self.assertEqual(callbacks['gog_emulated_cdrom']['geometry_bytes'],680755200)
 
     def test_bad_va_length_refused(self):
         with self.assertRaisesRegex(ValueError, "invalid VA"):
