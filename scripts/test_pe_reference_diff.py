@@ -164,6 +164,22 @@ class ReferenceDiffTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "minimum section size"):
             tool.find_embedded_section_copies(protected, reference, min_bytes=0)
 
+    def test_added_section_base_literal_addresses(self):
+        protected = tool.parse_pe32(pe_fixture())
+        binary = bytearray(pe_fixture(manifest=True))
+        # GOG-style absolute VA 0x00403000, located in the synthetic .text.
+        binary[0x400+42:0x400+46] = (0x00403000).to_bytes(4, "little")
+        reference = tool.parse_pe32(bytes(binary))
+        refs = tool.find_added_section_base_literals(protected, reference)
+        self.assertEqual(len(refs), 1)
+        self.assertEqual(refs[0]["reference_only_section"], ".extra2")
+        self.assertEqual(refs[0]["section_base_va"], "0x00403000")
+        self.assertEqual(refs[0]["literal_candidates"], [
+            {"source_section": ".text", "immediate_va": "0x0040102A"}
+        ])
+        reference["sections"][".text"]["contents"] = bytes(512)
+        self.assertEqual(tool.find_added_section_base_literals(protected, reference), [])
+
     def test_cli_rejects_self_comparison(self):
         with tempfile.TemporaryDirectory() as folder:
             path = Path(folder)/"fixture.exe"
