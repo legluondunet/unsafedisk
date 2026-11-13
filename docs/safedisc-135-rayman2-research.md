@@ -2,6 +2,14 @@
 
 Status: **read-only classification implemented; native unwrapping not implemented.**
 
+Additional independent historical and installer-stage evidence, with a separate
+read-only asset-checking script: [Rayman 2 SafeDisc versus in-game anti-tamper](rayman2-anti-tamper-evidence.md).
+The 2009 Wine description of **~650 MB media / ~6.9 GB file sizes** is
+numerically consistent with **649.219 MiB virtual CD capacity / 6.941 GiB
+reported file lengths** in the GOG reference, but does not authenticate the
+3,716 GOG entries as the original CD directory.
+
+
 ## Source correction — GOG reference is not an original retail no-DRM image
 
 **Owner clarification (13 November 2026):** the 1,468,928-byte
