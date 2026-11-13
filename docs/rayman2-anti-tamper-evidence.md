@@ -939,6 +939,33 @@ There are **two original loader-local PE traversal functions**:
   PE optional-header +0x68 (NT header +0x80) and traverses
   imported names, comparing decoded record names.
 
+**A special index-zero bootstrap supplies the module handles.**
+Unlike the 35 regular descriptors indexed 1..35, the descriptor at
+**0x004A13D0 (index 0)** decodes to **GetModuleHandleA** (not
+LoadLibraryA). Its mask is at 0x004A13D0 and its pointer slot is
+**0x004A1400**, also initially zero on disk.
+
+At **0x004478E3**, the original 0x004478A0 bootstrap calls the
+manual export resolver. After adding the module base to the
+returned export RVA, instructions **0x004478F9** and
+**0x004478FB** XOR the pointer with the mask and save it at
+0x004A1400. Later, helper **0x00447A90** decodes an encoded
+DLL name, reconstructs GetModuleHandleA at
+**0x00447ABC..0x00447ACE**, invokes it and saves the returned
+**HMODULE** into the module-handle table at global 0x00510BA4.
+This is acquisition of a handle to an **already loaded module**,
+not proven LoadLibrary-based loading of new DLL code.
+
+GOG changes the beginning of the 0x004478A0 bootstrap into
+**RET followed by INT3**, and replaces helper 0x00447A90
+with INT3 as well. The special record-zero data stays
+byte-identical across the actual two disk executables. The
+existing diagnostic now locks **10 additional original
+instruction anchors** for the special bootstrap and confirms
+its GOG disablement. The independent local exact-sample probe
+verified all 10 signatures and passed the previous seven
+checks after their addition.
+
 The API entry writer calls the export resolver at **0x00447B50**
 or **0x00447B86**, and the import walker at **0x00447B7B**,
 depending on the original branch. At nonzero successful result:
@@ -964,12 +991,12 @@ do not mistake the copy for active restored code.
 Five original E8-relative callsites were independently verified:
 three calls at **0x00448196, 0x004481A2, 0x00448D96**
 target the API-slot producer, and two calls at
-**0x0044818A, 0x00448DC3** target the module-loader helper
+**0x0044818A, 0x00448DC3** target the module-handle helper
 0x00447A90. These are *static callsites*, not runtime traces.
 
 The original existing diagnostic,
 **scripts/rayman2_trampoline_proof.py**, now includes a
-15-anchor slot-producer check, five callsite checks and
+15-anchor slot-producer check, 10 bootstrap anchors, five callsite checks and
 an optional --gog comparison of all 35 records and the GOG INT3
 region. Its companion test module adds index-bound and
 optional private-sample tests. A **separate independent local
