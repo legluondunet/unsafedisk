@@ -12,6 +12,42 @@ reported file lengths** in the GOG reference, but does not authenticate the
 3,716 GOG entries as the original CD directory.
 
 
+## Two original ISO inspection logs corroborate the GOG virtual catalog (14 November 2026)
+
+[Read-only original-ISO versus GOG log reconciliation]
+(rayman2-original-iso-gog-log-reconciliation.md)
+uses an earlier *native Windows* Rayman2Fix CD inspection log
+(1,613 omission records) and an independently generated *Wine*
+inspection log (1,618 omission records). Both report **3,718
+ISO files** and **7,450,158,839 nominal bytes**. Relative to
+GOG's 3,716-entry `.extra2` catalog, respectively **1,607**
+and **1,612** omitted original paths have **matching names and
+exact nominal sizes**, with **zero size discrepancies**.
+Both show the same six original ISO files absent from GOG:
+multilingual Adobe Reader installers. GOG instead lists two
+other Acrobat installer files. This is a meaningful corroboration
+of partial original-CD metadata, **not** the 3,718-file original
+ISO content or the claim that our PRNG bytes were actually
+read from the physical CD. An actual physical image was not
+available in this investigation.
+
+The original 676,352-byte `Rayman2.exe` already has the
+**same PE32 entrypoint 0x45FCC0, x86 prologue, and .text raw
+size 0x9A200** that the January 2000 reverse-engineering
+paper identifies for a *decrypted* ICD section. This is
+strong evidence of real readable game code **already present
+on disk**, but does not certify the entire PE is fully
+unprotected or substitute a post-decryption ICD memory
+dump. It is therefore unsafe to treat the paper's
+decrypted-ICD recipe as directly applicable to our
+fully synthetic `RAYMAN2.ICD` bytes.
+
+The tool and its five new synthetic tests were executed
+against the two exact owner logs and hash-pinned GOG EXE,
+with the committed Git blobs verified to be exactly the
+locally tested files. **No Windows/Wine runtime decryption,
+Rust compilation or CI was performed.**
+
 ## Five owner-supplied SafeDisc-era filenames are exact PRNG streams (13 November 2026)
 
 **New primary input evidence: all FIVE exact samples were retrieved again
