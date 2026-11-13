@@ -1247,8 +1247,10 @@ at **0x004511E2** and **0x004513BB**.
 **Critically, the per-byte XOR transformation still exists in
 GOG.** At 0x004510CD it XORs a read byte with state
 \`[stream + 0x15]\` and updates a masked pseudo-random
-32-bit state under \`[stream + 0x14]\` (the same Park–Miller
-family seen in the earlier trampoline analysis). The masked
+32-bit state under \`[stream + 0x14]\`. Although this
+resembles a Park–Miller-style recurrence, the exact x86 reduction
+is **not** mathematically interchangeable with modular arithmetic
+for every state (see the new subsection below). The masked
 original variant performs analogous XOR operations beginning
 at 0x0045126B. This supports pairing the routines by *type
 of processing*; it is **not** a runtime proof that every
@@ -1287,6 +1289,105 @@ read callback contract from GOG's virtual-CD metadata callback
 contract, but does not trace which real game files use a
 particular mode at runtime, how SafeDisc authenticates a disc,
 or how post-unwrapping original game sections differ.
+
+### Exact per-byte stream XOR: a 32-bit reduction, not a generic modulo (13 Nov 2026)
+
+The direct-IAT **ReadFile + XOR** loop at
+**0x004510CD..0x00451108** is byte-for-byte identical in the
+SHA-256-known protected CD and modified GOG PE32 files.
+The original **masked ReadFile + XOR** loop at
+**0x0045126B..0x004512A6** uses the same multiplication,
+magic constant, shift and XOR operations, but the corresponding
+GOG executable bytes are all INT3.
+
+**Stream-mode flags are independent:** function **0x00450EC0**
+extracts **bit 1** of stream option byte **[stream+0x18]**:
+when set, initializer **0x00450A2D** sets state
+**[stream+0x14] = 0x6AB5CC79** and chooses the XOR reader.
+Function **0x00450ED0** extracts **bit 2** of that same option
+byte and originally chooses a generated masked Win32 API
+reader versus a direct-IAT reader. GOG's two altered JNE
+displacements neutralize only the masked variant selection.
+Therefore the XOR still has a separate runtime option.
+
+**Exact byte transform for a fully read buffer:** The native
+reader calls actual \`KERNEL32!ReadFile\`; at
+**0x004510BF..0x004510C8** it compares the returned number
+of bytes with the requested count and skips its XOR loop on
+a mismatch. It records the API's BOOL result separately.
+When the counts match, for each byte at position \`i\`:
+
+    output[i] = input[i] XOR ((state >> 8) & 0xFF)
+    state = x86_step(state)
+
+**The byte used is the SECOND-LEAST-SIGNIFICANT state byte**,
+from \`MOV CL, BYTE PTR [EDI+0x15]\` (not the low byte
+at +0x14). To model \`x86_step\` exactly, preserve each
+32-bit intermediate truncation in the following x86 reduction:
+
+\`\`\`python
+mask = 0xFFFFFFFF
+v = state ^ 0x075BD924
+high = (v * 0x069C16BD) >> 32   # unsigned MUL upper DWORD
+low = (v * 16807) & mask        # IMUL lower DWORD
+q = (v - high) & mask
+q = (q >> 1)
+q = (q + high) & mask
+q >>= 16
+edx = (-q) & mask
+edx = (edx << 31) & mask
+edx = (edx - q) & mask
+state = (low - edx) & mask
+\`\`\`
+
+This deliberately **is not replaced** with the attractive
+but incorrect expression
+
+    state = ((state ^ 0x075BD924) * 16807) % 2147483647
+
+because the original **magic-constant quotient can differ
+from the mathematical exact quotient** for some states.
+For the actual initial state \`0x6AB5CC79\`, the two
+versions first differ after 70 updates:
+
+| Check | Exact x86 | Simplified modulo |
+|---|---|---|
+| State after 70 bytes | \`0xFEF02481\` | \`0x7EF02480\` |
+| First different XOR-key byte | **offset 71** | **offset 71** |
+
+The state difference at byte offset 70 does not yet change
+the byte at \`state+1\` (both use 0x24), but subsequent
+state evolution yields different key bytes at offset 71.
+
+**Synthetic golden vectors, no copyrighted data:**
+
+| Vector | Exact result |
+|---|---|
+| First 16 XOR bytes for 16 zero input bytes | \`ccc5dfcceebdf8ceaf15bbae35a91340\` |
+| SHA-256 of 256 zero-input XOR bytes | \`8eeed8d4e85f19dd1a78d818003c41056e15755dd1bff524afb49c8cda0bc957\` |
+| Stream state after 256 bytes | \`0x2A88DE34\` |
+| SHA-256 of 512 zero-input XOR bytes | \`1f91a5cac736fa9301f3a256fda143ede53fb3edf862aa62adc579bbb31691c5\` |
+
+**Reproducibility and scope:** 
+\`scripts/rayman2_cd_io_diff.py\` now implements
+\`stream_xor_step32\`, \`stream_xor_transform\`, and
+\`inspect_stream_xor_x86\` with **16 original/GOG
+direct-reader opcode anchors** and **nine original-only masked
+reader anchors**. \`scripts/test_rayman2_cd_io_diff.py\`
+has **28 test methods** including deterministic 10,000-state
+crosschecks with an independently written x86 register-level
+interpreter, XOR-involution and split-buffer resumption checks,
+two golden SHA-256 vectors, and explicit modulo-divergence
+regressions. A separate independent local verifier executed
+**14/14 tests against actual SHA-256-identified retail/GOG
+files and synthetic data**. Its private JSON report is
+\`rayman2_stream_xor_exact_verified_20261113.json\`.
+
+The test code models transformed bytes **only after a full
+ReadFile byte count**, never actual file I/O itself. No source
+LEVELS0.DAT bytes or verified CD runtime file reads were used.
+**This is a game stream transform, not a proven general
+SafeDisc 1.35 executable/ICD decryption algorithm.**
 
 ## Read-only, falsifiable checks
 
