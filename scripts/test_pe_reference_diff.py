@@ -360,6 +360,65 @@ class ReferenceDiffTests(unittest.TestCase):
             self.assertFalse(report["source_code_execution_asserted"])
             self.assertEqual(len(report["entries"]), 2)
 
+    def test_whole_function_int3_neutralization_at_matching_va(self):
+        protected = bytearray(pe_fixture(text_offset=0x400))
+        reference = bytearray(pe_fixture(text_offset=0x800))
+        reference[0x800+0x30:0x800+0x30+80] = bytes([0xCC])*80
+        report = tool.compare_code_spans(
+            tool.parse_pe32(bytes(protected)),
+            tool.parse_pe32(bytes(reference)),
+            [(0x00401030, 80)]
+        )[0]
+        self.assertEqual(report["length_bytes"], 80)
+        self.assertEqual(report["bytes_changed_to_int3"], 80)
+        self.assertTrue(report["reference_all_int3_bytes"])
+        self.assertEqual(report["identical_bytes"], 0)
+        self.assertFalse(report["protection_change_asserted"])
+        self.assertFalse(report["runtime_reachability_asserted"])
+
+    def test_partial_code_span_change_and_nop_are_distinguished(self):
+        protected = bytearray(pe_fixture())
+        reference = bytearray(pe_fixture(text_offset=0x800))
+        reference[0x800+0x30:0x800+0x40] = bytes([0x90])*16
+        report = tool.compare_code_spans(
+            tool.parse_pe32(bytes(protected)),
+            tool.parse_pe32(bytes(reference)),
+            [(0x00401020, 64)]
+        )[0]
+        self.assertEqual(report["identical_bytes"], 48)
+        self.assertEqual(report["bytes_changed_to_nop"], 16)
+        self.assertFalse(report["reference_all_nop_bytes"])
+        self.assertFalse(report["reference_all_int3_bytes"])
+
+    def test_code_span_rejects_oversize_and_unbacked_ranges(self):
+        pe = tool.parse_pe32(pe_fixture())
+        with self.assertRaisesRegex(ValueError, "between 1 and 65536"):
+            tool.compare_code_spans(pe, pe, [(0x00401000, 65537)])
+        with self.assertRaisesRegex(ValueError, "at most 64"):
+            tool.compare_code_spans(pe, pe, [(0x00401000, 1)]*65)
+        with self.assertRaisesRegex(ValueError, "unavailable"):
+            tool.compare_code_spans(pe, pe, [(0x00401200, 8)])
+
+    def test_cli_code_span_read_only_metadata(self):
+        with tempfile.TemporaryDirectory() as folder:
+            a, b = Path(folder)/"retail.exe", Path(folder)/"gog.exe"
+            a.write_bytes(pe_fixture())
+            ref = bytearray(pe_fixture(text_offset=0x800))
+            ref[0x800+0x80:0x800+0x88] = bytes([0xCC])*8
+            b.write_bytes(ref)
+            import contextlib, io, json
+            out = io.StringIO()
+            with contextlib.redirect_stdout(out):
+                self.assertEqual(tool.main([
+                    "--protected", str(a), "--reference", str(b),
+                    "--reference-origin", "GOG",
+                    "--code-span", "0x401080:8",
+                ]), 0)
+            report = json.loads(out.getvalue())
+            self.assertEqual(report["reference_origin_label"], "GOG")
+            self.assertTrue(report["on_disk_code_span_comparison"][0]["reference_all_int3_bytes"])
+            self.assertFalse(report["on_disk_code_span_comparison"][0]["protection_change_asserted"])
+
     def test_cli_rejects_self_comparison(self):
         with tempfile.TemporaryDirectory() as folder:
             path = Path(folder)/"fixture.exe"
