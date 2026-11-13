@@ -182,6 +182,25 @@ hashes. See [the reconciliation report]
 
 **Extended five-file finding (13 Nov 2026):**
 
+**January 2000 historical Rayman 2 code-stage audit (14 Nov):**
+[exact-SHA anchored comparison](docs/rayman2-january2000-binary-anchor-audit.md)
+against the paper's claimed **decoded ICD** code identifies
+the matching game entrypoint `0x0045FCC0`, but **3/4
+tested location-specific opcode prefixes disagree** at their
+stated addresses and **all three separately published
+byte patterns are absent** from both on-disk retail and
+GOG `.text`. The 32-byte code spans at all four
+locations are identical between the two current
+samples. The paper's author tentatively called the
+protection *r3*, whereas a contemporaneous
+DPLAYERX size table associates our **165,888-byte**
+sample size with *r2*. These are **version/stage
+clues, not proof** of a version mismatch or a
+completed decryption. The SHA-locked read-only
+`rayman2_historical_anchors.py` and **five
+synthetic tests** were exercised locally against
+both exact owner EXEs; they do not run the game.
+
 **TEA five-file known-plaintext test:** [independently reproduced negative crossmatch](docs/rayman2-tea-known-plaintext-crosscheck.md); both historical key spellings, all overlapping eight-byte offsets, strict source SHA-256 gates and five synthetic tests. **Not an ICD decrypter**.
 
  three further
