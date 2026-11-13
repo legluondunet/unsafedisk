@@ -2,7 +2,7 @@
 from __future__ import annotations
 import struct
 import unittest
-from rayman2_dat_read_paths import analyze,rel_call,region,want
+from rayman2_dat_read_paths import analyze,rel_call,region,want,derive_dat_word
 
 class DatReadPathTests(unittest.TestCase):
     def test_retail_hash_gate(self):
@@ -25,6 +25,34 @@ class DatReadPathTests(unittest.TestCase):
     def test_invalid_range(self):
         with self.assertRaises(ValueError):
             region(b'\0',{'image_base':0x400000},0x401000,257)
+
+    def test_derive_zero_index(self):
+        h=struct.pack('<4I',10,20,3,4)
+        self.assertEqual(derive_dat_word(h,30,0),((30-10)&0xffffffff)^20)
+
+    def test_derive_positive_index(self):
+        h=struct.pack('<4I',10,20,3,4)
+        self.assertEqual(derive_dat_word(h,30,2),((30-16)&0xffffffff)^28)
+
+    def test_derive_u32_wrap(self):
+        h=struct.pack('<4I',0xfffffff0,0xfffffff0,0x22,0x30)
+        self.assertEqual(derive_dat_word(h,0,1),((0-0x12)&0xffffffff)^0x20)
+
+    def test_bad_header_length(self):
+        with self.assertRaisesRegex(ValueError,'invalid DAT'):
+            derive_dat_word(b'no',0,0)
+
+    def test_negative_index(self):
+        with self.assertRaisesRegex(ValueError,'invalid DAT'):
+            derive_dat_word(b'\0'*16,0,-1)
+
+    def test_index_limit(self):
+        with self.assertRaisesRegex(ValueError,'invalid DAT'):
+            derive_dat_word(b'\0'*16,0,65536)
+
+    def test_non_uint32_word(self):
+        with self.assertRaisesRegex(ValueError,'invalid DAT'):
+            derive_dat_word(b'\0'*16,0,2**32)
 
     def test_disallowed_bytes(self):
         h={'image_base':0x400000,
