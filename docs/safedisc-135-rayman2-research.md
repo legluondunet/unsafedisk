@@ -927,6 +927,108 @@ used alone to assert that matched bytes are executable
 instructions or reachable code. The listed sites above
 were **independently checked with GNU objdump**.
 
+### GOG CD-ROM compatibility callbacks: three concrete static replacements
+
+**13 November 2026: verified on the actual two SHA-256-pinned
+executables; 13 independent local read-only regression tests passed.**
+This finding is specific to the GOG reference, which may include
+compatibility changes beyond SafeDisc removal. It must **not** be
+copied blindly to the original retail executable.
+
+The GOG-modified callback initializer at VA `0x00467130`
+installs *three* functions that return fixed CD-like answers:
+
+| GOG table slot | GOG callback VA | Evidence in x86 | Plausible Win32 signature |
+|---|---|---|---|
+| `+0x10` | `0x00448EC4` | `MOV EAX,5; RET 4` | `GetDriveTypeA`: `DRIVE_CDROM = 5` |
+| `+0x28` | `0x00448E6C` | writes volume labels, serial, flags; `RET 0x20` | `GetVolumeInformationA` (8 arguments) |
+| `+0x0C` | `0x00448ED0` | writes sector/cluster values; `RET 0x14` | `GetDiskFreeSpaceA` (5 arguments) |
+
+The byte patterns and calling conventions match the
+[GetDriveTypeA](https://learn.microsoft.com/en-us/windows/win32/api/fileapi/nf-fileapi-getdrivetypea),
+[GetVolumeInformationA](https://learn.microsoft.com/en-us/windows/win32/api/fileapi/nf-fileapi-getvolumeinformationa)
+and [GetDiskFreeSpaceA](https://learn.microsoft.com/en-us/windows/win32/api/fileapi/nf-fileapi-getdiskfreespacea)
+interfaces. The exact Windows function identities remain inferred
+from signatures and table usage, **not** verified by a runtime trace
+or PDB symbol names.
+
+#### Exact GOG-supplied values
+
+**Callback `0x448E6C` (volume information):**
+
+| Output | Value | Evidence |
+|---|---|---|
+| Volume label | ASCII `RAYMAN2\0` | stores at `0x448EAE`, `0x448EB4` |
+| File-system name | ASCII `CDFS\0` | stores at `0x448E76`, `0x448E7C` |
+| Volume serial | `0x6D380AE8` | store at `0x448EA1` |
+| Maximum component length | `110` | store at `0x448E94` |
+| File-system flags | `0x00000005` | store at `0x448E87` |
+| Return | `1` | `XOR EAX,EAX; INC EAX; RET 0x20` |
+
+**Callback `0x448ED0` (disk-free-space-like data):**
+
+| Output | Value |
+|---|---|
+| Sectors per cluster | `1` |
+| Bytes per sector | **`2048`** |
+| Free clusters | `0` |
+| Total clusters | **`332400`** (`0x51270`) |
+| Return | `1`; `RET 0x14` |
+
+The values imply a *reported* total disk capacity of
+`332400 * 1 * 2048 = 680755200` bytes
+(about 649.2 MiB). **This is a GOG hard-coded response,
+not a verified measurement of the original CD's capacity.**
+The fake `CDFS` and `DRIVE_CDROM` responses explain how
+GOG can plausibly satisfy older disc-presence checks when the
+application is run without physical CD media.
+
+**Callback `0x448EC4` (drive type):** exact bytes
+`B8 05 00 00 00 C2 04 00`, corresponding to
+`MOV EAX,5; RET 4`. In the initializer, GOG loads
+this address at `0x46717C` and stores the pointer
+into table slot `+0x10` at `0x467182`.
+Crucially, the **three-byte store instruction itself
+is identical** between retail and GOG; the
+preceding function-pointer source is modified.
+
+**Important limits:**
+
+- These callbacks are **statically assigned** in the GOG
+  executable. Their actual invocation or success under Wine
+  or Windows was **not** measured.
+- `GetVolumeInformationA` normally has size arguments for
+  its output buffers; the observed GOG code writes fixed
+  ASCII strings and does not establish full Win32 contract
+  compliance for arbitrary user-provided buffer lengths.
+- No conclusion about the *original disc's actual label*,
+  its authentic serial number or its physical size follows
+  from hard-coded GOG outputs.
+- The original CD protected executable contains **different
+  byte sequences** at all nine tested GOG callback/constant
+  sites; these are GOG modifications, without SafeDisc-only
+  attribution.
+
+#### Reproducible read-only verification
+
+The evidence was checked against the exact retail protected
+SHA-256 `7927a106ac4f2244e304e57c196170f6cfb311af87ddf59eb6e6c48b9bb0d5e3`
+and GOG SHA-256
+`9bae484bd84a4afad8d4e7b1bb30a85ce1ce2367f8451463696eabab28a72713`
+with independently mapped PE virtual addresses, comparing
+the literal stored x86 bytes at the volume/space/drive
+functions and their callback-table assignment sites.
+
+The generic script `scripts/pe_reference_diff.py`
+now also recognizes `MOV EAX,imm32; RET imm16`
+constant-return stubs, including the exact
+`GetDriveTypeA`-like case above. A synthetic
+regression case is added. The **local separate test
+suite passed 13/13**, and a JSON evidence summary
+was generated without distributing proprietary
+binary data. The Rust inspector still requires
+compilation; no GitHub Actions jobs were triggered.
+
 ### Static GOG code references to the embedded file inventory
 
 Unlike the inert-looking byte-copy hypothesis for `.extra`,
