@@ -101,6 +101,62 @@ Locally, both original owner logs produce
 `all_23_confirmed_in_both: true` and the exact sum
 `6777257404`.
 
+## Removing the 23 nominally oversized entries reconciles CD capacity
+
+The **complete nominal original ISO** file-size sum is
+`7,450,158,839` bytes. Subtracting only the **23 individually
+corroborated** `DATA/WORLD/LEVELS` anomalous entries
+(`6,777,257,404` bytes) leaves **`672,901,435` bytes**:
+**`5,267,141` bytes less than the image's `678,168,576` bytes**.
+
+The full GOG `.extra2` virtual file-size sum is
+`7,453,062,614` bytes. Subtracting the **same exact 23
+per-file lengths** gives **`675,805,210` bytes**:
+**`4,949,990` bytes less than the previously established
+`680,755,200` simulated CD geometry**.
+
+| Observable nominal totals | Owner original ISO report | GOG virtual-CD metadata |
+|---|---:|---:|
+| Full nominal filename/size sum | 7,450,158,839 | 7,453,062,614 |
+| The same 23 atypically large DAT records | 6,777,257,404 | 6,777,257,404 |
+| Remainder after excluding 23 | **672,901,435** | **675,805,210** |
+| Reported physical / simulated CD capacity | 678,168,576 | 680,755,200 |
+| Capacity minus remaining nominal lengths | **5,267,141** | **4,949,990** |
+
+This calculation establishes that **these 23 records alone account
+for all the gross nominal-size inflation** in both inventories,
+with the remaining nominal file lengths smaller than the respective
+image/virtual CD size. It **cannot** demonstrate unique physical
+extents, byte-identical contents, a legitimate CD authentication,
+or that all other declared files could be independently read.
+
+A separate static inspection of the two SHA-256-pinned EXEs confirms
+all 23 `*.DAT` leaf filename literals already appear in the
+**original executable's `.data` section** (addresses in the
+`0x004A20F0..0x004A2210` region). The same `.data` strings
+remain at the same virtual addresses in the edited GOG EXE;
+GOG also lists the same names separately in its `.extra2`
+catalog. Earlier read-only proof identified the **24-element
+pointer table at VA `0x004A2090`**, used by a retail
+indexed file-selector at `0x0044F13A`. The synthesis
+demonstrates that the name families occur in **all three**:
+the original ISO metadata report, the original program's
+file-name selection table, and the edited GOG virtual catalog.
+It **does not** prove which branch executes at runtime or
+that the filename selection is a SafeDisc decryption stage.
+
+The `rayman2_cd_log_gog_compare.py` report now adds a bounded
+`full_23_dat_declared_size_reconciliation` object **only
+when all 23 files are found and have identical declared
+lengths in both metadata inventories**. Otherwise it emits
+`null` for that object. Both original owner logs passed.
+The newly added seventh synthetic unit test passed locally,
+including a deliberately missing-file negative control.
+**7/7 tests pass**, with GitHub file blob SHA values
+`7344d4fc25d38784ea92b8dfa22d7c24add00f5c`
+and `117f1b743d36688cd21a8b24bf53a1a033e43914`,
+both independently matching the executed local source.
+
 ## Why this matters for actual SafeDisc decryption
 
 The historical Rayman 2 investigation
@@ -147,9 +203,9 @@ python -m unittest discover -s scripts -p 'test_rayman2_cd_log_gog_compare.py'
 
 The exact GitHub source and test file blob hashes match the
 locally executed Python files:
-`3ddbf51470432779930e86f3eeed530d54a27dfe` and
-`44f1c496a5323f3e35bcf0fc44ef6d8c933f151f`.
-**6/6 synthetic tests passed**; both owner log + GOG
+`7344d4fc25d38784ea92b8dfa22d7c24add00f5c` and
+`117f1b743d36688cd21a8b24bf53a1a033e43914`.
+**7/7 synthetic tests passed**; both owner log + GOG
 comparisons were run locally. No GitHub Actions job or native
 Rust rebuild was triggered.
 
