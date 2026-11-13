@@ -771,6 +771,67 @@ with its authentic file/ISO offset, against a runtime trace of P and
 the six decoded globals—not to infer correctness from GOG's
 modified executable alone.
 
+## Missing LEVELS0.DAT: the same ordinary Win32 Retry/Cancel dialog in CD and GOG (13 Nov 2026)
+
+A further **exact SHA-256-pinned retail-vs-GOG x86 examination** finds that
+the **entire 290-byte error branch at VA 0x0044DFC9..0x0044E0EA is
+byte-for-byte identical** in both executables. This path handles the
+initial failure to open the **fixed bootstrap DAT file LEVELS0.DAT**,
+rather than a specific proof that a SafeDisc hardware media check ran.
+
+At 0x0044DFC9 the code compares the return value from its
+CreateFileA attempt with **INVALID_HANDLE_VALUE = 0xFFFFFFFF**,
+and jumps past the dialog on success. If the open fails, the original
+and GOG both reconstruct two messages using individual x86
+\`MOV BYTE PTR [EBP+disp8], imm8\` and
+\`MOV BYTE PTR [EBP+disp8], BL\` stores on the stack. The
+latter writes spaces (BL = 0x20).
+
+The resulting **unmodified** Win32 dialog:
+
+- Caption: \`Rayman 2 CD not found\`
+- Message: \`Please, insert Rayman II CD in CDROM Drive\`
+- Function: **USER32.dll!MessageBoxA**, called via IAT
+  **0x0049C270** at VA **0x0044E0DB**.
+- \`uType = 5\` = **MB_RETRYCANCEL**.
+- Result **2** = **IDCANCEL**; the code at VA
+  **0x0044E0E6** calls the game's teardown routine
+  **0x004011C0** on Cancel.
+
+On Retry, the two editions differ in **how they invoke
+CreateFileA**, not in their dialog behavior:
+
+| Stage / VA | Original retail | GOG reference |
+|---|---|---|
+| Retry after dialog, 0x0044E0EB | Calls masked PRNG code builder 0x00448480 | Direct short jump to 0x0044E15F |
+| Build arguments, 0x0044E15F..0x0044E177 | Same 7-arg read-only CreateFileA arguments | Same instructions |
+| Invoke CreateFileA at 0x0044E178 | Generated indirect \`CALL ESI\` | Direct \`CALL [0x0049C058]\` |
+| Recheck return, 0x0044E1F8 | Compare with INVALID_HANDLE_VALUE; on failure jump to dialog at 0x0044DFD6 | Same control flow |
+| Success, 0x0044E203 | Continue to DAT initialization | Same control flow |
+
+The existing \`scripts/rayman2_dat_bootstrap.py\` has been
+**extended in place** with a bounded \`verify_missing_dat_dialog\`
+and a tiny specific-instruction stack-string decoder. It validates
+both known SHA-256 input files, the shared 290-byte region,
+MessageBoxA and the two edition-specific retry callsites, with no
+runtime execution or commercial data embedded in the tests.
+\`scripts/test_rayman2_dat_bootstrap.py\` gained six new cases,
+raising it **from 19 to 25 unit tests**.
+
+A real local test run using both owner's authentic EXEs finished
+**25 tests, 25 passes, zero skips**. The two exact GitHub code blobs
+match the tested local files (see PR comment for IDs).
+No original ISO or actual DAT file was inspected; these are **static
+branches** and not a test of whether either retail/GOG installation
+would display the error on a modern machine.
+
+**Practical implication:** if this specific dialog appears under
+Wine/Windows, the first thing to check is whether the *bootstrap*
+\`LEVELS0.DAT\` can be opened through the expected constructed path,
+not to assume SafeDisc or secdrv.sys has blocked the CD. The original
+retail may of course have separate SafeDisc and in-game anti-tamper
+mechanisms; this finding neither proves nor rules them out.
+
 ## Read-only, falsifiable checks
 
 `scripts/rayman2_anti_tamper_assets.py` inspects only the two historical asset names and hashes, with case-insensitive per-component lookup, link rejection and bounded reading. Example:
