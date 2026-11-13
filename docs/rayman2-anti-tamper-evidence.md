@@ -1440,6 +1440,59 @@ I/O, inside DAT handling), and **mode 0x02**
 at \`0x0044F769\`. These are static callsites, *not*
 proof of which modes occur during actual gameplay.
 
+### The stream XOR is actually compared against a file-supplied DWORD
+
+The rolling XOR is **not merely unused bookkeeping**. Another static
+code path (byte-identical in the exact retail CD and edited GOG files)
+reads the expected 32-bit value through the same stream interface:
+
+- At **0x0044DCDB**, it pushes a pointer to **0x005117B8**
+  with size **4**, count **1**, and calls
+  **0x00450D90** from **0x0044DCE6**. This saves a
+  32-bit value from the opened resource stream into global
+  **0x005117B8**, subject to runtime read success.
+- At **0x0044D93E**, the checksum accumulated in the
+  live stream structure **[ESP+0x44]** (its
+  **[stream+0x10]** field) is loaded, then
+  **0x0044D947** compares it with global
+  **0x005117B8**.
+- If equal, a branch at **0x0044D94F** skips the
+  mismatch action. If different, code calls
+  **0x00418960**. In both provided *on-disk*
+  EXEs this function contains exactly
+  **\`MOV AL,1; RET\`** (\`B0 01 C3\`), so
+  its return value permits the next action.
+- The mismatching path at **0x0044D95A..0x0044D96E**
+  reads an index from **[0x005117C4]**, then performs
+  **\`NOT\`** on the DWORD at
+  **\`0x005116FC + 4*index\`**, writing it back.
+
+This forms a **plausible original in-game data-integrity or
+anti-tamper mechanism**: a mismatch between a computed rolling
+checksum and an expected resource DWORD can alter a
+game-global table rather than display an error or crash at
+the comparison point. Since the same path is still present
+in GOG, it cannot automatically be equated to the SafeDisc
+driver's physical-media authentication.
+
+**What is *not* established:** the actual bytes read into
+0x005117B8, temporal relation between initial and later
+stream-open calls, the actual index, whether normal gameplay
+reaches the mismatch branch, or how this table mutation
+manifests on screen. The source shows static data and
+control flow; it does not prove deliberate DRM sabotage.
+No runtime game session, protected-image post-load memory
+snapshot, or authentic physical CD DAT contents were used.
+
+The in-place diagnostic now includes **nine extra exact
+CD/GOG opcode anchors** for the expected-value read,
+checksum comparison and conditional DWORD inversion.
+Its synthetic tests reject changes to these branches.
+A separate local verifier passed **23/23 tests**,
+including independent checks on both exact SHA-256 owner
+sample binaries. No proprietary bytes are distributed.
+
+
 ### Another precise GOG edit: the original masked CreateFileA opener is removed
 
 In addition to the two reader-selector JNE bytes and masked
