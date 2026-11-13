@@ -18,6 +18,16 @@ GOG_SHA256 = '9bae484bd84a4afad8d4e7b1bb30a85ce1ce2367f8451463696eabab28a72713'
 DISC_RE = re.compile(r'^DISC: format=ISO9660 / 2048-byte sectors volume=RAYMAN2\b.*$', re.M)
 OMIT_RE = re.compile(r'^DISC-OMIT: .+? path=(.+?) declared_bytes=(\d+) \(not copied;', re.M)
 
+# 24 conventional family/number combinations minus the genuinely used LEVELS0.
+LEVEL_DAT_PATHS = frozenset(
+    f'data/world/levels/{family}{index}.dat'
+    for family in ('anims', 'graphics', 'levels', 'map',
+                   'menu', 'music', 'sounds', 'textures')
+    for index in range(3)
+    if not (family == 'levels' and index == 0)
+)
+assert len(LEVEL_DAT_PATHS) == 23
+
 
 def read_catalog(gog: bytes, *, verify_hash: bool = True) -> dict[str, int]:
     if verify_hash and hashlib.sha256(gog).hexdigest() != GOG_SHA256:
@@ -102,8 +112,19 @@ def compare(log_data: dict, catalog: dict[str, int]) -> dict:
                             'gog_declared_bytes': catalog[name]})
         else:
             same += 1
+    dat_entries = {name: length for name, length in
+                   log_data['omissions'].items() if name in LEVEL_DAT_PATHS}
+    dat_match = sum(catalog.get(name) == length
+                    for name, length in dat_entries.items())
     stats = log_data['stats']
     return {
+        'historical_23_omitted_dat': {
+            'expected_paths': len(LEVEL_DAT_PATHS),
+            'listed_in_iso_omissions': len(dat_entries),
+            'matching_paths_and_lengths_in_gog': dat_match,
+            'iso_declared_bytes': sum(dat_entries.values()),
+            'all_23_confirmed_in_both': (len(dat_entries) == 23 and dat_match == 23),
+        },
         'iso_logged_file_count': stats['files'],
         'iso_logged_declared_bytes': stats['declared_bytes'],
         'iso_logged_image_bytes': stats['image_bytes'],
