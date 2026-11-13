@@ -150,6 +150,181 @@ protected counterpart has no ordinary resource directory. These
 differences **do not establish how the unprotected EXE was produced**
 or imply a general-purpose SafeDisc 1.35 decoding method.
 
+### Major update: static writer and export-name resolver recovered
+
+**13 November 2026, independent static audit of the SHA-256-verified
+retail CD executable.** The former question about who writes the
+descriptor `+0x30` fields is **resolved at the instruction level**.
+
+**Exact write mechanism:** function `0x00447AF0`, called with
+a one-based descriptor index `i`, computes:
+
+```text
+ESI = 76 * i
+destination = 0x004A1400 + ESI
+            = 0x004A141C + 76*(i-1) + 0x30
+```
+
+When a nonzero function address is obtained, the routine uses:
+
+```asm
+447BC0: xor ebx,eax                    ; mask XOR resolved export VA
+447BC2: mov [esi+0x004A1400],ebx       ; store masked callback
+```
+
+When a function lookup fails, the branch at `0x00447BCD`
+can instead write **zero** into the same destination.
+Thus the paired callsite `stored XOR mask` recovers the
+previously resolved function pointer **if resolution succeeded**.
+No code is executed and no runtime address was observed during
+this audit.
+
+**Call chain, conditional initialization path:**
+
+- `0x004493FA` sets the **module count to 7**
+  (global `0x005113E8`).
+- `0x00449404` sets the descriptor iteration bound to
+  **36** (`0x24`, global `0x005113F0`) in the nonzero-argument
+  branch of the initialization routine.
+- `0x0044947C` calls module preparation `0x004478A0`.
+- `0x00449485` calls `0x00448DB0` to walk module indices.
+- `0x0044948E` calls `0x00448D80`, which iterates
+  **descriptor indices 1 through 35** and invokes
+  `0x00447AF0` at `0x00448D96`.
+- Two additional direct `0x00447AF0` calls at
+  `0x00448196` and `0x004481A2` explicitly
+  reference descriptor indices **24 and 25**.
+
+This **establishes a static writer and its initialization
+loop**; it supersedes older statements that the writer's
+identity was unknown. It does **not** prove this path
+always executes under Windows/Wine, that every export is
+found, or that all 35 fields become nonzero.
+
+#### The names are obfuscated, not absent
+
+The static routines `0x004474D0` (module-name
+construction) and `0x00447730` (export-name
+comparison) reveal a simple per-character encoding in
+the protected on-disk descriptors:
+
+```text
+key_sub, key_xor, increment_sub, increment_xor = record[0..4]
+name_length = record[4]
+for each encoded character:
+    plain = ((encoded - key_sub) mod 256) XOR key_xor
+    key_sub = (key_sub + increment_sub) mod 256
+    key_xor = (key_xor + increment_xor) mod 256
+```
+
+This is **name obfuscation**, not evidence of a SafeDisc
+cipher for the actual executable or files on the CD.
+
+The seven decoded module records (`0x004A1268`,
+stride **45 bytes**) are:
+
+```text
+0 KERNEL32.dll
+1 USER32.dll
+2 PSAPI.dll
+3 ADVAPI32.dll
+4 GDI32.dll
+5 VERSION.dll
+6 WINMM.dll
+```
+
+The **35 API names** in the 76-byte records starting
+at `0x004A141C` were all decoded and are associated
+with module indices stored at record offset `+0x34`:
+**33 names target KERNEL32.dll and two target
+PSAPI.dll** (`EnumProcesses`, `EnumProcessModules`).
+The remaining five module names may be used through
+other paths and are not evidence of 35 different
+loaded libraries.
+
+Representative decoded exports:
+
+| One-based record | Module | Exact decoded export name |
+|---|---|---|
+| 1 | KERNEL32 | `FlushInstructionCache` |
+| 8 | KERNEL32 | `CreateFileA` |
+| 10 | KERNEL32 | `ReadFile` |
+| 18 | KERNEL32 | `GetFileSize` |
+| 24 | PSAPI | `EnumProcesses` |
+| 25 | PSAPI | `EnumProcessModules` |
+| 35 | KERNEL32 | `GetLogicalDrives` |
+
+One descriptor spells `FlushFileBuffer` (singular);
+the standard documented Win32 API is
+[`FlushFileBuffers`](https://learn.microsoft.com/en-us/windows/win32/api/fileapi/nf-fileapi-flushfilebuffers).
+**Do not silently change the decoded name.** This
+possible deliberately unresolved or variant-specific
+symbol requires checking actual exported names and
+runtime outcome before any repair.
+
+#### GOG changes the module-name storage separately
+
+In the hash-identified **GOG** executable, the
+seven records at the same module-table VAs contain
+**plaintext uppercase NUL-terminated DLL names with
+zero padding**, whereas the retail CD stores
+the obfuscated names. The **35 API descriptors
+themselves remain byte-identical**, including their
+encoded export names and zero on-disk pointer slots.
+Thus GOG's changes distinguish the **DLL naming /
+module loading layer** from the still-encoded
+Windows export-name descriptor layer.
+Do not infer GOG's original rationale or assume it
+only disabled SafeDisc.
+
+#### Static cross-reference limits
+
+A scan of the *linearly disassembled retail `.text`*
+for exact absolute VAs of all 35 descriptor slots
+(`+0x30`) found **97 rendered direct memory reads**,
+**30 immediate/address-literal uses** and **no
+direct absolute writes**. There were references
+to **24 of the 35** slots. These counts are
+**not a complete call graph** and do not preclude
+indirect writes. In fact the indexed
+`mov [esi+0x004A1400],ebx` at `0x00447BC2`
+**is the confirmed indirect write** missed by
+a direct-VA scan. This demonstrates why a
+zero direct-write count is not a negative
+result about actual runtime initialization.
+
+Reproduce offline:
+
+```sh
+python scripts/pe_masked_api_inventory.py Rayman2-CD-protected.exe \
+  --module-base 0x4a1268 --module-stride 45 --module-count 7 \
+  --api-base 0x4a141c --api-stride 76 --api-count 35 \
+  --module-selector-offset 0x34 --pointer-slot-offset 0x30
+
+# GOG: use same API descriptor layout, but plain module-name records
+python scripts/pe_masked_api_inventory.py Rayman2-GOG.exe \
+  --module-mode plain \
+  --module-base 0x4a1268 --module-stride 45 --module-count 7 \
+  --api-base 0x4a141c --api-stride 76 --api-count 35 \
+  --module-selector-offset 0x34 --pointer-slot-offset 0x30
+
+objdump -d -M intel Rayman2-CD-protected.exe > retail-disasm.txt
+python scripts/descriptor_asm_xrefs.py \
+  --objdump retail-disasm.txt \
+  --base 0x4a141c --stride 0x4c --count 35 --slot-offset 0x30
+```
+
+These standard-library-only, **read-only** diagnostic
+tools do not execute or patch the protected EXE.
+They ship with **eight synthetic name decoder
+tests and four synthetic xref tests**.
+Locally, both original SHA-256-pinned executables
+decoded to the **same 35 API names** and
+**same seven module names (ignoring case)**.
+The disassembly scan was reproduced on the
+retail protected file, and all **12 new
+synthetic tests passed**.
+
 ### Retail masked-call descriptor array: 35 active records, 76-byte stride
 
 A new file-backed-data audit found a **regular, byte-identical
@@ -223,10 +398,12 @@ Similar dynamic-stub construction appears around
 
 This connects the regular descriptor array to actual
 **masked indirect control-flow construction** in the
-protected game code. It does **not** reveal when or how
-the `+0x30` placeholder is populated, whether a
-separate protection stage updates it, or the original
-target address. It is also **not proof that all 35
+protected game code. The **static writer, address
+calculation, module/export lookup and 1..35
+initialization loop are now described above**.
+However, successful runtime resolution and actual
+addresses under Windows or Wine have **not** been
+observed, and this is **not proof that all 35
 records correspond to independent SafeDisc callbacks**.
 
 #### Repeat the comparisons without patching either EXE
