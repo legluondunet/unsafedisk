@@ -394,6 +394,123 @@ def inspect_snapshot_checksum_provenance(retail: bytes, gog: bytes,
     }
 
 
+# Two adjacent original/GOG runtime-only global tables, plus an index
+# also reused by the .sna checksum mismatch branch. The first inversion
+# address is 1 DWORD before the ordinary first table. Not a patch recipe.
+INDEX_GLOBAL_VA = 0x005117C4
+INDEX_INVERT_BASE_VA = 0x005116FC
+INDEX_FIRST_TABLE_VA = 0x00511700
+INDEX_SECOND_TABLE_VA = 0x00511760
+INDEX_NEXT_GLOBAL_VA = 0x005117C0
+SNAPSHOT_INDEX_ANCHORS = {
+    0x0040373F:'33 FF',
+    0x004038A8:'89 3D C4 17 51 00', # EDI=0 in current straight-line path
+    0x00404303:'89 35 F0 0B 51 00', # PRNG state write
+    0x00404309:'79 0C',
+    0x0040430B:'81 C6 FF FF FF 7F', # negative-state correction
+    0x00404317:'89 35 C4 17 51 00', # PRNG-derived index, not reduced to 0..23
+    0x0040484C:'C7 05 C4 17 51 00 00 00 00 00', # clear
+    0x004045F9:'8B 1D C4 17 51 00', # loop bound is this index
+    0x00404604:'85 DB 0F 86 AD 00 00 00',
+    0x00404657:'89 0C BD 60 17 51 00', # second table indexed store
+    0x004046A2:'89 34 BD 00 17 51 00', # first table indexed store
+    0x004046A9:'47',
+    0x004046AA:'3B FB 0F 82 61 FF FF FF', # no 24 check in loop block
+    0x0046729F:'A1 C4 17 51 00',
+    0x004672AD:'8B 04 B5 60 17 51 00', # second table indexed read
+    0x004672CC:'8B 14 B5 00 17 51 00', # first table indexed read
+    0x004672F1:'FE C0 88 45 FC',
+    0x00467300:'81 E6 FF 00 00 00', # consumer local counter max 255
+    0x00467306:'3B F0 72 A3',
+    0x0044D95A:'A1 C4 17 51 00',
+    0x0044D95F:'8B 0C 85 FC 16 51 00', # starts one DWORD before first table
+    0x0044D966:'F7 D1', # bitwise NOT
+    0x0044D968:'89 0C 85 FC 16 51 00',
+    0x0044EA80:'8B 0D C4 17 51 00',
+    0x0044EA8C:'89 14 8D 60 17 51 00',
+    0x0044EAA5:'A1 C4 17 51 00',
+    0x0044EAB6:'89 14 85 00 17 51 00',
+    0x0044EABD:'40',
+    0x0044EAC4:'A3 C4 17 51 00',
+}
+
+
+def snapshot_inversion_address(index: int) -> int:
+    """Compute x86 32-bit scaled-index address; not a safe array index."""
+    if type(index) is not int or not 0 <= index <= 0xFFFFFFFF:
+        raise ValueError('index must be an unsigned DWORD')
+    return (INDEX_INVERT_BASE_VA + 4*index) & 0xFFFFFFFF
+
+
+def inspect_snapshot_index_alias(retail: bytes, gog: bytes,
+                                 rh: dict, gh: dict) -> dict:
+    """Exact protected/GOG opcode and BSS layout audit, no runtime trace.
+
+    PE .data virtual-size > raw-size means these globals are zero-fill
+    on load. That does not establish their values at any later branch.
+    """
+    for img,hdr in ((retail,rh),(gog,gh)):
+        for va,signature in SNAPSHOT_INDEX_ANCHORS.items():
+            raw=bytes.fromhex(signature)
+            if va_bytes(img,hdr,va,len(raw)) != raw:
+                raise ValueError(f'index source/table opcode differs at 0x{va:08X}')
+    zero_filled=[]
+    for hdr in (rh,gh):
+        sections=[s for s in hdr['sections'] if s['name']=='.data']
+        if len(sections)!=1:
+            raise ValueError('expected one .data section')
+        sec=sections[0]
+        phys_end=hdr['image_base']+sec['rva']+sec['raw_size']
+        virt_end=hdr['image_base']+sec['rva']+sec['virtual_size']
+        if not all(phys_end <= va < virt_end for va in
+                   (INDEX_INVERT_BASE_VA,INDEX_FIRST_TABLE_VA,
+                    INDEX_SECOND_TABLE_VA,INDEX_NEXT_GLOBAL_VA,INDEX_GLOBAL_VA)):
+            raise ValueError('index/table globals are not in PE zero-filled .data')
+        zero_filled.append((phys_end,virt_end))
+    if zero_filled[0]!=zero_filled[1]:
+        raise ValueError('different PE .data virtual/raw boundaries')
+    if (INDEX_SECOND_TABLE_VA-INDEX_FIRST_TABLE_VA != 24*4 or
+            INDEX_NEXT_GLOBAL_VA-INDEX_SECOND_TABLE_VA != 24*4):
+        raise ValueError('adjacent table base intervals differ')
+    examples={str(i):f'0x{snapshot_inversion_address(i):08X}'
+              for i in (0,1,23,24,25,48,49,50)}
+    if (snapshot_inversion_address(0)!=INDEX_FIRST_TABLE_VA-4 or
+            snapshot_inversion_address(50)!=INDEX_GLOBAL_VA):
+        raise ValueError('unexpected first-table/index-global address alias')
+    return {
+        'read_only':True,'runtime_reachability_observed':False,
+        'identical_cd_gog_opcode_anchors':len(SNAPSHOT_INDEX_ANCHORS),
+        'index_global_va':f'0x{INDEX_GLOBAL_VA:08X}',
+        'index_writers':[
+            {'at':'0x004038A8','kind':'register EDI (zeroed at 0x40373F in this path)'},
+            {'at':'0x00404317','kind':'PRNG-derived ESI without local 24-entry clamp'},
+            {'at':'0x0040484C','kind':'constant zero'},
+            {'at':'0x0044EAC4','kind':'previous index incremented, no local 24-entry clamp'},
+        ],
+        'array_addresses':{
+            'first_base':'0x00511700','second_base':'0x00511760',
+            'each_adjacent_base_interval_dwords':24,
+            'each_array_actual_allocated_length_proven':False},
+        'two_table_store_sites':{
+            'first':['0x004046A2','0x0044EAB6'],
+            'second':['0x00404657','0x0044EA8C']},
+        'two_table_load_sites':{
+            'first':'0x004672CC','second':'0x004672AD'},
+        'inversion_base_is_one_dword_before_first_table':True,
+        'inversion_address_examples':examples,
+        'index_49_aliases_adjacent_global_0x5117c0':True,
+        'index_50_aliases_index_global_itself':True,
+        'on_disk_globals_zero_filled_by_PE_loader_initially':True,
+        'data_raw_backed_end_exclusive':f'0x{zero_filled[0][0]:08X}',
+        'data_virtual_end_exclusive':f'0x{zero_filled[0][1]:08X}',
+        'init_table_loop_0x4045F0_bounds_by_global_index_only':True,
+        'array_consumer_0x467210_uses_8bit_index_vs_global':True,
+        'local_mismatch_branch_has_explicit_array_bound':False,
+        'runtime_index_values_or_bad_memory_access_proven':False,
+        'SafeDisc_origin_proven':False,
+    }
+
+
 def stream_word_xor_checksum(data: bytes, checksum: int = 0,
                              pending: bytes = b'',
                              *, callback_success: bool = True) -> tuple[int, bytes]:
@@ -592,6 +709,7 @@ def inspect_pair(retail: bytes, gog: bytes, *, verify_hashes: bool = True) -> di
     xor_report = inspect_stream_xor_x86(retail,gog,h_r,h_g)
     word_checksum_report = inspect_stream_word_checksum(retail,gog,h_r,h_g)
     snapshot_provenance = inspect_snapshot_checksum_provenance(retail,gog,h_r,h_g)
+    index_alias_report = inspect_snapshot_index_alias(retail,gog,h_r,h_g)
     names_r = read_file_table(retail, h_r)
     names_g = read_file_table(gog, h_g)
     if names_r != names_g or names_r[0] != 'LEVELS0.DAT':
@@ -637,6 +755,7 @@ def inspect_pair(retail: bytes, gog: bytes, *, verify_hashes: bool = True) -> di
         'stream_read_xor_exact_x86':xor_report,
         'stream_postread_DWORD_checksum':word_checksum_report,
         'snapshot_checksum_resource_provenance':snapshot_provenance,
+        'snapshot_checksum_index_alias_provenance':index_alias_report,
         'conclusion':('Verified local static I/O code changes at exact addresses: GOG omits the drive letter, '
                       'directly calls CreateFileA at one site, selects the first of 24 DAT names at a second '
                       'site, and shortens paths through other code. Runtime reachability, intent, SafeDisc '
