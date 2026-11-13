@@ -1,0 +1,218 @@
+#!/usr/bin/env python3
+"""Read-only PE32 comparison by virtual section RVA, with optional file-list scan.
+
+Embedded (size, name length, name) records represent claims in a reference
+binary, not authenticated on-disc extents. No commercial bytes are emitted.
+"""
+from __future__ import annotations
+import argparse
+import hashlib
+import json
+import struct
+from pathlib import Path
+
+MAX_BYTES = 16 * 1024 * 1024
+MAX_SECTIONS = 96
+MAX_RECORDS = 100_000
+
+
+def u16(data: bytes, at: int) -> int:
+    if at < 0 or at + 2 > len(data):
+        raise ValueError("truncated PE u16")
+    return struct.unpack_from("<H", data, at)[0]
+
+
+def u32(data: bytes, at: int) -> int:
+    if at < 0 or at + 4 > len(data):
+        raise ValueError("truncated PE u32")
+    return struct.unpack_from("<I", data, at)[0]
+
+
+def parse_pe32(data: bytes) -> dict:
+    if len(data) > MAX_BYTES:
+        raise ValueError("oversized PE input")
+    if len(data) < 64 or data[:2] != b"MZ":
+        raise ValueError("expected MZ input")
+    nt = u32(data, 0x3C)
+    if nt < 0x40 or nt + 24 > len(data) or data[nt:nt+4] != b"PE\0\0":
+        raise ValueError("invalid PE header")
+    if u16(data, nt+4) != 0x14C:
+        raise ValueError("expected x86 PE32")
+    count = u16(data, nt+6)
+    opt_size = u16(data, nt+20)
+    opt = nt+24
+    if not 1 <= count <= MAX_SECTIONS or opt_size < 0x70 or opt+opt_size > len(data):
+        raise ValueError("invalid section count or optional header")
+    if u16(data, opt) != 0x10B:
+        raise ValueError("expected PE32 magic")
+    sections = {}
+    table = opt+opt_size
+    if table+count*40 > len(data):
+        raise ValueError("truncated section headers")
+    for i in range(count):
+        at = table+40*i
+        name = data[at:at+8].split(b"\0", 1)[0].decode("ascii", "backslashreplace")
+        vsize, rva, raw_len, raw_off = struct.unpack_from("<IIII", data, at+8)
+        if name in sections:
+            raise ValueError("duplicate section name")
+        if raw_len and raw_off+raw_len > len(data):
+            raise ValueError("section extends beyond EOF")
+        sections[name] = {
+            "name": name, "rva": rva, "virtual_size": vsize,
+            "raw_offset": raw_off, "raw_len": raw_len,
+            "contents": data[raw_off:raw_off+raw_len] if raw_len else b"",
+        }
+    directory_count = u32(data, opt+92)
+    directories = {}
+    for name, index in (("exports", 0), ("imports", 1), ("resources", 2)):
+        if directory_count > index:
+            if 96+8*(index+1) > opt_size:
+                raise ValueError("PE data directory exceeds optional header")
+            directories[name] = list(struct.unpack_from("<II", data, opt+96+8*index))
+        else:
+            directories[name] = [0, 0]
+    return {"sha256": hashlib.sha256(data).hexdigest(), "bytes": len(data),
+            "entry_rva": u32(data, opt+16), "image_base": u32(data, opt+28),
+            "sections": sections, "directories": directories}
+
+
+def describe(pe: dict) -> dict:
+    return {
+        "sha256": pe["sha256"], "bytes": pe["bytes"],
+        "entry_rva": f"0x{pe['entry_rva']:08X}",
+        "image_base": f"0x{pe['image_base']:08X}",
+        "sections": [
+            {"name": s["name"], "rva": f"0x{s['rva']:08X}",
+             "raw_offset": f"0x{s['raw_offset']:X}", "raw_length": s["raw_len"]}
+            for s in pe["sections"].values()
+        ],
+    }
+
+
+def compare_pe32(protected: dict, reference: dict) -> dict:
+    comparisons = []
+    for name, a in protected["sections"].items():
+        b = reference["sections"].get(name)
+        if b is None:
+            comparisons.append({"name": name, "status": "protected_only"})
+            continue
+        if a["rva"] != b["rva"]:
+            comparisons.append({
+                "name": name, "status": "different_rva",
+                "protected_rva": f"0x{a['rva']:X}",
+                "reference_rva": f"0x{b['rva']:X}",
+            })
+            continue
+        common = min(a["raw_len"], b["raw_len"])
+        diffs, pages = [], {}
+        for offset, (x, y) in enumerate(zip(a["contents"][:common], b["contents"][:common])):
+            if x != y:
+                diffs.append(offset)
+                page = (a["rva"]+offset)//4096
+                pages[page] = pages.get(page, 0)+1
+        comparisons.append({
+            "name": name, "status": "compared_by_rva",
+            "rva": f"0x{a['rva']:08X}",
+            "compared_bytes": common, "equal_bytes": common-len(diffs),
+            "different_bytes": len(diffs),
+            "identical_percent": round(100*(common-len(diffs))/common, 4) if common else None,
+            "raw_length_protected": a["raw_len"],
+            "raw_length_reference": b["raw_len"],
+            "changed_4k_pages": len(pages),
+            "heaviest_changed_pages": [
+                {"rva": f"0x{page*4096:08X}", "changed_bytes": count}
+                for page, count in sorted(pages.items(), key=lambda item: (-item[1], item[0]))[:12]
+            ],
+            "first_difference_rvas": [
+                f"0x{a['rva']+offset:08X}" for offset in diffs[:10]
+            ],
+        })
+    for name, b in reference["sections"].items():
+        if name not in protected["sections"]:
+            comparisons.append({
+                "name": name, "status": "reference_only", "raw_length": b["raw_len"]
+            })
+    return {
+        "read_only": True, "no_proprietary_bytes_emitted": True,
+        "protected": describe(protected), "reference": describe(reference),
+        "same_entry_rva": protected["entry_rva"] == reference["entry_rva"],
+        "same_image_base": protected["image_base"] == reference["image_base"],
+        "same_import_directory": protected["directories"]["imports"] == reference["directories"]["imports"],
+        "same_export_directory": protected["directories"]["exports"] == reference["directories"]["exports"],
+        "section_comparison": comparisons,
+    }
+
+
+def scan_manifest(data: bytes) -> dict:
+    """Read <u32 claimed size><u32 name length><NUL-terminated name> records."""
+    offset, records = 0, []
+    for _ in range(MAX_RECORDS):
+        if offset+8 > len(data):
+            raise ValueError("manifest has no sentinel")
+        size, name_len = struct.unpack_from("<II", data, offset)
+        if (size, name_len) == (0xFFFFFFFF, 0):
+            return {
+                "entries": records, "count": len(records),
+                "claimed_total_bytes": sum(x["claimed_size_bytes"] for x in records),
+                "manifest_bytes_before_sentinel": offset,
+                "warning": "Claimed file sizes are not verified physical CD extents",
+            }
+        if not 1 < name_len <= 512 or offset+8+name_len > len(data):
+            raise ValueError("invalid bounded manifest filename length")
+        raw = data[offset+8:offset+8+name_len]
+        if raw[-1] != 0 or b"\0" in raw[:-1]:
+            raise ValueError("manifest filename lacks a single trailing NUL")
+        name = raw[:-1].decode("cp1252")
+        if any(ord(ch) < 32 for ch in name):
+            raise ValueError("control character in manifest filename")
+        records.append({"name": name, "claimed_size_bytes": size})
+        offset += 8+name_len
+    raise ValueError("manifest record limit reached")
+
+
+def read_bounded(path: Path) -> bytes:
+    if path.is_symlink() or not path.is_file() or path.stat().st_size > MAX_BYTES:
+        raise ValueError(f"non-file, symlink or >16 MiB input: {path}")
+    with path.open("rb") as file:
+        data = file.read(MAX_BYTES+1)
+    if len(data) > MAX_BYTES:
+        raise ValueError(f"input grew past limit: {path}")
+    return data
+
+
+def main(argv=None) -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--protected", type=Path, required=True)
+    parser.add_argument("--reference", type=Path, required=True)
+    parser.add_argument("--manifest-section")
+    parser.add_argument("--focus-name", action="append", default=[])
+    args = parser.parse_args(argv)
+    try:
+        a, b = (parse_pe32(read_bounded(args.protected)),
+                parse_pe32(read_bounded(args.reference)))
+        result = compare_pe32(a, b)
+        if args.manifest_section:
+            section = b["sections"].get(args.manifest_section)
+            if section is None:
+                raise ValueError("manifest section not found in reference")
+            manifest = scan_manifest(section["contents"])
+            focus = {name.casefold() for name in args.focus_name}
+            result["embedded_manifest"] = {
+                **{k: v for k, v in manifest.items() if k != "entries"},
+                "focus_entries": [
+                    x for x in manifest["entries"] if x["name"].casefold() in focus
+                ],
+                "largest_entries": sorted(
+                    manifest["entries"], key=lambda x: -x["claimed_size_bytes"]
+                )[:10],
+                "unique_names_casefold":
+                    len({x["name"].casefold() for x in manifest["entries"]}) == manifest["count"],
+            }
+    except (OSError, ValueError) as exc:
+        parser.exit(1, f"ERROR: {exc}\n")
+    print(json.dumps(result, indent=2))
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
