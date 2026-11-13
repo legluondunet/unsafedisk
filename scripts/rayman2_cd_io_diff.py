@@ -242,6 +242,136 @@ def inspect_stream_xor_x86(retail: bytes, gog: bytes, rh: dict, gh: dict) -> dic
     }
 
 
+# Unlike stream_xor_transform, this separate bit-0 mode does not modify
+# file data: it maintains a 32-bit XOR of completed little-endian DWORDs.
+# An incomplete 1..3-byte DWORD persists at stream+8 across read calls.
+STREAM_WORD_CHECK_ANCHORS = {
+    0x450A0C:'56 89 5E 10 88 5E 0C 88 46 18', # initialize zero accumulator/pending
+    0x450EB0:'8B 44 24 04 8A 40 18 83 E0 01 C3', # mode bit 0: checksum
+    0x450EC0:'8B 44 24 04 8A 40 18 D1 E8 83 E0 01 C3', # mode bit 1: byte XOR
+    0x450ED0:'8B 44 24 04 8A 40 18 C1 E8 02 83 E0 01 C3', # bit 2: API mask
+    0x450DBA:'8B 7D 10 0F AF 7D 0C 85 FF',
+    0x450DD2:'53 57 56 FF 53 24', # selected read handler
+    0x450DE6:'53 E8 C4 00 00 00', # bit-0 mode query
+    0x450DF7:'8A 43 0C 8B CF 84 C0',
+    0x450E19:'8B 45 0C 33 D2 8A 53 0C',
+    0x450E28:'8D 7C 13 08',
+    0x450E2E:'C1 E9 02 F3 A5 8B CA 83 E1 03 F3 A4',
+    0x450E40:'02 D1 8B 4D 08 88 53 0C',
+    0x450E50:'80 FA 04 75 0F',
+    0x450E55:'8B 53 08 8B 43 10 33 C2', # XOR completed pending DWORD
+    0x450E5D:'C6 43 0C 00 89 43 10',
+    0x450E64:'8A C1 24 03 C1 E9 02',
+    0x450E70:'8B 16 8B 7B 10 33 FA', # XOR one complete data DWORD
+    0x450E7B:'89 7B 10 75 F0',
+    0x450E80:'84 C0 74 23',
+    0x450E92:'8D 7C 13 08', # store 1..3 pending bytes
+    0x450EA4:'00 43 0C',
+    0x450EA7:'8B 45 10 5F 5E 5B 5D C3', # return item count
+    0x44D50B:'6A 03 6A 02 53 E8 6B 35 00 00', # mode 3 call
+    0x44DACF:'6A 00 8D 85 00 FF FF FF 6A 02', # mode 0 call
+    0x44EA1B:'56 6A 06 E8 DD 1F 00 00', # mode 6 DAT-specific init
+    0x44F769:'6A 02', # mode 2 call
+}
+
+
+def stream_word_xor_checksum(data: bytes, checksum: int = 0,
+                             pending: bytes = b'',
+                             *, callback_success: bool = True) -> tuple[int, bytes]:
+    """Exact logical checksum over *already-transformed* successful read bytes.
+
+    The real 0x450D90 call first invokes the selected read callback, then
+    (only if callback succeeds and stream bit 0 is set) folds completed
+    little-endian DWORDs into [stream+0x10]. It leaves 1..3 pending bytes
+    in [stream+0x08] with their count in [stream+0x0C]. The pending
+    bytes are NOT zero-padded or folded on their own.
+    """
+    if type(data) is not bytes or len(data) > MAX_INPUT_BYTES:
+        raise ValueError('data must be bytes of at most 16 MiB')
+    if type(checksum) is not int or not 0 <= checksum <= 0xffffffff:
+        raise ValueError('checksum must be an unsigned DWORD')
+    if type(pending) is not bytes or len(pending) > 3:
+        raise ValueError('pending must contain at most three bytes')
+    if type(callback_success) is not bool:
+        raise ValueError('callback_success must be boolean')
+    if not callback_success:
+        return checksum, pending
+    pos = 0
+    if pending:
+        take = min(4 - len(pending), len(data))
+        pending += data[:take]
+        pos += take
+        if len(pending) == 4:
+            checksum ^= struct.unpack('<I', pending)[0]
+            pending = b''
+    whole = (len(data) - pos) // 4
+    for idx in range(whole):
+        checksum ^= struct.unpack_from('<I', data, pos + idx*4)[0]
+    pos += 4*whole
+    return checksum, pending + data[pos:]
+
+
+def inspect_stream_word_checksum(retail: bytes, gog: bytes,
+                                 rh: dict, gh: dict) -> dict:
+    """Opcode-audited third stream mode and original/GOG open-call contrast."""
+    for data, headers in ((retail,rh),(gog,gh)):
+        for va, pattern in STREAM_WORD_CHECK_ANCHORS.items():
+            expected = bytes.fromhex(pattern)
+            if va_bytes(data,headers,va,len(expected)) != expected:
+                raise ValueError(f'stream DWORD checksum anchor mismatch at 0x{va:08X}')
+    for begin, end in ((0x450D90,0x450EB0), (0x450EB0,0x450EE0)):
+        for va in range(begin,end,64):
+            n = min(64,end-va)
+            if va_bytes(retail,rh,va,n) != va_bytes(gog,gh,va,n):
+                raise ValueError('original/GOG checksum implementation differs')
+    if va_bytes(retail,rh,0x450ADE,11) != bytes.fromhex(
+            '56 E8 EC 03 00 00 83 C4 04 84 C0'):
+        raise ValueError('missing original masked CreateFileA option guard')
+    if va_bytes(retail,rh,0x450B9E,2) != b'\xff\xd6':
+        raise ValueError('missing original generated CreateFileA call')
+    if va_bytes(gog,gh,0x450ADE,5) != bytes.fromhex('E9 22 01 00 00'):
+        raise ValueError('GOG does not bypass original masked CreateFileA')
+    for va in range(0x450AE3,0x450C05,64):
+        n = min(64,0x450C05-va)
+        if va_bytes(gog,gh,va,n) != b'\xcc' * n:
+            raise ValueError('masked stream-open branch remains in GOG')
+    for va in range(0x450C05,0x450C33,32):
+        n = min(32,0x450C33-va)
+        if va_bytes(retail,rh,va,n) != va_bytes(gog,gh,va,n):
+            raise ValueError('modified native CreateFileA path in GOG')
+    test_bytes = bytes(range(256))
+    whole = stream_word_xor_checksum(test_bytes)
+    result = (0,b'')
+    for i in range(0,256,7):
+        result = stream_word_xor_checksum(test_bytes[i:i+7], *result)
+    if result != whole:
+        raise ValueError('stream checksum differs across chunk boundaries')
+    return {
+        'read_only':True,'runtime_checksum_calls_observed':False,
+        'common_opcode_anchors_checked':len(STREAM_WORD_CHECK_ANCHORS),
+        'checksum_stream_function_byte_identical_count':288,
+        'three_stream_flag_extractors_identical_byte_count':48,
+        'bit_0':'rolling XOR of completed little-endian 32-bit words',
+        'bit_1':'per-byte XOR payload transform',
+        'bit_2':'original masked API call selection',
+        'checksum_accumulator_offset':'stream+0x10',
+        'checksum_pending_bytes_offset':'stream+0x08',
+        'checksum_pending_count_offset':'stream+0x0C',
+        'bit0_checksum_does_not_modify_read_buffer':True,
+        'partially_received_DWORD_not_folded_until_complete':True,
+        'stream_open_masked_CreateFileA_call_va':'0x00450B9E',
+        'gog_direct_stream_open_jump_va':'0x00450ADE',
+        'gog_disabled_stream_open_INT3_bytes':290,
+        'direct_CreateFileA_open_bytes_retained':46,
+        'example_mode_values':{
+            '0x0044D50B':3,'0x0044DACF':0,
+            '0x0044EA1C':6,'0x0044F769':2},
+        'synthetic_256_bytes_chunked_checksum_equal':True,
+        'retail_CD_physical_data_verified':False,
+        'safedisc_decryption_proven':False,
+    }
+
+
 def inspect_stream_read_variants(retail: bytes, gog: bytes,
                                  hr: dict, hg: dict) -> dict:
     """Account for the *exact two changed bytes* selecting file readers.
@@ -327,6 +457,7 @@ def inspect_pair(retail: bytes, gog: bytes, *, verify_hashes: bool = True) -> di
     h_r, h_g = parse_headers(retail), parse_headers(gog)
     stream_report = inspect_stream_read_variants(retail,gog,h_r,h_g)
     xor_report = inspect_stream_xor_x86(retail,gog,h_r,h_g)
+    word_checksum_report = inspect_stream_word_checksum(retail,gog,h_r,h_g)
     names_r = read_file_table(retail, h_r)
     names_g = read_file_table(gog, h_g)
     if names_r != names_g or names_r[0] != 'LEVELS0.DAT':
@@ -370,6 +501,7 @@ def inspect_pair(retail: bytes, gog: bytes, *, verify_hashes: bool = True) -> di
         'code_comparisons':sites,
         'stream_reader_variants':stream_report,
         'stream_read_xor_exact_x86':xor_report,
+        'stream_postread_DWORD_checksum':word_checksum_report,
         'conclusion':('Verified local static I/O code changes at exact addresses: GOG omits the drive letter, '
                       'directly calls CreateFileA at one site, selects the first of 24 DAT names at a second '
                       'site, and shortens paths through other code. Runtime reachability, intent, SafeDisc '
