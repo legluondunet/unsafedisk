@@ -256,6 +256,102 @@ python -m unittest discover -s scripts -p 'test_rayman2_trampoline_proof.py'
 
 This is a **static validation of pointer masking and cache flushing**, not a decryption of the Rayman 2 SafeDisc layer. It does **not** establish whether the same code is dynamically reached during a specific gameplay transition, whether the loader would run under particular DEP policies, or the actual runtime value of any masked pointer.
 
+## Exact PRNG buffer lifecycle, post-call rewrite and timer seed (13 November 2026)
+
+**New independent verification on the actual SHA-256-identified owner's retail
+and GOG executables; no binaries are redistributed or executed.**
+
+The unchanged startup callsite \`0x00401EF8\` passes argument \`1\`
+to initializer \`0x00449360\` in **both** builds. A direct static call is
+not a full runtime reachability proof: \`0x005113EC\` is checked by the
+initializer as a guard, and its actual value at the call has not been
+observed.
+
+Under the zero-guard path, instructions at \`0x0044938D\` call the
+**standard PE32 import** \`KERNEL32.dll!QueryPerformanceCounter\`
+through IAT \`0x0049C060\`. Only the low DWORD of the 64-bit
+\`LARGE_INTEGER\` result is used as the PRNG initial value. If the call
+returns zero, the hardcoded fallback is **\`0x12345678\`**. This
+describes a run-dependent *in-memory* seed; it does not identify the
+independent seeds of the two previously observed dummy PRNG files.
+Microsoft documents \`QueryPerformanceCounter\` as writing a
+\`LARGE_INTEGER\` and returning a \`BOOL\`:
+https://learn.microsoft.com/en-us/windows/win32/api/profileapi/nf-profileapi-queryperformancecounter
+
+Next, the original instruction sequence writes **\`0x119 = 281\`
+32-bit PRNG words** beginning at \`0x00510EA0\`. Therefore it fills
+**\`0x464 = 1,124\` bytes**. The \`QueryPerformanceCounter\`,
+fallback, buffer-base/count/loop and final state-store
+instruction bytes are **identical for the first 99 bytes** of
+\`0x44938D\` in retail and GOG. This verifies that GOG *retains the
+initialization routine*, not that every subsequent original function
+or call is still live.
+
+**New result beyond the four trampoline construction signatures:**
+all **four original file-I/O wrappers** also execute a PRNG-based
+**15-byte post-call rewrite of the temporary trampoline region**.
+The x86 sequence \`CALL ESI; LEA end,[ESI+0xF]\` is followed by a
+15-iteration loop storing a byte from a fresh masked PRNG state,
+with an unconditional original \`JB\` back-edge. This is **not**
+a zero-fill or a guaranteed secure erasure; it overwrites temporary
+instructions with pseudorandom-looking data.
+
+| Original API wrapper | Indirect call + setup | Rewrite loop | Loop tail |
+|---|---|---|---|
+| CloseHandle | \`0x44859D\` | \`0x4485A8\` | \`0x4485F3\` |
+| ReadFile | \`0x44E820\` | \`0x44E82D\` | \`0x44E88D\` |
+| CreateFileA | \`0x44F2FA\` | \`0x44F307\` | \`0x44F367\` |
+| SetFilePointer | \`0x44F44B\` | \`0x44F458\` | \`0x44F4B8\` |
+
+The same five bytes at the corresponding original indirect-call
+locations have been replaced with **\`INT3\` (0xCC × 5)** in the exact
+GOG reference. This is a static comparison of **specific addresses**,
+not an assertion about the whole GOG program.
+
+**A previously incomplete bound is now explained:**
+
+| Quantity | Bytes |
+|---|---:|
+| Buffer initialized at startup: \`281 × 4\` | **1,124** |
+| Largest unsigned/nonnegative remainder from division by \`0x455=1,109\` | **1,108** |
+| Maximum generated trampoline body | 13 |
+| **Post-call rewrite length** | **15** |
+| Furthest possible rewritten byte, 0-based | **1,122** |
+| Largest rewrite span, offset + length | **1,123** |
+| Remaining buffer capacity | **1 byte** |
+
+The \`0x464\` byte flush region exactly matches the 281-word startup
+buffer. The 15-byte scrub loop *also fits*, even at the maximum
+nonnegative PRNG offset. This is stronger evidence for deliberate
+buffer sizing than the earlier 13-byte-only calculation.
+
+Read-only, reproducible script:
+\`scripts/rayman2_buffer_lifecycle.py\`.
+11 synthetic tests:
+\`scripts/test_rayman2_buffer_lifecycle.py\`.
+
+\`\`\`sh
+python scripts/rayman2_buffer_lifecycle.py \
+  --retail /path/to/original/Rayman2.exe \
+  --gog /path/to/GOG/Rayman2.exe
+python -m unittest discover -s scripts -p 'test_rayman2_buffer_lifecycle.py'
+\`\`\`
+
+**Validation:** the exact two private PE32 files pass all asserted byte
+anchors and the full cross-build inspection using a local
+compatibility mirror of the existing PE helper interfaces; 11/11
+new synthetic tests pass. Both newly committed Python files have
+been checked by their Git blob SHA against the tested local files.
+This **does not mean** the repository's complete Python/Rust test
+suite has been executed: no GitHub Actions, Rust build or Wine
+runtime test was initiated.
+
+**Limitations:** The code path has not been traced dynamically.
+The original PE's \`.data\` section flags and missing \`NX_COMPAT\`
+bit do not establish actual executable memory protections. No
+SafeDisc key, CD authorization exchange, decrypted executable
+payload or general SafeDisc 1.35 algorithm has been found.
+
 ## Read-only, falsifiable checks
 
 `scripts/rayman2_anti_tamper_assets.py` inspects only the two historical asset names and hashes, with case-insensitive per-component lookup, link rejection and bounded reading. Example:
