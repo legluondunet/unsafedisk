@@ -425,6 +425,8 @@ class ReferenceDiffTests(unittest.TestCase):
             (bytes.fromhex("33 c0 c3") + bytes(9), "returns_zero"),
             (bytes.fromhex("33 c0 40 c3") + bytes(8), "returns_one"),
             (bytes.fromhex("b8 2a 00 00 00 c3") + bytes(6), "returns_constant"),
+            (bytes.fromhex("b8 05 00 00 00 c2 04 00") + bytes(4),
+             "returns_constant_ret_imm16"),
             (bytes.fromhex("c2 08 00") + bytes(9), "ret_imm16"),
             (bytes.fromhex("cc") + bytes(11), "int3_at_entry"),
             (bytes.fromhex("55 8b ec") + bytes(9), "other_or_longer_function"),
@@ -434,7 +436,9 @@ class ReferenceDiffTests(unittest.TestCase):
                 r = tool.classify_x86_entry_stub(blob)
                 self.assertEqual(r["kind"], expected)
         self.assertEqual(tool.classify_x86_entry_stub(cases[3][0])["value"], "0x0000002A")
-        self.assertEqual(tool.classify_x86_entry_stub(cases[4][0])["stack_pop_bytes"], 8)
+        self.assertEqual(tool.classify_x86_entry_stub(cases[4][0])["value"], "0x00000005")
+        self.assertEqual(tool.classify_x86_entry_stub(cases[4][0])["stack_pop_bytes"], 4)
+        self.assertEqual(tool.classify_x86_entry_stub(cases[5][0])["stack_pop_bytes"], 8)
 
     def test_entry_stub_comparison_matches_virtual_addresses_not_file_offsets(self):
         retail = bytearray(pe_fixture())
