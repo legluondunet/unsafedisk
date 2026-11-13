@@ -212,6 +212,34 @@ Runtime reachability and file-system behavior remain untested.
 added section base VAs, cautiously labeled byte-pattern candidates.
 The local synthetic comparison suite passed **13 tests**.
 
+**GOG includes static optical-disc compatibility callbacks
+(not present in the retail code at those addresses):**
+its shared dispatch table installs functions at
+`0x448E6C` (fixed `RAYMAN2`/`CDFS` volume
+information), `0x448EC4` (returns Win32
+`DRIVE_CDROM = 5`) and `0x448ED0`
+(reports 2048-byte sectors and 332400
+total sectors). The same GOG dispatch table
+also installs path and file-size lookup
+functions backed by its `.extra2` manifest.
+This is strong **static evidence** for
+GOG's disc-less compatibility adaptations.
+No runtime calls, physical disc properties,
+or SafeDisc-only change origins are proven.
+
+**Bootstrap guard check:** the shared
+`0x449360` initializer first tests
+`0x5113EC`, a virtual-zero-fill
+`.data` value. The nonzero branch returns
+early; the zero branch runs the preparations.
+The generic read-only `descriptor_asm_xrefs.py`
+scanner found **28 direct reads / 0 direct
+writes** in the retail linear disassembly
+and **16 reads / 0 direct writes** in GOG
+for this exact address. These counts do
+not exclude indirect writes or demonstrate
+the live guard value.
+
 **GOG startup bypass identified statically (13 Nov 2026):**
 The direct CD/GOG startup call `0x401EFA → 0x449360`
 and the **complete 331-byte initializer at `0x449360`**
