@@ -10,6 +10,83 @@ reported file lengths** in the GOG reference, but does not authenticate the
 3,716 GOG entries as the original CD directory.
 
 
+## Newly reproduced Rayman 2-specific historical TEA known-answer vector (13 November 2026)
+
+**Independent mathematical result; historical cipher only, NOT an
+authenticated decoder for the owner's on-disc Rayman 2 sample.**
+
+ArthaXerXès's *The Twilight of Safedisc* (25 January 2000),
+[§3.2.3](https://www.scribd.com/document/659005728/safedisc),
+describes the Rayman 2 runtime section decryptor using **8-byte
+blocks and 32 Feistel rounds**, with four repeated 32-bit key
+words and a `.rdata`-supplied per-round constant/counter.
+
+Implementing the exact stated left/right operations as **standard
+TEA** (delta `0x9E3779B9`, 32 rounds, four identical key words
+`0xC15CF2E5`) yields this independent known-answer vector:
+
+```text
+Plaintext:                00 00 00 00 00 00 00 00
+TEA key words:            C15CF2E5 C15CF2E5 C15CF2E5 C15CF2E5
+Delta / rounds:           9E3779B9 / 32
+Calculated ciphertext:    3E CD DE 58 A2 75 01 7F
+Decryption of ciphertext: 00 00 00 00 00 00 00 00
+```
+
+**All seven bytes** `CD DE 58 A2 75 01 7F` that remain visible
+in the online transcription of the essay's encrypted-zero
+example match the **last seven** bytes of this calculated
+ciphertext. The computed leading byte is `3E`. This validates
+the historical TEA/key/constant combination against a 56-bit
+printed known-answer suffix; it does not prove the first byte
+in the original printed document was missing or correct the
+original text with certainty.
+
+**Transcription warning:** an adjacent example in the historical
+document prints the bytes `E5 2F 55 C1`, which represent
+`0xC1552FE5`, a different key from the written
+`0xC15CF2E5`; the alternative fails the known-answer vector
+(the eight-byte ciphertext for zero under that alternative,
+with the same delta/rounds, is `12 43 84 B8 EC 16 31 15`).
+Do not silently substitute the inconsistent byte sequence.
+
+**Boundary against our actual files:** independently regenerating
+the two SHA-256-identified owner-provided pseudo-random streams
+from their seeds reproduced the full ICD and DLL hashes exactly.
+A bytewise scan of those complete **in-memory reconstructions**
+found **zero occurrences** of either the full 8-byte historical
+zero-ciphertext vector, or its published 7-byte suffix.
+Every scanned 8-byte window in each reconstructed stream was
+unique. These negative results are expected for PRNG data and
+**do not exclude** later intermediate layers, actual loaded
+DPLAYERX image data, a separate encrypted section, or the
+historical key applying only after a different installation/runtime
+transformation.
+
+**Implementation:** new read-only
+`scripts/rayman2_historical_tea.py` offers a standard-TEA
+single-block candidate decoder and signature scanner, with
+`scripts/test_rayman2_historical_tea.py` synthetic inverse,
+known-answer, wrong-key and scan tests. No proprietary bytes
+or decrypted PE are stored in the repository. This does
+**not** replace the generic SafeDisc inspector or establish an
+ICD unwrapping algorithm.
+
+To reproduce the algebraic vector without any protected files:
+
+```sh
+python scripts/rayman2_historical_tea.py
+python -m unittest discover -s scripts -p 'test_rayman2_historical_tea.py'
+```
+
+**Still required to connect the historical cipher to the retail
+EXE:** a trustworthy decrypted/code-stage reference, including
+the *actual* loaded DPLAYERX `.rdata` parameters and the section
+bytes being passed to the 8-byte decoder. The opaque CD
+`DPLAYERX.DLL` is not itself a normal PE with accessible
+`.rdata` on disk; interpreting its first two PRNG words as
+the paper's runtime parameters would be an unjustified leap.
+
 ## Critical scope correction — retail EXE code is already mostly native, not a proven encrypted bulk payload (13 November 2026)
 
 A new exact-file PE boundary audit changes the **decryption research priority**.
