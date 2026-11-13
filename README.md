@@ -154,6 +154,19 @@ This illustrates preservation of unusual CD metadata,
 **not** proof that the game actually reads those entries
 as real file payloads. Six synthetic local tests pass.
 
+**Capacity reconciliation:** After subtracting the 23
+exactly corroborated anomalous DAT nominal lengths
+(6,777,257,404 bytes), the original ISO's 677,853,184-byte
+*logical volume* has **4,951,749 bytes** of nominal slack;
+the GOG's separately verified 680,755,200-byte
+virtual CD has **4,949,990 bytes**. The margins differ by
+**only 1,759 bytes**, while the ISO file has 315,392
+bytes of padding beyond its logical volume. This
+supports related CD inventories without proving identical
+file data or runtime decryption. The read-only
+metadata checker reports these values after all 23
+corroboration checks; **8 synthetic local tests pass**.
+
 **Original ISO versus GOG catalog (14 Nov):** Two archived Rayman2Fix
 CD-inspection logs (Windows and Wine) were independently reconciled
 with GOG's hash-pinned virtual-CD catalog, using the new read-only
