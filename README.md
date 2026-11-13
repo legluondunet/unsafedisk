@@ -212,6 +212,51 @@ Runtime reachability and file-system behavior remain untested.
 added section base VAs, cautiously labeled byte-pattern candidates.
 The local synthetic comparison suite passed **13 tests**.
 
+**Masked callback writer and export-name lookup now identified
+(13 Nov 2026):** The retail `0x004493F8`
+initialization path sets a 7-module and 36-record
+iteration bound, then calls `0x00448D80` to
+iterate indices **1–35**. Each iteration calls
+`0x00447AF0`, which resolves an export through
+module/export-name metadata and writes
+`resolved_address XOR record_mask` to the
+corresponding `+0x30` descriptor slot through
+an **indexed store at `0x00447BC2`**.
+On unsuccessful resolution, the slot may instead
+be cleared. **This identifies the static writer,
+not any actual runtime-resolved function address.**
+
+The module and API names can also be decoded
+without executing the game. The retail executable
+contains **7 encoded DLL names** at `0x004A1268`
+(stride 45) and **35 obfuscated API names** at
+`0x004A141C` (stride 76); the latter
+reference **33 KERNEL32.dll and 2 PSAPI.dll
+exports**. GOG changes the seven DLL names to
+uppercase plaintext NUL-terminated strings while
+leaving the 35 API descriptors **unchanged**.
+
+```sh
+python scripts/pe_masked_api_inventory.py Rayman2-CD-protected.exe \
+  --module-base 0x4a1268 --module-stride 45 --module-count 7 \
+  --api-base 0x4a141c --api-stride 76 --api-count 35 \
+  --module-selector-offset 0x34 --pointer-slot-offset 0x30
+# For the GOG executable: add --module-mode plain
+```
+
+A separate `descriptor_asm_xrefs.py` read-only
+scanner classifies direct address uses from
+`objdump -d -M intel`. In the retail
+`.text` it found **97 direct reads,
+30 address literals and zero direct absolute
+writes**; the **actual indexed write**
+at `0x00447BC2` is the critical exception
+that makes those raw statistics insufficient.
+The new tools have **12 synthetic tests**;
+the local research mirror passed **32/32 tests**.
+Rust changes still require compilation,
+and no proprietary binary is committed.
+
 **Retail on-disk XOR descriptor structure (new):** A `.data`
 block beginning at VA `0x004A141C` contains **35 nonzero
 76-byte records**, followed by a 36th all-zero record.
