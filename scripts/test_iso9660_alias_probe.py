@@ -68,6 +68,27 @@ class IsoProbeTests(unittest.TestCase):
         self.assertEqual(r['candidate_name_count'],1)
         self.assertEqual(len(r['same_lba_groups']),0)
 
+    def test_nested_data_world_levels(self):
+        # The original Rayman 2 DAT names live under DATA/WORLD/LEVELS,
+        # not in the image root. Do not rely on flat-only ISO fixtures.
+        blob=bytearray(make_iso())
+        for sector, name, next_lba in (
+                (20, b'DATA', 21), (21, b'WORLD', 22),
+                (22, b'LEVELS', 23)):
+            entries=(rec(b'\0',sector,SECTOR,True) +
+                     rec(b'\1',sector-1,SECTOR,True) +
+                     rec(name,next_lba,SECTOR,True))
+            blob[sector*SECTOR:sector*SECTOR+len(entries)]=entries
+        payload=(rec(b'\0',23,SECTOR,True) +
+                 rec(b'\1',22,SECTOR,True) +
+                 rec(b'LEVELS0.DAT;1',25,0x7fffffff))
+        blob[23*SECTOR:23*SECTOR+len(payload)]=payload
+        result=scan_iso_file(BytesIO(blob),len(blob))
+        self.assertEqual(result['candidate_name_count'],1)
+        self.assertEqual(result['directory_count'],4)
+        self.assertEqual(result['candidates'][0]['path'],
+                         'DATA/WORLD/LEVELS/LEVELS0.DAT;1')
+
     def test_endian_anomaly_reported(self):
         r=scan_iso_file(BytesIO(make_iso(['LEVELS0.DAT'],bad_endian=True)),SECTOR*32)
         self.assertFalse(r['candidates'][0]['valid_both_endian'])
