@@ -485,6 +485,15 @@ class FileIoDiffTests(unittest.TestCase):
         self.assertEqual(snapshot_inversion_address(49),0x5117C0)
         self.assertEqual(snapshot_inversion_address(50),0x5117C4)
 
+    def test_index_alias_points_to_last_appended_read_count(self):
+        # Once the sequential path stores slot k and increments count
+        # to k+1, a mismatch indexes the same record via base-4.
+        for last_written in (0,1,7,23,24,49):
+            with self.subTest(last_written=last_written):
+                self.assertEqual(
+                    snapshot_inversion_address(last_written+1),
+                    0x00511700+4*last_written)
+
     def test_index_alias_x86_address_wrap(self):
         self.assertEqual(snapshot_inversion_address(50+2**30),0x5117C4)
 
@@ -496,7 +505,8 @@ class FileIoDiffTests(unittest.TestCase):
     def test_index_alias_synthetic_static_audit(self):
         cd,gog,h=self.index_alias_fixture()
         info=inspect_snapshot_index_alias(bytes(cd),bytes(gog),h,h)
-        self.assertEqual(info['identical_cd_gog_opcode_anchors'],29)
+        self.assertEqual(info['identical_cd_gog_opcode_anchors'],32)
+        self.assertTrue(info['sequential_append_mismatch_inverts_last_written_record'])
         self.assertEqual(info['data_raw_backed_end_exclusive'],'0x004A6C00')
         self.assertTrue(info['inversion_base_is_one_dword_before_first_table'])
         self.assertFalse(info['runtime_index_values_or_bad_memory_access_proven'])
@@ -521,7 +531,8 @@ class FileIoDiffTests(unittest.TestCase):
             self.skipTest('proprietary owner binaries not available in CI')
         r=inspect_pair(safe_read(original),safe_read(gog))
         index_info=r['snapshot_checksum_index_alias_provenance']
-        self.assertEqual(index_info['identical_cd_gog_opcode_anchors'],29)
+        self.assertEqual(index_info['identical_cd_gog_opcode_anchors'],32)
+        self.assertTrue(index_info['sequential_append_mismatch_inverts_last_written_record'])
         self.assertTrue(index_info['index_50_aliases_index_global_itself'])
 
     def test_safe_read_rejects_symlink(self):
