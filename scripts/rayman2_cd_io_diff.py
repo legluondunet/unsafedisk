@@ -103,6 +103,7 @@ def inspect_pair(retail: bytes, gog: bytes, *, verify_hashes: bool = True) -> di
     names_g = read_file_table(gog, h_g)
     if names_r != names_g or names_r[0] != 'LEVELS0.DAT':
         raise ValueError('asset name table mismatch between executables')
+    # Same names and actual pointer values in these two builds, not just text.
     ptr_r = va_bytes(retail, h_r, TABLE_VA, 96)
     ptr_g = va_bytes(gog, h_g, TABLE_VA, 96)
     if ptr_r != ptr_g:
