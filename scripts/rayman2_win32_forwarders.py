@@ -202,6 +202,124 @@ def inspect_cd_callback_table(retail: bytes, gog: bytes, rh: dict,
             "warning":"CD geometry observed only in modified GOG EXE, not original CD physical sectors or a SafeDisc key."}
 
 
+
+# Read-only model of GOG's *virtual* CreateFileA/GetFileSize handle scheme.
+# The real Win32 ABI is NOT called for these callback slots.
+VIRTUAL_CD_KNOWN = {
+    "DPLAYERX.DLL": (6,165888),
+    "RAYMAN2.EXE": (17,676352),
+    "RAYMAN2.ICD": (18,683565),
+    "SECDRV.SYS": (21,14368),
+    "DATA\\WORLD\\LEVELS\\LEVELS0.DAT": (43,150775808),
+    "DATA\\WORLD\\LEVELS\\MAP0.DAT": (46,187087845),
+    "DATA\\WORLD\\LEVELS\\SOUNDS1.DAT": (56,339690633),
+}
+VIRTUAL_HANDLE_ANCHORS = {
+    0x448F65:"8B 45 0C A9 00 00 00 40 75 52",
+    0x448F76:"66 81 7E 01 3A 5C",
+    0x448F80:"BF 00 30 5B 00",
+    0x448F85:"81 3F FF FF FF FF",
+    0x448F8D:"56 83 C6 03 8D 57 08",
+    0x448F94:"8A 06 8A 22 46 42",
+    0x448F9A:"3C 61 72 06 3C 7A 77 02 2C 20",
+    0x448FA4:"3A C4 75 0D 84 C0 75 E8",
+    0x448FAC:"5E 8B C1 5F 5E 5D C2 1C 00",
+    0x448FB5:"41 83 C7 08 03 7F FC",
+    0x448FC1:"83 C8 FF",
+    0x448FD4:"8B 4D 08",
+    0x448FD7:"BE 00 30 5B 00",
+    0x448FE0:"81 3E FF FF FF FF",
+    0x448FE8:"83 C6 08 03 76 FC 49",
+    0x448FF1:"33 C0 EB 02 8B 06",
+    0x448FF7:"8B 4D 0C 85 C9 74 06 C7 01 00 00 00 00",
+    0x449013:"8B 45 0C C7 00 01 00 00 00",
+    0x44901C:"C7 40 04 00 2B 9E C6",
+    0x449023:"C7 47 08 10 F9 BE 01",
+    0x449046:"C7 40 1C E8 0A 38 6D",
+    0x449054:"50 6A 00 FF 75 08 E8 71 FF FF FF",
+    0x449060:"89 41 24 C7 41 28 01 00 00 00",
+    0x449074:"89 41 30",
+    0x448F00:"33 C0 C2 08 00",
+    0x448F08:"B8 01 00 00 00 C2 04 00",
+    0x448F10:"33 C0 C2 10 00",
+    0x448F18:"55 8B EC 8B 45 0C",
+    0x448F22:"C7 00 00 2B 9E C6",
+    0x448F28:"C7 40 04 10 F9 BE 01",
+}
+
+
+def virtual_open_index(path: str, desired_access: int, entries: list[tuple[str,int]]) -> int:
+    """Model *observed GOG instructions*, not general Win32 CreateFileA."""
+    if (type(path) is not str or type(desired_access) is not int or
+        not path.isascii() or desired_access < 0 or desired_access > 0xFFFFFFFF or
+        (desired_access & 0x40000000) or len(path) < 3 or path[1:3] != ":\\"):
+        return -1
+    # Only ASCII a..z are converted by the GOG x86 byte comparison loop.
+    key = "".join(chr(ord(c)-32) if "a" <= c <= "z" else c
+                  for c in path[3:])
+    for index, (name, _) in enumerate(entries):
+        if key == name:
+            return index
+    return -1
+
+
+def virtual_get_size(index: int, entries: list[tuple[str,int]]) -> int:
+    """Original GetFileSizeA replacement returns 0 for unknown indices."""
+    if type(index) is not int or index < 0 or index >= len(entries):
+        return 0
+    return entries[index][1]
+
+
+def inspect_gog_virtual_handles(gog: bytes, gh: dict) -> dict:
+    """Check exact GOG opcode paths *and* its 3,716 embedded records."""
+    from rayman2_sample_provenance import manifest_entries
+    for address, signature in VIRTUAL_HANDLE_ANCHORS.items():
+        if get_va(gog,gh,address,len(bytes.fromhex(signature))) != bytes.fromhex(signature):
+            raise ValueError(f"GOG virtual handle opcode mismatch at 0x{address:08X}")
+    extra = [s for s in gh["sections"] if s["name"] == ".extra2"]
+    if len(extra) != 1 or gh["image_base"]+extra[0]["rva"] != 0x005B3000:
+        raise ValueError("unexpected virtual file manifest location")
+    s=extra[0]
+    records, used, total=manifest_entries(gog[s["raw_off"]:s["raw_off"]+s["raw_size"]])
+    if len(records)!=3716 or used!=139366 or total!=7453062614:
+        raise ValueError("unexpected virtual manifest records")
+    entries=list(records.items()) # insertion order = exact on-disk record order
+    known={}
+    for name,(index,size) in VIRTUAL_CD_KNOWN.items():
+        if entries[index]!=(name,size):
+            raise ValueError(f"unexpected GOG virtual record at index {index}")
+        for path in ("D:\\"+name, "x:\\"+name.lower()):
+            if virtual_open_index(path,0,entries)!=index:
+                raise ValueError(f"virtual handle mismatch for {name}")
+        if virtual_get_size(index,entries)!=size:
+            raise ValueError(f"virtual file size mismatch for {name}")
+        known[name]={"zero_based_handle":index,"declared_bytes":size}
+    return {
+        "read_only":True, "runtime_callback_calls_observed":False,
+        "bytecode_signatures_verified":len(VIRTUAL_HANDLE_ANCHORS),
+        "virtual_manifest_entries":len(entries),
+        "handle_semantics":"zero-based manifest record index (not native Windows HANDLE)",
+        "required_path_prefix":"drive-letter followed by :\\",
+        "case_comparison":"ASCII lower-case normalized to upper-case",
+        "rejects_access_mask_bit":"GENERIC_WRITE (0x40000000)",
+        "nonexistent_file_handle":"0xFFFFFFFF",
+        "get_file_size_from_manifest":True,
+        "get_file_size_high_word_zero":True,
+        "out_of_range_index_returns_zero_length":True,
+        "close_handle_returns_true_without_native_close":True,
+        "get_file_attributes_returns_readonly_bit":True,
+        "set_file_attributes_and_set_file_time_return_false":True,
+        "get_file_information_volume_serial":"0x6D380AE8",
+        "get_file_information_link_count":1,
+        "get_file_information_file_index_is_handle":True,
+        "simulated_file_time_utc":"1999-09-07T09:10:06Z",
+        "unverified_register_hazard":"at 0x00449023 GetFileInformationByHandle writes [EDI+8] instead of [EAX+8]; caller register context unobserved",
+        "verified_example_records":known,
+        "warning":"Static GOG media compatibility only; not a functioning native handle or an observed SafeDisc media check.",
+    }
+
+
+
 def analyze(retail: bytes, gog: bytes) -> dict:
     if hashlib.sha256(retail).hexdigest() != RETAIL_SHA256:
         raise ValueError("unexpected original retail SHA-256")
@@ -210,6 +328,7 @@ def analyze(retail: bytes, gog: bytes) -> dict:
     rh, gh = parse_headers(retail), parse_headers(gog)
     imports = {e["iat_va"]: e for e in import_entries(gog, gh)}
     cd_callbacks=inspect_cd_callback_table(retail,gog,rh,gh,imports)
+    virtual_handles=inspect_gog_virtual_handles(gog,gh)
     sections = [s for s in gh["sections"] if s["name"] == ".text" and
                 s["flags"] & 0x20000000]
     if len(sections) != 1 or rh["image_base"] != gh["image_base"]:
@@ -255,6 +374,7 @@ def analyze(retail: bytes, gog: bytes) -> dict:
         "safe_disc_decrypted": False,
         "matching_gog_forwarders": observations,
         "original_to_gog_cd_callback_table":cd_callbacks,
+        "gog_virtual_handle_protocol":virtual_handles,
         "retail_direct_callsite_count": sum(len(r["retail_direct_calls"]) for r in observations),
         "gog_unchanged_direct_callsite_count": sum(
             sum(c["unchanged_direct_call_in_gog"] for c in r["retail_direct_calls"])
