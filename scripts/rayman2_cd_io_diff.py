@@ -361,13 +361,12 @@ def inspect_snapshot_checksum_provenance(retail: bytes, gog: bytes,
                 raise ValueError('unexpected expected-data stream suffix')
             # All switch targets load the correct suffix string address
             # into EDI, then share the suffix append operation.
-            if va_bytes(img,hdr,target+6,5) not in (
-                b'\xbf'+struct.pack('<I',string_va),
-                b'\xeb'+bytes([0]) * 4,
-            ):
-                # Some target entrypoints use LEA EDX then MOV EDI;
-                # the fixed switch target + 6 bytes is the MOV.
-                raise ValueError(f'unknown .rt suffix branch at 0x{target:08X}')
+            # All five dispatch entries begin with a six-byte LEA EDX,
+            # followed by five-byte MOV EDI, <suffix string VA>.
+            if va_bytes(img,hdr,target,6) != bytes.fromhex('8D 95 00 FF FF FF'):
+                raise ValueError(f'unknown reference stream branch at 0x{target:08X}')
+            if va_bytes(img,hdr,target+6,5) != b'\xbf'+struct.pack('<I',string_va):
+                raise ValueError(f'wrong .rt suffix pointer at 0x{target:08X}')
     return {
         'read_only':True,'runtime_execution_observed':False,
         'verified_common_opcode_anchors':len(SNAPSHOT_CHECKSUM_ANCHORS),
