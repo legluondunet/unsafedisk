@@ -1044,6 +1044,72 @@ invocation, the authenticity of GOG's
 hard-coded disc values, or an algorithm
 for reconstructing an unprotected retail EXE.
 
+### Further GOG file-metadata hooks: original `GetFileTime` and `GetFileInformationByHandle`
+
+Two more callback slots can be matched **directly to
+decoded original-CD API descriptor names**, not just
+inferred from x86 calling conventions:
+
+| Retail descriptor | Original Win32 import | GOG callback-table offset | GOG function |
+|---:|---|---|---|
+| **31** | `GetFileInformationByHandle` | **`+0x1C`** | **`0x00449010`** |
+| **34** | `GetFileTime` | **`+0x24`** | **`0x00448F18`** |
+
+Both names were decoded independently from the
+SHA-256-pinned protected CD EXE. The GOG callback
+initializer at `0x467160` explicitly loads
+`0x449010` into the `+0x1C` table slot,
+and at `0x4671D7` loads `0x448F18`
+for `+0x24`.
+
+**GOG `GetFileTime`-replacement at `0x448F18`:**
+Writes the 64-bit little-endian FILETIME constant
+`0x01BEF910C69E2B00` to the creation-time
+and last-write-time buffers (if present), and
+zeros the last-access-time buffer. The constant
+corresponds to **1999-09-07 09:10:06 UTC**.
+The code returns 1 and ends with `RET 0x10`,
+matching the four-argument
+[GetFileTime](https://learn.microsoft.com/en-us/windows/win32/api/fileapi/nf-fileapi-getfiletime)
+signature.
+
+**GOG `GetFileInformationByHandle`-replacement
+at `0x449010`:** Writes a structure resembling
+[BY_HANDLE_FILE_INFORMATION](https://learn.microsoft.com/en-us/windows/win32/api/fileapi/ns-fileapi-by_handle_file_information):
+file attributes `1` (read-only), the same
+fixed FILETIME fields, volume serial
+`0x6D380AE8`, and additional file metadata.
+It calls **`0x448FD0` at `0x44905A`**
+(the GOG inventory index/size lookup) and
+stores the returned number at offset
+`+0x24` of its output structure
+(`nFileSizeLow`), thus connecting the
+**3,716-entry `.extra2` inventory** to a
+simulated file-information API.
+
+**Caution:** one observed store in this
+GOG routine uses `[EDI+8]` instead of
+`[EAX+8]` for part of a FILETIME.
+Without a runtime trace or further control-flow
+analysis, do not assert every output field is
+populated correctly or that the exact Win32
+contract is followed. Do not copy this
+implementation into a general compatibility
+layer merely because its apparent intent
+is identifiable.
+
+The fixed date belongs to GOG's static
+replacement and **must not be treated
+as an authenticated date from the original
+retail CD**. No dynamic calls or game execution
+were observed.
+
+A new cross-reference check against the actual
+retail and GOG binaries, together with the
+earlier three CD-geometry replacement checks,
+has **16/16 independent local tests passing**.
+These checks are deliberately read-only.
+
 ### GOG CD-ROM compatibility callbacks: three concrete static replacements
 
 **13 November 2026: verified on the actual two SHA-256-pinned
