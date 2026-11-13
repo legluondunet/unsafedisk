@@ -145,7 +145,11 @@ python scripts/safedisc_prng_recurrence.py RAYMAN2.ICD --auto-align
 python scripts/safedisc_prng_recurrence.py dplayerx.dll --auto-align
 ```
 
-**Extended five-file finding (13 Nov 2026):** three further
+**Extended five-file finding (13 Nov 2026):**
+
+**TEA five-file known-plaintext test:** [independently reproduced negative crossmatch](docs/rayman2-tea-known-plaintext-crosscheck.md); both historical key spellings, all overlapping eight-byte offsets, strict source SHA-256 gates and five synthetic tests. **Not an ICD decrypter**.
+
+ three further
 owner-supplied files — `CLOKSPL.EXE` (177,152 bytes),
 `CLCD32.DLL` (27,648 bytes) and `DRVMGT.DLL`
 (32,256 bytes) — are also **entirely reproducible with the same
