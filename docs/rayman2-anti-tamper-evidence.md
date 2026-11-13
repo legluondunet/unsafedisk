@@ -1009,6 +1009,96 @@ and local PE resolver paths, **not** a SafeDisc media
 authentication transaction, an observed successful DLL import,
 or decrypted game-code sections.
 
+## 16-slot original CD callback vector versus GOG virtual-CD simulation (13 Nov 2026)
+
+The SHA-256-verified original CD EXE and the *separately modified*
+GOG EXE both retain two direct E8-relative callers
+at **0x004674C8** and **0x0047B01B** into callback-table constructor
+**0x00467130**. It initializes a **16-entry / 64-byte callback
+table** supplied by its caller.
+
+The original retail code constructs **12 entries** by reading the
+corresponding encoded Win32 API pointer descriptor **+0x30** and
+XORing the matching descriptor mask (35 named descriptors were
+decoded in earlier work). Another **four entries** use fixed local
+function pointers; these four stores are byte-identical between
+CD and GOG. Thus all **16 final pointer-field store instructions**
+are preserved, but the **values** produced differ.
+
+| Callback offset | Original CD API / handler | Modified GOG callback |
+|---|---|---|
+| 0x00 | CloseHandle (#11) | local 0x00448F08 |
+| 0x04 | local 0x00467050 | unchanged |
+| 0x08 | CreateFileA (#8) | local 0x00448F60, virtual filename enumeration |
+| 0x0C | GetDiskFreeSpaceA (#28) | local 0x00448ED0, fabricated geometry |
+| 0x10 | GetDriveTypeA (#15) | local 0x00448EC4, returns DRIVE_CDROM |
+| 0x14 | GetFileAttributesA (#30) | local 0x00448F08 |
+| 0x18 | local 0x0045FEBC | unchanged |
+| 0x1C | GetFileInformationByHandle (#31) | local 0x00449010 |
+| 0x20 | GetFileSize (#18) | local 0x00448FD0, virtual-file record lengths |
+| 0x24 | GetFileTime (#34) | local 0x00448F18 |
+| 0x28 | GetVolumeInformationA (#16) | local 0x00448E6C, fabricated label, filesystem and serial |
+| 0x2C | local 0x00448DE0 | unchanged |
+| 0x30 | local 0x00448AB0 | unchanged |
+| 0x34 | SetErrorMode (#32) | direct KERNEL32 IAT at **0x0049C0C8** |
+| 0x38 | SetFileAttributesA (#29) | local 0x00448F00 |
+| 0x3C | SetFileTime (#33) | local 0x00448F10 |
+
+GOG therefore replaces the **12 original masked Windows API
+entries** with **11 local compatibility handlers and one direct
+imported API**. The other four game-local callbacks remain intact.
+Not all handlers simply forward to Windows: several **synthesize
+CD-specific results**. Exact instruction checks establish:
+
+| GOG helper | Evidence from actual GOG instructions |
+|---|---|
+| 0x00448EC4 GetDriveType replacement | Returns **5 = DRIVE_CDROM** |
+| 0x00448E6C GetVolumeInformation replacement | Label **RAYMAN2**; filesystem **CDFS**; serial **0x6D380AE8**; maximum component length 110; flags 5 |
+| 0x00448ED0 GetDiskFreeSpace replacement | Sectors/cluster = **1**, bytes/sector = **2,048**, free clusters = **0**, total clusters = **332,400** |
+| 0x00448F60 and 0x00448FD0 | Inspect the **0x005B3000 virtual-file list** to resolve filenames and metadata |
+
+This permits a precise **independent arithmetic cross-check**:
+
+    332,400 sectors x 2,048 bytes/sector = 680,755,200 bytes
+
+This is exactly the capacity previously recovered from GOG's
+virtual-CD emulation. It is **not** the 7,453,062,614-byte *sum of
+declared lengths* of all 3,716 GOG metadata entries (which includes
+24 artificially oversized DAT names). A physical CD cannot be
+inferred by summing the directory's declared file lengths.
+
+**Why this matters:** we can now identify a distinct GOG
+CD-compatibility boundary, rather than equating its modified
+Win32 calls with decrypted original retail code. This confirms
+GOG simulates a Rayman 2 CD-ROM for selected game file callbacks;
+it does **not** reveal how the original SafeDisc media driver
+authenticates a physical disc or whether those two static call
+paths execute in a particular game session.
+
+The existing
+**scripts/rayman2_win32_forwarders.py** was extended in place
+(no extra new analyzer), with 16 table-slot assertions,
+12 exact descriptor/name/mask checks, four preserved game-local
+stores, two retained E8-relative callers, and 15 known GOG
+media-stub opcode anchors.
+**scripts/test_rayman2_win32_forwarders.py** gained five
+new synthetic/optional-private-sample tests, for **14 test
+methods** in that module. The independent local read-only
+prototype has already verified both actual private binaries;
+the updated repository module's success should be checked in
+GitHub Actions before claiming full regression coverage.
+
+Reproduce against the user's own original and GOG EXEs:
+
+    python scripts/rayman2_win32_forwarders.py \
+      --retail /path/to/original/Rayman2.exe \
+      --gog /path/to/GOG/Rayman2.exe
+    python -m unittest discover -s scripts -p 'test_rayman2_win32_forwarders.py'
+
+Both editions are SHA-256 locked. No proprietary PE content is
+committed or distributed; GOG is an edited third-party executable,
+not a clean original executable with only SafeDisc removed.
+
 ## Read-only, falsifiable checks
 
 `scripts/rayman2_anti_tamper_assets.py` inspects only the two historical asset names and hashes, with case-insensitive per-component lookup, link rejection and bounded reading. Example:
