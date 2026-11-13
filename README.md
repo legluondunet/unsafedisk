@@ -180,6 +180,24 @@ SafeDisc removal**. The 3,716-entry inventory resides in this GOG
 reference; it is **not an independently authenticated original-CD
 manifest**.
 
+**Important new GOG provenance finding:** The added GOG section
+`.extra` contains the **entire 631,296-byte protected CD `.text`
+section verbatim**, starting at internal offset `0x1000`,
+surrounded by exactly 4,096 leading and 3,584 trailing zero
+bytes. Its byte-for-byte SHA-256 matches
+`43ce6eff6082f2c7491cd249d3cfeffbcb56e63313a67246dd2b14f1985751c3`.
+The `.extra` section header is **readable, not executable**
+(`0x40000040`). Thus the x86 instructions seen there are
+**copied original protected code**, not evidence of independently
+added GOG functions. No specific runtime behavior or SafeDisc-only
+modification is inferred.
+
+The `pe_reference_diff.py` tool now reports exact copies of
+nontrivial sections inside differently named PE sections, including
+the copy's byte offset, RVA, hash, padding and section flags.
+Two new synthetic tests verify exact matches and reject one-bit
+changes and all-zero false matches.
+
 **New direct EXE comparison:** The owner's independent 1,468,928-byte
 GOG `Rayman2.exe` (SHA-256 `9bae484b…`) and the
 676,352-byte protected EXE (SHA-256 `7927a106…`) share the same
