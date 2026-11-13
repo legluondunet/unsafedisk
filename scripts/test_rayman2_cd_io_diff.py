@@ -172,7 +172,9 @@ class FileIoDiffTests(unittest.TestCase):
         xor_report=report['stream_read_xor_exact_x86']
         self.assertEqual(xor_report['naive_modulo_first_state_divergence_offset'],70)
         self.assertEqual(xor_report['naive_modulo_first_key_divergence_offset'],71)
-        self.assertEqual(xor_report['direct_reader_opcodes_verified_per_executable'],11)
+        self.assertEqual(xor_report['direct_reader_opcodes_verified_per_executable'],16)
+        self.assertTrue(xor_report['XOR_enabled_only_with_stream_flag_bit_1'])
+        self.assertTrue(xor_report['short_ReadFile_byte_count_skips_XOR_loop'])
 
     @staticmethod
     def reference_x86_step(s):
@@ -268,7 +270,7 @@ class FileIoDiffTests(unittest.TestCase):
                          (b'',0xFFFFFFFF))
 
     def test_stream_xor_original_gog_anchor_inventory(self):
-        self.assertEqual(len(STREAM_XOR_DIRECT_ANCHORS),11)
+        self.assertEqual(len(STREAM_XOR_DIRECT_ANCHORS),16)
         self.assertEqual(len(STREAM_XOR_RETAIL_MASKED_ANCHORS),9)
 
     def test_safe_read_rejects_symlink(self):
