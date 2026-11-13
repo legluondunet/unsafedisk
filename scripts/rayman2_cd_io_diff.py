@@ -275,6 +275,22 @@ STREAM_WORD_CHECK_ANCHORS = {
 }
 
 
+# File-supplied expected DWORD versus rolling stream XOR: another shared
+# original/GOG static path that can invert an indexed global on mismatch.
+# The specific SafeDisc ownership/purpose of this condition is NOT proven.
+STREAM_WORD_CHECK_COMPARE_ANCHORS = {
+    0x0044D93E:'8B 54 24 44 A1 B8 17 51 00 3B D0',
+    0x0044D94F:'74 1E',                # no mismatch -> skip the inversion
+    0x0044D951:'E8 0A B0 FC FF',       # conditional gate 0x418960
+    0x0044D956:'84 C0 74 15',
+    0x0044D95A:'A1 C4 17 51 00 8B 0C 85 FC 16 51 00 F7 D1 89 0C 85 FC 16 51 00',
+    0x00418960:'B0 01 C3',             # this disk implementation returns TRUE
+    0x0044DC80:'E8 0B FD FF FF',       # caller that opens stream then gets expected
+    0x0044DCDB:'6A 01 6A 04 68 B8 17 51 00',  # read DWORD to global
+    0x0044DCE6:'E8 A5 30 00 00',       # call stream fread 0x450D90
+}
+
+
 def stream_word_xor_checksum(data: bytes, checksum: int = 0,
                              pending: bytes = b'',
                              *, callback_success: bool = True) -> tuple[int, bytes]:
@@ -319,6 +335,11 @@ def inspect_stream_word_checksum(retail: bytes, gog: bytes,
             expected = bytes.fromhex(pattern)
             if va_bytes(data,headers,va,len(expected)) != expected:
                 raise ValueError(f'stream DWORD checksum anchor mismatch at 0x{va:08X}')
+    for data, headers in ((retail,rh),(gog,gh)):
+        for va, pattern in STREAM_WORD_CHECK_COMPARE_ANCHORS.items():
+            expected = bytes.fromhex(pattern)
+            if va_bytes(data,headers,va,len(expected)) != expected:
+                raise ValueError(f'stream XOR checksum compare mismatch at 0x{va:08X}')
     for begin, end in ((0x450D90,0x450EB0), (0x450EB0,0x450EE0)):
         for va in range(begin,end,64):
             n = min(64,end-va)
@@ -349,6 +370,15 @@ def inspect_stream_word_checksum(retail: bytes, gog: bytes,
     return {
         'read_only':True,'runtime_checksum_calls_observed':False,
         'common_opcode_anchors_checked':len(STREAM_WORD_CHECK_ANCHORS),
+        'checksum_compare_anchors_checked':len(STREAM_WORD_CHECK_COMPARE_ANCHORS),
+        'expected_checksum_global_va':'0x005117B8',
+        'expected_checksum_stream_read_call_va':'0x0044DCE6',
+        'roll_vs_expected_compare_va':'0x0044D947',
+        'mismatch_gate_va':'0x00418960',
+        'mismatch_gate_returns_true_on_disk':True,
+        'on_mismatch_bitwise_invert':'global[0x005116FC + 4*global_0x005117C4]',
+        'looks_like_game_data_integrity_check':True,
+        'safedisc_origin_not_proven':True,
         'checksum_stream_function_byte_identical_count':288,
         'three_stream_flag_extractors_identical_byte_count':48,
         'bit_0':'rolling XOR of completed little-endian 32-bit words',
