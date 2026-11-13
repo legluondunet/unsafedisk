@@ -150,6 +150,91 @@ protected counterpart has no ordinary resource directory. These
 differences **do not establish how the unprotected EXE was produced**
 or imply a general-purpose SafeDisc 1.35 decoding method.
 
+### Follow-up audit: GOG neutralizes retail export-resolution code (13 Nov 2026)
+
+**The user has established that the reference is a GOG build, not
+pristine retail with SafeDisc alone removed.** Independent comparison
+of the two exact SHA-256-verified files by **virtual address** shows
+that GOG physically replaced the following original retail
+functions with full ranges of `0xCC` / x86 `INT3`:
+
+| Original retail routine VA range | Retail function | GOG bytes |
+|---|---|---|
+| `0x004474D0`–`0x00447539` (106 bytes) | Decode obfuscated module/DLL name | **106/106 `INT3`** |
+| `0x00447730`–`0x00447894` (357 bytes) | Match obfuscated API name to a module export | **357/357 `INT3`** |
+| `0x00447AF0`–`0x00447BD8` (233 bytes) | Resolve export and store XOR-masked pointer | **233/233 `INT3`** |
+| `0x00448D80`–`0x00448DA9` (42 bytes) | Iterate API descriptors 1–35 | **41 `INT3` bytes, 1 other byte** |
+| `0x004493F8`–`0x004494A9` (178 bytes) | Shared initialization sequence | **178/178 identical** |
+
+**Important control-flow limitation:** The preserved initialization
+sequence still contains direct call instructions targeting the
+disabled routines. These are **file-level facts**, not evidence that
+the calls are actually reached on GOG. The GOG path may bypass the
+initialization or redirect control before those calls. Static
+byte identity cannot settle reachability; runtime tracing on a
+supported, owner-controlled installation is needed before claiming a
+crash, execution or bypass.
+
+These observations also explain why GOG's seven plaintext module
+names cannot be used as proof that its *original* encoded-name
+decoder runs: that decoder is entirely overwritten with `INT3`.
+The decoded export names remain verifiable from the retail copy.
+The masked import mechanism described below applies to the
+**retail original**, not as an automatically usable GOG runtime
+implementation.
+
+#### Two GOG references to the preserved code-image section
+
+The two known GOG literal references to the non-executable
+`.extra` section base `0x00517000` replace specific
+PRNG-based dispatch calculations at their respective VAs:
+
+| GOG instruction VA | GOG bytes / meaning | Retail bytes / meaning |
+|---|---|---|
+| `0x00470051` | `MOV EAX,0x00517000` then `JMP 0x004700B3` | `CDQ; MOV ECX,0x455; IDIV ECX` |
+| `0x0047B1C3` | `MOV EAX,0x00517000` then `JMP 0x0047B225` | Same kind of `CDQ; MOV ECX,0x455; IDIV ECX` |
+
+In both sites, a **fixed pointer to the beginning of the GOG
+`.extra` section** replaces the retail calculated value and
+an unconditional short branch skips over part of the
+original dynamic-stub construction code.
+
+This establishes **literal pointer flow into the remainder of the
+GOG routines**, not that the `.extra` bytes execute. Recall that
+`.extra` consists of a 4096-byte zero prefix, the exact
+631296-byte retail `.text` copy, and a 3584-byte zero suffix,
+and its section header does **not** mark it executable.
+The address `0x00517000` points at the **prefix**, while the
+copied code starts at `0x00518000`. Do not confuse them.
+
+#### Generic read-only regression aid
+
+The PE comparator now offers repeatable `--code-span VA:LENGTH`
+to compute exact backed-byte identity, INT3/NOP replacements,
+and per-span hashes while **explicitly declining to attribute
+them to SafeDisc**.
+
+```sh
+python scripts/pe_reference_diff.py \
+  --protected Rayman2-CD-protected.exe \
+  --reference Rayman2-GOG.exe --reference-origin GOG \
+  --code-span 0x4474d0:106 \
+  --code-span 0x447730:357 \
+  --code-span 0x447af0:233 \
+  --code-span 0x448d80:42 \
+  --code-span 0x4493f8:178 \
+  --code-span 0x470051:8 \
+  --code-span 0x47b1c3:8
+```
+
+Four synthetic regression tests have been added for complete
+`INT3` ranges, partial NOP changes, invalid/unbacked
+regions, and read-only JSON metadata. Independent local checks
+of the same algorithm against the two owner-provided inputs
+validated all seven spans. **This is not a claim of full
+runtime disassembly, a native SafeDisc decoder, or an executed
+Rust build.** GitHub Actions have not been invoked.
+
 ### Major update: static writer and export-name resolver recovered
 
 **13 November 2026, independent static audit of the SHA-256-verified
