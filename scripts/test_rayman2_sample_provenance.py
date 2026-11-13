@@ -85,6 +85,8 @@ class SampleProvenanceTests(unittest.TestCase):
         self.assertEqual(len(report['gog_manifest_matches_owner_lengths']),3)
         self.assertEqual(report['gog_manifest_end_offset'],139366)
         self.assertEqual(report['gog_secdrv_sys_declared_bytes'],14368)
+        self.assertTrue(report['contemporary_study_crosscheck']['reported_entry_va_matches_disk'])
+        self.assertFalse(report['contemporary_study_crosscheck']['runtime_decrypted_function_bytes_match_disk_at_0x4064d0'])
 
 if __name__=='__main__':
     unittest.main()
