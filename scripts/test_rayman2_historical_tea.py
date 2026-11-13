@@ -57,7 +57,7 @@ class HistoricalRayman2TEATests(unittest.TestCase):
         plain[base:base+2] = b"MZ"
         struct.pack_into("<I", plain, base + 0x3C, 0x80)
         nt = base + 0x80
-        plain[nt:nt+4] = b"PE\\0\\0"
+        plain[nt:nt+4] = b"PE\0\0"
         struct.pack_into("<H", plain, nt+4, 0x14C)
         struct.pack_into("<H", plain, nt+6, 1)
         struct.pack_into("<H", plain, nt+20, 0xE0)
