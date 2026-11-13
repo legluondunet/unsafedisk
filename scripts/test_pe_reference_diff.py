@@ -562,10 +562,15 @@ class ReferenceDiffTests(unittest.TestCase):
                     # Keep the old inode alive: unlink/recreate can reuse
                     # the same inode immediately and make this test flaky.
                     path.rename(path.with_name("old-game.exe"))
-                    path.write_bytes(pe_fixture())
+                    # POSIX must reject a byte-identical replacement based on
+                    # dev/inode. Windows Path.stat and fstat can disagree on
+                    # file IDs, so use a changed length to exercise its
+                    # explicitly best-effort size/mtime snapshot contract.
+                    replacement = pe_fixture() + (b"changed" if os.name == "nt" else b"")
+                    path.write_bytes(replacement)
                 return actual_open(target, flags, *args, **kwargs)
             with patch.object(tool.os, "open", side_effect=replace_file_during_open):
-                with self.assertRaisesRegex(ValueError, "replaced"):
+                with self.assertRaisesRegex(ValueError, "replaced|changed"):
                     tool.read_bounded(path)
 
     def test_cli_rejects_self_comparison(self):
