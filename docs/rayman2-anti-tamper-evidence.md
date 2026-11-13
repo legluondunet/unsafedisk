@@ -1389,6 +1389,92 @@ LEVELS0.DAT bytes or verified CD runtime file reads were used.
 **This is a game stream transform, not a proven general
 SafeDisc 1.35 executable/ICD decryption algorithm.**
 
+## Third stream option: rolling DWORD checksum (not another decryption layer)
+
+An additional full-region comparison of the **original CD and edited GOG
+PE32** proves the stream dispatch function **0x00450D90..0x00450EAF**
+(**288 byte-identical code bytes**) and the three bit-extraction helpers
+**0x00450EB0..0x00450EDF** (**48 identical bytes**). A new read-only,
+SHA-256-locked verifier checks **26 exact x86 opcode sites** from both
+files, including multiple original stream-open callsites.
+
+The stream option byte at **[stream+0x18]** combines independent bits:
+
+| Bit | Stream option | Original behavior |
+|---|---|---|
+| 0x01 (bit 0) | Rolling DWORD XOR checksum | After a successful read callback, accumulate little-endian 32-bit words without modifying the caller's buffer |
+| 0x02 (bit 1) | Bytewise XOR transform | Modify each byte using the seed 0x6AB5CC79 and exact x86 PRNG state update, as documented above |
+| 0x04 (bit 2) | Masked Win32 I/O | In original CD, choose generated/trampoline Win32 file-opening and ReadFile; GOG forces ordinary IAT calls |
+
+For the **0x01** flag, the accumulator at
+**[stream+0x10]** is initialized to **zero** when opening a
+stream. At **0x00450DD5**, the program calls the stream's selected
+reader \`CALL [EBX+0x24]\`. If that callback reports failure,
+the accumulator is not updated. Otherwise
+\`0x00450DE6\` calls the bit-0 helper, and when enabled
+\`0x00450E55..0x00450E61\` and
+\`0x00450E70..0x00450E7E\` fold complete 4-byte little-endian
+words into the 32-bit XOR accumulator.
+
+**Chunk handling matters:** when a read ends after 1–3
+unpaired bytes, those bytes stay in a separate pending buffer at
+**[stream+0x08]**, with its length in **[stream+0x0C]**.
+They are only XORed into the accumulator once the next read
+completes a four-byte word. The implementation does **not**
+zero-pad or immediately incorporate the final incomplete word.
+This makes the rolling checksum independent of how the
+same successfully read bytes are divided between calls.
+
+It is important not to call this a second payload decryption:
+**the DWORD XOR stage never writes transformed bytes back
+to the caller's data buffer**. It only changes stream bookkeeping.
+When both bits 0 and 1 are enabled, the callback's per-byte XOR
+runs **first**, and this stage accumulates the resulting
+already-transformed bytes.
+
+Verified hardcoded original/GOG caller instructions include
+**mode 0x03** at \`0x0044D50B\` (both accumulator and bytewise
+XOR), **mode 0x00** at \`0x0044DACF\`,
+**mode 0x06** at \`0x0044EA1C\` (bytewise XOR and original masked
+I/O, inside DAT handling), and **mode 0x02**
+at \`0x0044F769\`. These are static callsites, *not*
+proof of which modes occur during actual gameplay.
+
+### Another precise GOG edit: the original masked CreateFileA opener is removed
+
+In addition to the two reader-selector JNE bytes and masked
+ReadFile routines documented above, GOG completely removes
+the **original stream-open masked CreateFileA branch**:
+
+- Original **0x00450ADE** checks flag bit 2, generates a
+  masked Win32 \`CreateFileA\` trampoline, then invokes it by
+  \`CALL ESI\` at **0x00450B9E**.
+- GOG instead has **\`E9 22 01 00 00\` at 0x00450ADE**:
+  a direct jump to the plain-API opener **0x00450C05**.
+  Every following byte from **0x00450AE3 through
+  0x00450C04** is **INT3** — exactly **290 bytes**.
+- The following **46 bytes at 0x00450C05..0x00450C32**
+  remain *byte-identical* in both files, including
+  direct \`KERNEL32!CreateFileA\` via IAT **0x0049C058**.
+
+This further establishes the boundary between original
+generated-API call obfuscation and GOG's explicit bypass.
+It does **not** show that either edition authenticates a
+physical SafeDisc CD through this routine.
+
+The existing \`scripts/rayman2_cd_io_diff.py\` now provides
+\`stream_word_xor_checksum\` for an explicitly **pure
+synthetic model** and \`inspect_stream_word_checksum\` for
+on-disk opcode verification. Companion tests check little-endian
+DWORDs, pending carry across reads, byte-for-byte chunk
+invariance, failure paths and intentionally corrupted
+signatures. The independent owner-file local suite passed
+**20/20 tests**, with SHA-256 validation of both original
+executables and checks on the GOG 290-byte INT3 range.
+It does not use original CD DAT payload bytes, execute
+proprietary instructions, or establish a SafeDisc decryption key.
+
+
 ## Read-only, falsifiable checks
 
 `scripts/rayman2_anti_tamper_assets.py` inspects only the two historical asset names and hashes, with case-insensitive per-component lookup, link rejection and bounded reading. Example:
