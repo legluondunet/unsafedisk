@@ -150,6 +150,103 @@ protected counterpart has no ordinary resource directory. These
 differences **do not establish how the unprotected EXE was produced**
 or imply a general-purpose SafeDisc 1.35 decoding method.
 
+### Startup path: unchanged caller, GOG return stubs (13 Nov 2026)
+
+**New, independently measured evidence from both owner-supplied
+SHA-256-pinned PE32 files.** The startup sequence from the
+retail CD is not simply removed in GOG:
+
+- `0x00401EF8`–`0x00401F00` (9 bytes): **identical**
+  `PUSH 1; CALL 0x00449360; ADD ESP,4`.
+- `0x00449360`–`0x004494AA` (**331 bytes**):
+  **completely identical** in protected retail and GOG.
+  The shared body includes `CALL` instructions at
+  `0x44947C`, `0x449485`, `0x44948E`,
+  `0x44949A` and `0x44949F`.
+- GOG substitutes **safe early-return stubs at the
+  *called functions***, rather than removing
+  those `CALL` instructions:
+
+| Function VA | Protected CD | Exact GOG entry bytes | Static result |
+|---|---|---|---|
+| `0x4478A0` | Module preparation | `C3` | immediate `RET` |
+| `0x448DB0` | Module iteration | `C3` | immediate `RET` |
+| `0x448D80` | 1–35 API descriptor iteration | `C3` | immediate `RET` |
+| `0x447DE0` | Auxiliary routine | `C3` | immediate `RET` |
+| `0x448DE0` | Another auxiliary routine | `33 C0 40 C3` | `XOR EAX,EAX; INC EAX; RET` (returns 1) |
+
+This **resolves the apparent conflict** noted in the prior
+research: GOG retains calls from `0x449360` into
+functions whose **bodies** were otherwise filled
+with `INT3`, but preserves a one-byte `RET`
+at the three iteration function **entrypoints**.
+Such calls can return without entering the
+`INT3` padding. An unconditional claim
+that those retained calls immediately crash
+would therefore be **incorrect**.
+
+At `0x448E30`, the function's common prefix
+remains largely unchanged, but its branch at
+`0x448E5A` is different: GOG executes
+`MOV AL,0x2E; MOV [0x004A6AD8],AL`, then
+restores the frame and returns. The retail
+branch instead continues through the
+PRNG-based generated-stub construction.
+Neither file was executed during this analysis.
+
+#### Distinguish file-backed and virtual-zero-fill globals
+
+Both PE files declare `.data` with
+**RVA `0x9F000`, virtual size `0x776D0`,
+raw backed length `0x7C00`**. Thus:
+
+| Virtual address | Storage at PE load | Research role |
+|---|---|---|
+| `0x004A141C` | file-backed `.data` | encoded descriptor records |
+| `0x00510EA0` | **virtual zero-fill `.data` tail** | scratch area used for generated stubs |
+| `0x005113E8` | **virtual zero-fill `.data` tail** | module iteration bound |
+| `0x005113EC` | **virtual zero-fill `.data` tail** | branch/initialization state flag |
+| `0x005113F0` | **virtual zero-fill `.data` tail** | API iteration bound |
+
+The four addresses in the virtual tail do not
+have file-backed initial DWORDs. On a normal PE
+image load that virtual tail begins as zero
+fill, but subsequent code can write to it.
+**A file-only scan cannot determine the value of
+`0x5113EC` when `0x449360` actually runs.**
+Do not equate `no file-backed value` with
+`always zero at runtime`.
+
+The generic PE comparison script now provides
+`--entry-va VA` to classify tiny entrypoint
+stubs and `--map-va VA` to distinguish
+file-backed data from an initialized-on-load
+virtual tail. These classify stored bytes
+without executing the game or attributing
+the changes to SafeDisc alone.
+
+```sh
+python scripts/pe_reference_diff.py \
+  --protected Rayman2-CD-protected.exe \
+  --reference Rayman2-GOG.exe --reference-origin GOG \
+  --entry-va 0x4478a0 --entry-va 0x448db0 \
+  --entry-va 0x448d80 --entry-va 0x447de0 \
+  --entry-va 0x448de0 \
+  --map-va 0x4a141c --map-va 0x510ea0 \
+  --map-va 0x5113e8 --map-va 0x5113ec \
+  --map-va 0x5113f0 \
+  --code-span 0x401ef8:9 \
+  --code-span 0x449360:331 \
+  --code-span 0x448e5a:10
+```
+
+Seven new synthetic tests for entrypoint stubs
+and PE virtual-zero-fill mapping have been
+added to GitHub. Their exact new repository
+versions **have not been run in Rust or GitHub
+Actions**; the local independent byte-level
+verification of both original binaries passed.
+
 ### Follow-up audit: GOG neutralizes retail export-resolution code (13 Nov 2026)
 
 **The user has established that the reference is a GOG build, not
@@ -163,7 +260,7 @@ functions with full ranges of `0xCC` / x86 `INT3`:
 | `0x004474D0`–`0x00447539` (106 bytes) | Decode obfuscated module/DLL name | **106/106 `INT3`** |
 | `0x00447730`–`0x00447894` (357 bytes) | Match obfuscated API name to a module export | **357/357 `INT3`** |
 | `0x00447AF0`–`0x00447BD8` (233 bytes) | Resolve export and store XOR-masked pointer | **233/233 `INT3`** |
-| `0x00448D80`–`0x00448DA9` (42 bytes) | Iterate API descriptors 1–35 | **41 `INT3` bytes, 1 other byte** |
+| `0x00448D80`–`0x00448DA9` (42 bytes) | Iterate API descriptors 1–35 | **`RET` at entry plus 41 `INT3` bytes** |
 | `0x004493F8`–`0x004494A9` (178 bytes) | Shared initialization sequence | **178/178 identical** |
 
 **Important control-flow limitation:** The preserved initialization
