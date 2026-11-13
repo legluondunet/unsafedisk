@@ -7,7 +7,8 @@ from rayman2_sample_provenance import (manifest_entries, pe_sections,
                                        check_opaque_prng, inspect, REFS,
                                        read_bounded, SALT, M, A, changed_runs,
                                        decode_masked_module, audit_cd_gog_data_changes,
-                                       FIX_SIDECARS, verify_fix_sidecars)
+                                       FIX_SIDECARS, verify_fix_sidecars,
+                                       executable_text_delta, pe_section_flags)
 
 
 def manifest_record(name, size):
@@ -135,6 +136,58 @@ class SampleProvenanceTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError,'Fix.rtl'):
             verify_fix_sidecars(dict(rows))
 
+    def test_text_delta_includes_only_changed_INT3(self):
+        out=executable_text_delta(b'\xccA\xccB',b'\xcc\xcc\xcc\xcc')
+        self.assertEqual(out['different_bytes'],2)
+        self.assertEqual(out['changed_to_gog_INT3_bytes'],2)
+        self.assertEqual(out['other_changed_gog_bytes'],0)
+        self.assertEqual(out['identical_pages'],0)
+
+    def test_text_delta_page_bucket_accounting(self):
+        out=executable_text_delta(b'aaaabbccc',b'aacabbccc',page_size=4)
+        self.assertEqual(out['different_bytes'],1)
+        self.assertEqual(out['contiguous_changed_byte_ranges'],1)
+        self.assertEqual(out['pages_total'],3)
+        self.assertEqual(out['identical_pages'],2)
+        self.assertEqual(out['changed_pages'][0]['rva'],'0x1000')
+        self.assertEqual(out['longest_identical_byte_run'],6)
+
+    def test_text_delta_counts_disjoint_spans(self):
+        out=executable_text_delta(b'abcdabcdef',b'AbcDabXdef')
+        self.assertEqual(out['contiguous_changed_byte_ranges'],3)
+        self.assertEqual(out['identical_bytes'],7)
+
+    def test_text_delta_rejects_mismatched_lengths(self):
+        with self.assertRaisesRegex(ValueError,'equal nonempty'):
+            executable_text_delta(b'aaa',b'ab')
+        with self.assertRaisesRegex(ValueError,'equal nonempty'):
+            executable_text_delta(b'',b'')
+        for size in (0,3,-1):
+            with self.subTest(size=size),self.assertRaisesRegex(ValueError,'power of two'):
+                executable_text_delta(b'ab',b'ab',page_size=size)
+
+    def test_pe_section_flags_refuses_non_pe(self):
+        with self.assertRaises(ValueError):
+            pe_section_flags(b'not a PE','.text')
+
+    def test_pe_section_flags_real_synthetic_PE32(self):
+        data=bytearray(0x600)
+        data[:2]=b'MZ'
+        struct.pack_into('<I',data,0x3c,0x80)
+        data[0x80:0x84]=b'PE\0\0'
+        struct.pack_into('<H',data,0x84,0x14c)
+        struct.pack_into('<H',data,0x86,1)
+        struct.pack_into('<H',data,0x94,0xe0)
+        struct.pack_into('<H',data,0x98,0x10b)
+        section=0x98+0xe0
+        data[section:section+6]=b'.extra'
+        struct.pack_into('<I',data,section+16,0x200)
+        struct.pack_into('<I',data,section+20,0x400)
+        struct.pack_into('<I',data,section+36,0x40000040)
+        self.assertEqual(pe_section_flags(bytes(data),'.extra'),0x40000040)
+        with self.assertRaisesRegex(ValueError,'missing PE section'):
+            pe_section_flags(bytes(data),'.text')
+
     def test_optional_real_four_file_integration(self):
         folder=Path(os.environ.get('UNSAFEDISK_SAMPLES','/nonexistent'))
         files={'retail':'Rayman2(3).exe','gog':'rayman2(4).exe',
@@ -144,6 +197,13 @@ class SampleProvenanceTests(unittest.TestCase):
         samples={k:read_bounded(folder/f) for k,f in files.items()}
         report=inspect(samples)
         self.assertTrue(report['embedded_retail_text_exact_match'])
+        code=report['retail_vs_gog_executable_code_boundary']
+        self.assertEqual(code['code_page_differentiation']['identical_bytes'],618027)
+        self.assertEqual(code['code_page_differentiation']['different_bytes'],13269)
+        self.assertEqual(code['code_page_differentiation']['identical_pages'],141)
+        self.assertEqual(code['code_page_differentiation']['changed_to_gog_INT3_bytes'],10851)
+        self.assertTrue(code['startup_16_kib_identical'])
+        self.assertFalse(code['gog_archive_section_marked_executable'])
         self.assertEqual(len(report['gog_manifest_matches_owner_lengths']),3)
         self.assertEqual(report['gog_manifest_end_offset'],139366)
         self.assertEqual(report['gog_secdrv_sys_declared_bytes'],14368)
