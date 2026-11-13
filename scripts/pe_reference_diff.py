@@ -589,8 +589,14 @@ def read_bounded(path: Path) -> bytes:
         opened = os.fstat(handle.fileno())
         if not stat.S_ISREG(opened.st_mode) or opened.st_size > MAX_BYTES:
             raise ValueError(f"opened file changed type or size: {path}")
-        if (opened.st_dev, opened.st_ino) != (before.st_dev, before.st_ino):
-            raise ValueError(f"file replaced between stat and open: {path}")
+        # Windows path stat vs descriptor fstat may report different
+        # device/inode numbers on the same file. Retain strict POSIX
+        # identity validation; Windows relies on best-effort size/mtime.
+        if ((opened.st_size, opened.st_mtime_ns) !=
+                (before.st_size, before.st_mtime_ns) or
+                (os.name != 'nt' and (opened.st_dev, opened.st_ino) !=
+                 (before.st_dev, before.st_ino))):
+            raise ValueError(f"file replaced or changed between stat and open: {path}")
         data = handle.read(MAX_BYTES + 1)
         after = os.fstat(handle.fileno())
         if len(data) != opened.st_size or len(data) > MAX_BYTES:
