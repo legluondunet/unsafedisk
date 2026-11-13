@@ -188,10 +188,10 @@ class ReferenceDiffTests(unittest.TestCase):
         retail = bytearray(pe_fixture(text_offset=0x400))
         gog = bytearray(pe_fixture(text_offset=0x800))
         site = 0x00401040
-        call_bytes = b"\\xE8" + struct.pack("<i", target - (site + 5))
+        call_bytes = b"\xE8" + struct.pack("<i", target - (site + 5))
         retail[0x400+0x40:0x400+0x45] = call_bytes
         gog[0x800+0x40:0x800+0x45] = call_bytes
-        gog[0x800+0x90:0x800+0x95] = b"\\xBA" + struct.pack("<I", target)
+        gog[0x800+0x90:0x800+0x95] = b"\xBA" + struct.pack("<I", target)
         a = tool.find_x86_reference_candidates(tool.parse_pe32(bytes(retail)), target)
         b = tool.find_x86_reference_candidates(tool.parse_pe32(bytes(gog)), target)
         self.assertEqual(a["direct_call_candidates"], b["direct_call_candidates"])
@@ -204,7 +204,7 @@ class ReferenceDiffTests(unittest.TestCase):
         target = 0x00401008
         sample = bytearray(pe_fixture())
         site = 0x00401110
-        sample[0x400+0x110:0x400+0x115] = b"\\xE8" + struct.pack("<i", target-(site+5))
+        sample[0x400+0x110:0x400+0x115] = b"\xE8" + struct.pack("<i", target-(site+5))
         pe = tool.parse_pe32(bytes(sample))
         result = tool.find_x86_reference_candidates(pe, target)
         self.assertEqual(
@@ -220,7 +220,7 @@ class ReferenceDiffTests(unittest.TestCase):
             a, b = Path(folder)/"retail.exe", Path(folder)/"gog.exe"
             a.write_bytes(pe_fixture())
             sample = bytearray(pe_fixture(text_offset=0x800))
-            sample[0x800+0x10:0x800+0x15] = b"\\xBA" + struct.pack("<I", 0x004011A0)
+            sample[0x800+0x10:0x800+0x15] = b"\xBA" + struct.pack("<I", 0x004011A0)
             b.write_bytes(sample)
             out = io.StringIO()
             with contextlib.redirect_stdout(out):
