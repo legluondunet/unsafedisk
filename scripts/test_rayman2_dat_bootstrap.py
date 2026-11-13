@@ -159,6 +159,8 @@ class DatBootstrapTests(unittest.TestCase):
         self.assertEqual(report['identical_dialog_code_bytes'],0x44E0EB-0x44DFC9)
         self.assertEqual(report['retry_dialog_caption'],'Rayman 2 CD not found')
         self.assertTrue(report['gog_retries_via_direct_CreateFileA'])
+        self.assertEqual(len(report['other_dat_errors']['candidate_branches']),2)
+        self.assertEqual(report['other_dat_errors']['shared_error_code_lengths'],[39,35,90])
 
     def test_exact_private_samples_when_available(self):
         folder=Path(os.environ.get('UNSAFEDISK_SAMPLES','/no/samples'))
