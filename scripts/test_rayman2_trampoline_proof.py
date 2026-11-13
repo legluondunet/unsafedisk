@@ -6,7 +6,7 @@ from rayman2_trampoline_proof import (analyze,code_gen,flush_pattern,p32,WRAPPER
                                       masked_slot,verify_slot_initializer,SLOT_ANCHORS,
                                       SLOT_INIT_CALLS,BOOTSTRAP_ANCHORS,BOOTSTRAP_RECORD,BOOTSTRAP_SLOT,
                                       RELAY_ENTRY,RELAY_LENGTH,RELAY_STARTUP_CALL,
-                                      RELAY_CALLS,GOG_IMMEDIATE_RET_CALLEES,
+                                      RELAY_CALLS,GOG_IMMEDIATE_RET_CALLEES,RELAY_TOOLHELP_SLOT_SITES,
                                       RELAY_GENERATOR_ANCHORS,verify_retained_bootstrap_chain)
 
 
@@ -95,6 +95,9 @@ class TrampolineProofTests(unittest.TestCase):
         self.assertEqual(relay['initializer_bytes_compared'],331)
         self.assertEqual(relay['total_original_direct_CALLs_verified'],6)
         self.assertTrue(relay['gog_four_callees_replaced_with_RET_INT3_verified'])
+        self.assertEqual(relay['original_fourth_callee_process_module_APIs'],
+                         ['CreateToolhelp32Snapshot','Process32First','Process32Next',
+                          'Module32First','Module32Next'])
         self.assertTrue(relay['gog_fifth_callee_rewritten_to_store_dot_in_global_0x004A6AD8'])
 
     @staticmethod
@@ -111,6 +114,10 @@ class TrampolineProofTests(unittest.TestCase):
         put(RELAY_ENTRY,bytes.fromhex('55 8B EC 83 EC 08 A1'))
         for addr,pattern in RELAY_GENERATOR_ANCHORS.items():
             put(addr,bytes.fromhex(pattern))
+        for descriptor_index,site in RELAY_TOOLHELP_SLOT_SITES.items():
+            import struct
+            _,ptr=masked_slot(descriptor_index)
+            put(site,b'\xa1'+struct.pack('<I',ptr))
         for site,target in {RELAY_STARTUP_CALL:RELAY_ENTRY,**RELAY_CALLS}.items():
             import struct
             put(site,b'\xe8'+struct.pack('<i',target-site-5))
@@ -125,6 +132,8 @@ class TrampolineProofTests(unittest.TestCase):
         self.assertEqual(len(RELAY_CALLS),5)
         self.assertEqual(len(GOG_IMMEDIATE_RET_CALLEES),4)
         self.assertEqual(len(RELAY_GENERATOR_ANCHORS),9)
+        self.assertEqual(len(RELAY_TOOLHELP_SLOT_SITES),5)
+        self.assertEqual(sorted(RELAY_TOOLHELP_SLOT_SITES),[19,20,21,22,23])
         self.assertEqual(set(RELAY_CALLS.values())-
                          set(GOG_IMMEDIATE_RET_CALLEES),{0x00448E30})
 
@@ -145,6 +154,12 @@ class TrampolineProofTests(unittest.TestCase):
     def test_synthetic_relay_rejects_wrong_seed(self):
         b,h=self.synthetic_retail_relay()
         b[0x0044939E-0x00401000]^=1
+        with self.assertRaisesRegex(ValueError,'opcode pattern'):
+            verify_retained_bootstrap_chain(bytes(b),h)
+
+    def test_synthetic_relay_rejects_changed_process_enumerator(self):
+        b,h=self.synthetic_retail_relay()
+        b[0x00447E04-0x00401000]^=1
         with self.assertRaisesRegex(ValueError,'opcode pattern'):
             verify_retained_bootstrap_chain(bytes(b),h)
 
