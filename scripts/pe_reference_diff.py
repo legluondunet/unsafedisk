@@ -363,6 +363,12 @@ def classify_x86_entry_stub(raw: bytes) -> dict:
         return {"kind": "returns_zero", "immediate_return": True}
     if raw[:4] in (b"\x31\xC0\x40\xC3", b"\x33\xC0\x40\xC3"):
         return {"kind": "returns_one", "immediate_return": True}
+    if len(raw) >= 8 and raw[0] == 0xB8 and raw[5] == 0xC2:
+        return {
+            "kind": "returns_constant_ret_imm16", "immediate_return": True,
+            "value": f"0x{struct.unpack_from('<I', raw, 1)[0]:08X}",
+            "stack_pop_bytes": struct.unpack_from("<H", raw, 6)[0],
+        }
     if len(raw) >= 6 and raw[0] == 0xB8 and raw[5] == 0xC3:
         return {
             "kind": "returns_constant", "immediate_return": True,
