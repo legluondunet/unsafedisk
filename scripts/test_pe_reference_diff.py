@@ -107,6 +107,17 @@ class ReferenceDiffTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "data directory exceeds optional header"):
             tool.parse_pe32(bytes(data))
 
+    def test_cli_rejects_self_comparison(self):
+        with tempfile.TemporaryDirectory() as folder:
+            path = Path(folder)/"fixture.exe"
+            path.write_bytes(pe_fixture())
+            errors = io.StringIO()
+            with contextlib.redirect_stderr(errors):
+                with self.assertRaises(SystemExit) as raised:
+                    tool.main(["--protected", str(path), "--reference", str(path)])
+            self.assertEqual(raised.exception.code, 1)
+            self.assertIn("same file", errors.getvalue())
+
     def test_cli_exposes_only_focused_entries(self):
         with tempfile.TemporaryDirectory() as folder:
             a, b = Path(folder)/"protected.exe", Path(folder)/"reference.exe"
