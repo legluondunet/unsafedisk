@@ -18,6 +18,8 @@ from rayman2_cd_io_diff import (
     stream_word_xor_checksum, inspect_stream_word_checksum,
     SNAPSHOT_CHECKSUM_ANCHORS, SNAPSHOT_TEMPLATES, REFERENCE_SUFFIXES,
     inspect_snapshot_checksum_provenance,
+    SNAPSHOT_INDEX_ANCHORS, snapshot_inversion_address,
+    inspect_snapshot_index_alias,
 )
 
 
@@ -460,6 +462,67 @@ class FileIoDiffTests(unittest.TestCase):
         record=report['snapshot_checksum_resource_provenance']
         self.assertEqual(record['verified_common_opcode_anchors'],24)
         self.assertTrue(record['no_index_bound_verified_at_inversion_site'])
+
+    def index_alias_fixture(self):
+        # Synthetic PE-backed code; sections model virtual-only .data BSS.
+        a,b,h=self.snapshot_provenance_fixture()
+        h={'image_base':h['image_base'],'sections':h['sections']+[{
+            'name':'.data','rva':0x9f000,
+            'raw_off':0,'raw_size':0x7c00,'virtual_size':0x776d0
+        }]}
+        for va,code in SNAPSHOT_INDEX_ANCHORS.items():
+            at=va-0x401000
+            raw=bytes.fromhex(code)
+            for data in (a,b):
+                data[at:at+len(raw)]=raw
+        return a,b,h
+
+    def test_index_alias_example_addresses(self):
+        self.assertEqual(snapshot_inversion_address(0),0x5116FC)
+        self.assertEqual(snapshot_inversion_address(1),0x511700)
+        self.assertEqual(snapshot_inversion_address(24),0x51175C)
+        self.assertEqual(snapshot_inversion_address(25),0x511760)
+        self.assertEqual(snapshot_inversion_address(49),0x5117C0)
+        self.assertEqual(snapshot_inversion_address(50),0x5117C4)
+
+    def test_index_alias_x86_address_wrap(self):
+        self.assertEqual(snapshot_inversion_address(50+2**30),0x5117C4)
+
+    def test_index_alias_refuses_invalid_dword(self):
+        for invalid in (-1,2**32,True,1.0,None):
+            with self.subTest(value=invalid),self.assertRaisesRegex(ValueError,'unsigned DWORD'):
+                snapshot_inversion_address(invalid)
+
+    def test_index_alias_synthetic_static_audit(self):
+        cd,gog,h=self.index_alias_fixture()
+        info=inspect_snapshot_index_alias(bytes(cd),bytes(gog),h,h)
+        self.assertEqual(info['identical_cd_gog_opcode_anchors'],29)
+        self.assertEqual(info['data_raw_backed_end_exclusive'],'0x004A6C00')
+        self.assertTrue(info['inversion_base_is_one_dword_before_first_table'])
+        self.assertFalse(info['runtime_index_values_or_bad_memory_access_proven'])
+
+    def test_index_alias_reject_mutated_counter_writer(self):
+        cd,gog,h=self.index_alias_fixture()
+        gog[0x404317-0x401000]^=1
+        with self.assertRaisesRegex(ValueError,'index source/table opcode'):
+            inspect_snapshot_index_alias(bytes(cd),bytes(gog),h,h)
+
+    def test_index_alias_reject_missing_bss_region(self):
+        cd,gog,h=self.index_alias_fixture()
+        h['sections'][1]['virtual_size']=0x7c00
+        with self.assertRaisesRegex(ValueError,'PE zero-filled'):
+            inspect_snapshot_index_alias(bytes(cd),bytes(gog),h,h)
+
+    def test_index_alias_exact_owner_pair_optional(self):
+        root=Path(os.environ.get('UNSAFEDISK_SAMPLES','/missing-private-samples'))
+        original=root/'Rayman2(3).exe'
+        gog=root/'rayman2(4).exe'
+        if not(original.is_file() and gog.is_file()):
+            self.skipTest('proprietary owner binaries not available in CI')
+        r=inspect_pair(safe_read(original),safe_read(gog))
+        index_info=r['snapshot_checksum_index_alias_provenance']
+        self.assertEqual(index_info['identical_cd_gog_opcode_anchors'],29)
+        self.assertTrue(index_info['index_50_aliases_index_global_itself'])
 
     def test_safe_read_rejects_symlink(self):
         if not hasattr(os,'symlink'):self.skipTest('no symlink support')
