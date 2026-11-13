@@ -117,7 +117,25 @@ def compare(log_data: dict, catalog: dict[str, int]) -> dict:
     dat_match = sum(catalog.get(name) == length
                     for name, length in dat_entries.items())
     stats = log_data['stats']
+    exact_23 = len(dat_entries) == len(LEVEL_DAT_PATHS) and dat_match == len(LEVEL_DAT_PATHS)
+    # Only subtract the full fake-DAT family when every file is corroborated
+    # in BOTH named metadata sources. Avoid misleading partial subtraction.
+    declared_reconciliation = None
+    if exact_23:
+        fake_sum = sum(dat_entries.values())
+        iso_remainder = stats['declared_bytes'] - fake_sum
+        gog_total = sum(catalog.values())
+        gog_remainder = gog_total - fake_sum
+        declared_reconciliation = {
+            'iso_nominal_bytes_without_23': iso_remainder,
+            'gog_nominal_bytes_without_23': gog_remainder,
+            'iso_physical_image_bytes': stats['image_bytes'],
+            'iso_image_bytes_minus_remaining_nominal': stats['image_bytes'] - iso_remainder,
+            'gog_total_catalog_declared_bytes': gog_total,
+            'source_status': 'nominal size arithmetic only; does not establish physical file extents',
+        }
     return {
+        'full_23_dat_declared_size_reconciliation': declared_reconciliation,
         'historical_23_omitted_dat': {
             'expected_paths': len(LEVEL_DAT_PATHS),
             'listed_in_iso_omissions': len(dat_entries),
