@@ -45,6 +45,9 @@ class AssetProbeTests(unittest.TestCase):
     def test_ambiguous_case(self):
         self.create(self.cd,'DATA/Vignette.cnt')
         self.create(self.cd,'DATA/VIGNETTE.CNT')
+        matches = [p for p in (self.cd / 'DATA').iterdir() if p.name.casefold() == 'vignette.cnt']
+        if len(matches) != 2:
+            self.skipTest('case-insensitive filesystem cannot represent this ambiguity')
         with self.assertRaisesRegex(ValueError,'ambiguous'):
             audit(self.cd,self.inst)
 
