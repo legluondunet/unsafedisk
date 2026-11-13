@@ -555,7 +555,9 @@ class ReferenceDiffTests(unittest.TestCase):
             actual_open = os.open
             def replace_file_during_open(target, flags, *args, **kwargs):
                 if Path(target) == path:
-                    path.unlink()
+                    # Keep the old inode alive: unlink/recreate can reuse
+                    # the same inode immediately and make this test flaky.
+                    path.rename(path.with_name("old-game.exe"))
                     path.write_bytes(pe_fixture())
                 return actual_open(target, flags, *args, **kwargs)
             with patch.object(tool.os, "open", side_effect=replace_file_during_open):
