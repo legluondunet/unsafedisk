@@ -13,6 +13,7 @@ Source: https://www.scribd.com/document/659005728/safedisc
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import struct
 from pathlib import Path
@@ -163,7 +164,7 @@ def scan_fixed_tea_for_pe32(data: bytes) -> dict:
             "plausible_pe32_header_count": len(candidate_positions),
         })
     return {
-        "input_sha256": __import__("hashlib").sha256(data).hexdigest(),
+        "input_sha256": hashlib.sha256(data).hexdigest(),
         "mode": "naive-32-round-historical-TEA-four-identical-keywords",
         "key": f"0x{KEY:08X}",
         "assumed_delta": f"0x{DELTA:08X}",
@@ -182,8 +183,6 @@ def verify_known_prng_samples() -> dict:
     stream need not be inert, and the file provenance on physical media
     is not established. No bytes are written or emitted.
     """
-    import hashlib
-
     streams = (
         ("RAYMAN2.ICD", 0x6EE4C08A, 170891, bytes.fromhex("5b"),
          "4daeae51ded23687fccecd5046dd366b1c083d4931af0a381a0ad0b64bd3d1a6"),
