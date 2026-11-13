@@ -524,6 +524,44 @@ class ReferenceDiffTests(unittest.TestCase):
             self.assertEqual(record["reference"]["storage"], "virtual_zero_fill_at_load")
             self.assertFalse(record["reference"]["runtime_value_inferred"])
 
+    def test_reader_rejects_symlinks_and_oversized_sparse_files(self):
+        import os
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            original = root / "original.exe"
+            original.write_bytes(pe_fixture())
+            self.assertEqual(tool.read_bounded(original), original.read_bytes())
+            large = root / "oversize.exe"
+            with large.open("wb") as handle:
+                handle.truncate(tool.MAX_BYTES + 1)
+            with self.assertRaisesRegex(ValueError, "16 MiB"):
+                tool.read_bounded(large)
+            link = root / "link.exe"
+            try:
+                link.symlink_to(original)
+            except (OSError, NotImplementedError):
+                # Symlink creation may require extra privileges on Windows.
+                pass
+            else:
+                with self.assertRaises((ValueError, OSError)):
+                    tool.read_bounded(link)
+
+    def test_reader_detects_file_replacement_during_open(self):
+        from unittest.mock import patch
+        import os
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "game.exe"
+            path.write_bytes(pe_fixture())
+            actual_open = os.open
+            def replace_file_during_open(target, flags, *args, **kwargs):
+                if Path(target) == path:
+                    path.unlink()
+                    path.write_bytes(pe_fixture())
+                return actual_open(target, flags, *args, **kwargs)
+            with patch.object(tool.os, "open", side_effect=replace_file_during_open):
+                with self.assertRaisesRegex(ValueError, "replaced"):
+                    tool.read_bounded(path)
+
     def test_cli_rejects_self_comparison(self):
         with tempfile.TemporaryDirectory() as folder:
             path = Path(folder)/"fixture.exe"
