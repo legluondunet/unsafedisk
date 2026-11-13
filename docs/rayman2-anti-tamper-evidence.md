@@ -908,6 +908,80 @@ the owner's private binaries are present; GitHub code files match
 the locally exercised blobs byte-for-byte. There is no Wine gameplay
 test or original CD image involved.
 
+## Verified producer of the original masked Win32 API pointer slots (13 Nov 2026)
+
+**New direct evidence from both SHA-256-identified protected CD and modified
+GOG PE32 samples.** Previous research established how several original
+trampolines *consume* a masked pointer, but had not found the writer of its
+initially-zero record slot. That producer is the protected retail
+routine at **VA 0x00447AF0..0x00447BD9**.
+
+The function accepts a **one-based descriptor index**. The x86 LEA/SHL
+sequence at 0x00447B21 computes ESI = index*76; with the previously
+confirmed 76-byte descriptor stride, the exact addresses are:
+
+    index           = 1 .. 35
+    descriptor_base = 0x004A13D0 + 76 * index
+                    = 0x004A141C + 76 * (index-1)
+    slot            = 0x004A1400 + 76 * index
+                    = descriptor_base + 0x30
+
+At 0x00447B2A the code reads the descriptor's **module index**
+(offset +0x34). At 0x00447B30 it obtains the **32-bit XOR mask**
+at descriptor_base. At 0x00447B36 it looks up a previously loaded
+module in the module table at runtime global **0x00510BA4**.
+
+There are **two original loader-local PE traversal functions**:
+- **0x00447730** inspects the loaded DLL's **export directory**
+  at PE optional-header +0x60 (NT header +0x78), traverses the
+  name/ordinal/function tables and compares decoded API names.
+- **0x00447540** inspects the module's **import directory** at
+  PE optional-header +0x68 (NT header +0x80) and traverses
+  imported names, comparing decoded record names.
+
+The API entry writer calls the export resolver at **0x00447B50**
+or **0x00447B86**, and the import walker at **0x00447B7B**,
+depending on the original branch. At nonzero successful result:
+
+    0x00447BC0: XOR EBX,EAX                   ; mask XOR API address
+    0x00447BC2: MOV [ESI + 0x004A1400],EBX   ; write slot[index]
+
+Consequently the producer stores the **resolved API address XOR the
+same descriptor mask**, exactly matching the inverse XOR performed
+by the four earlier Win32 trampolines. The code clears the slot on
+failure, at 0x00447B3D or 0x00447BCF. All 35 slots are still
+**zero in both actual on-disk samples**: their runtime values
+are **not** derivable from those zero bytes alone.
+
+**Edition contrast:** GOG's executable .text section replaces the
+entire **234-byte** region at **0x00447AF0..0x00447BD9**
+with INT3 (0xCC), as well as the starts of the associated
+DLL-name decoder and PE import/export helpers, while keeping
+all 35 descriptor records byte-identical. Its separate .extra
+section retains a non-executing copy of the original .text;
+do not mistake the copy for active restored code.
+
+Five original E8-relative callsites were independently verified:
+three calls at **0x00448196, 0x004481A2, 0x00448D96**
+target the API-slot producer, and two calls at
+**0x0044818A, 0x00448DC3** target the module-loader helper
+0x00447A90. These are *static callsites*, not runtime traces.
+
+The original existing diagnostic,
+**scripts/rayman2_trampoline_proof.py**, now includes a
+15-anchor slot-producer check, five callsite checks and
+an optional --gog comparison of all 35 records and the GOG INT3
+region. Its companion test module adds index-bound and
+optional private-sample tests. A **separate independent local
+PE probe actually passed 7 tests against the two exact private
+files**, including deliberately corrupted-hash refusal.
+The updated GitHub test module has not been run through CI.
+
+This proves the **masked-pointer producer/consumer arithmetic**
+and local PE resolver paths, **not** a SafeDisc media
+authentication transaction, an observed successful DLL import,
+or decrypted game-code sections.
+
 ## Read-only, falsifiable checks
 
 `scripts/rayman2_anti_tamper_assets.py` inspects only the two historical asset names and hashes, with case-insensitive per-component lookup, link rejection and bounded reading. Example:
