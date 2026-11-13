@@ -179,11 +179,110 @@ def verify_slot_initializer(retail, retail_headers, gog=None):
     }
 
 
+
+# Common original/GOG entrypoint-to-trampoline initialization chain. GOG
+# retains the 331-byte seed/module-table generator but replaces CALLEES.
+# Do not equate these GOG compatibility bypasses with retail decryption.
+RELAY_ENTRY = 0x00449360
+RELAY_LENGTH = 0x14B
+RELAY_STARTUP_CALL = 0x00401EFA
+RELAY_CALLS = {
+    0x0044947C:0x004478A0,  # special GetModuleHandleA bootstrap
+    0x00449485:0x00448DB0,  # iterate original module handles
+    0x0044948E:0x00448D80,  # iterate 35 API pointer descriptors
+    0x0044949A:0x00447DE0,  # original runtime API-dependent logic
+    0x0044949F:0x00448E30,  # original runtime path/metadata logic
+}
+GOG_IMMEDIATE_RET_CALLEES = (
+    0x004478A0,0x00448DB0,0x00448D80,0x00447DE0
+)
+RELAY_GENERATOR_ANCHORS = {
+    0x0044939E:'B9 78 56 34 12',           # fallback seed
+    0x004493A3:'BE A0 0E 51 00',           # generated words buffer
+    0x004493A8:'BF 19 01 00 00',           # 0x119 = 281 words
+    0x004493AD:'81 F1 24 D9 5B 07',       # XOR PRNG salt
+    0x004493BC:'69 C9 A7 41 00 00',       # multiplication by 16807
+    0x004493DF:'89 0E 83 C6 04 4F 75 C6', # store and repeat
+    0x004493FA:'C7 05 E8 13 51 00 07 00 00 00', # 7 module records
+    0x00449404:'C7 05 F0 13 51 00 24 00 00 00', # 36 record slots (0..35)
+    0x00449424:'A3 A4 0B 51 00',           # module table pointer
+}
+
+
+def verify_retained_bootstrap_chain(retail, rh, gog=None):
+    """Trace native startup into original generator and GOG callee stubs.
+
+    All E8 relative CALL bytes, selector and retained generator are
+    verified against actual image-backed PE bytes; no runtime tracing,
+    SafeDisc key, or decrypted retail section is inferred.
+    """
+    common=backed(retail,rh,RELAY_ENTRY,RELAY_LENGTH)
+    if not common.startswith(bytes.fromhex('55 8B EC 83 EC 08 A1')):
+        raise ValueError('unknown retail bootstrap routine prologue')
+    for va,pattern in RELAY_GENERATOR_ANCHORS.items():
+        assert_bytes(retail,rh,va,bytes.fromhex(pattern))
+    expected_calls={RELAY_STARTUP_CALL:RELAY_ENTRY,**RELAY_CALLS}
+    for site,target in expected_calls.items():
+        assert_bytes(retail,rh,site,
+                     b'\xe8'+struct.pack('<i',target-site-5))
+    assert_bytes(retail,rh,0x00449496,bytes.fromhex('85 DB 74 0A'))
+    for callee in GOG_IMMEDIATE_RET_CALLEES:
+        if backed(retail,rh,callee,1) == b'\xc3':
+            raise ValueError('original callee unexpectedly a RET stub')
+    assert_bytes(retail,rh,0x00401D8E,bytes.fromhex('68 04 01 00 00'))
+    assert_bytes(retail,rh,0x00401D93,
+                 bytes.fromhex('50 FF 15 B4 C0 49 00'))
+    gog_stubs_checked=False
+    if gog is not None:
+        if hashlib.sha256(gog).hexdigest()!=GOG_SHA:
+            raise ValueError('wrong exact GOG reference SHA-256')
+        gh=pe_headers(gog)
+        if backed(gog,gh,RELAY_ENTRY,RELAY_LENGTH)!=common:
+            raise ValueError('GOG modified retained bootstrap generator')
+        for va,pattern in RELAY_GENERATOR_ANCHORS.items():
+            assert_bytes(gog,gh,va,bytes.fromhex(pattern))
+        for site,target in expected_calls.items():
+            assert_bytes(gog,gh,site,
+                         b'\xe8'+struct.pack('<i',target-site-5))
+        assert_bytes(gog,gh,0x00449496,bytes.fromhex('85 DB 74 0A'))
+        for callee in GOG_IMMEDIATE_RET_CALLEES:
+            assert_bytes(gog,gh,callee,b'\xc3'+b'\xcc'*7)
+        if backed(gog,gh,0x00448E30,0x2A) != backed(retail,rh,0x00448E30,0x2A):
+            raise ValueError('GOG changed fifth callee prologue')
+        assert_bytes(gog,gh,0x00448E5A,
+                     bytes.fromhex('B0 2E A2 D8 6A 4A 00 8B E5 5D C3'))
+        assert_bytes(gog,gh,0x00401D8E,
+                     bytes.fromhex('C7 00 2E 00 00 00 EB 58'))
+        if backed(gog,gh,0x00401D96,0x58)!=b'\xcc'*0x58:
+            raise ValueError('GOG original Windows-directory code not disabled')
+        gog_stubs_checked=True
+    return {
+        'read_only':True,
+        'original_and_gog_initializer_va':f'0x{RELAY_ENTRY:08X}',
+        'initializer_bytes_compared':RELAY_LENGTH if gog is not None else 0,
+        'retail_initializer_sha256':hashlib.sha256(common).hexdigest(),
+        'startup_direct_CALL_site_va':f'0x{RELAY_STARTUP_CALL:08X}',
+        'startup_direct_CALL_target_va':f'0x{RELAY_ENTRY:08X}',
+        'total_original_direct_CALLs_verified':len(expected_calls),
+        'five_original_callee_targets':[f'0x{t:08X}' for t in RELAY_CALLS.values()],
+        'last_two_calls_conditional_on_nonzero_EBX':True,
+        'shared_PRNG_seed_word_count':0x119,
+        'shared_generator_opcode_anchor_count':len(RELAY_GENERATOR_ANCHORS),
+        'gog_four_callees_replaced_with_RET_INT3_verified':gog_stubs_checked,
+        'gog_fifth_callee_rewritten_to_store_dot_in_global_0x004A6AD8':gog_stubs_checked,
+        'gog_startup_windows_directory_replaced_by_relative_dot':gog_stubs_checked,
+        'runtime_execution_proven':False,
+        'safedisc_driver_exchange_proven':False,
+        'decrypted_original_game_payload_proven':False,
+    }
+
+
 def analyze(data, gog=None):
     if hashlib.sha256(data).hexdigest() != EXPECTED_SHA:
         raise ValueError('wrong exact protected Rayman 2 SHA-256')
     h=pe_headers(data)
     slot_report=verify_slot_initializer(data,h,gog)
+    relay_report=verify_retained_bootstrap_chain(data,h,gog)
     names=[]
     for i in range(35):
         record=backed(data,h,DESCRIPTORS+i*0x4c,0x4c)
@@ -223,6 +322,7 @@ def analyze(data, gog=None):
     nx=bool(int.from_bytes(data[nt+24+70:nt+24+72], 'little') & 0x100)
     return {'sha256_verified':True,'read_only':True,'runtime_execution_proven':False,
             'masked_pointer_initialization':slot_report,
+            'retained_retail_GOG_bootstrap_callchain':relay_report,
             'native_unwrapping_performed':False,'descriptor_count':len(names),
             'all_35_pointer_fields_zero_on_disk':True,'nx_compat_flag':nx,
             'buffer':region[0],
