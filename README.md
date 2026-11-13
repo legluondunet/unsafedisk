@@ -145,6 +145,15 @@ python scripts/safedisc_prng_recurrence.py RAYMAN2.ICD --auto-align
 python scripts/safedisc_prng_recurrence.py dplayerx.dll --auto-align
 ```
 
+The historical **23 oversized** `DATA/WORLD/LEVELS/*{0,1,2}.DAT`
+records omitted by the ISO installer have a combined
+**6,777,257,404 nominal bytes** and are **23/23
+name-and-size-identical** to entries in GOG's virtual
+catalog, independently confirmed with both owner logs.
+This illustrates preservation of unusual CD metadata,
+**not** proof that the game actually reads those entries
+as real file payloads. Six synthetic local tests pass.
+
 **Original ISO versus GOG catalog (14 Nov):** Two archived Rayman2Fix
 CD-inspection logs (Windows and Wine) were independently reconciled
 with GOG's hash-pinned virtual-CD catalog, using the new read-only
