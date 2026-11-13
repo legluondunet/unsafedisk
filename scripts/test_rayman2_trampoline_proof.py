@@ -4,7 +4,7 @@ import os
 from pathlib import Path
 from rayman2_trampoline_proof import (analyze,code_gen,flush_pattern,p32,WRAPPERS,
                                       masked_slot,verify_slot_initializer,SLOT_ANCHORS,
-                                      SLOT_INIT_CALLS)
+                                      SLOT_INIT_CALLS,BOOTSTRAP_ANCHORS,BOOTSTRAP_RECORD,BOOTSTRAP_SLOT)
 
 
 class TrampolineProofTests(unittest.TestCase):
@@ -68,6 +68,11 @@ class TrampolineProofTests(unittest.TestCase):
         self.assertEqual(len(SLOT_INIT_CALLS),5)
         self.assertEqual(sum(target==0x447AF0 for target in SLOT_INIT_CALLS.values()),3)
 
+    def test_special_getmodulehandle_bootstrap_record(self):
+        self.assertEqual(BOOTSTRAP_RECORD,0x004A13D0)
+        self.assertEqual(BOOTSTRAP_SLOT,BOOTSTRAP_RECORD+0x30)
+        self.assertEqual(len(BOOTSTRAP_ANCHORS),10)
+
     def test_exact_private_samples_optional(self):
         root=Path(os.environ.get('UNSAFEDISK_SAMPLES','/no-samples'))
         original=root/'Rayman2(3).exe'
@@ -79,6 +84,9 @@ class TrampolineProofTests(unittest.TestCase):
         self.assertEqual(init['api_descriptors_verified'],35)
         self.assertEqual(init['init_instruction_anchors_verified'],15)
         self.assertTrue(init['gog_234_int3_resolver_bytes_verified'])
+        self.assertEqual(init['special_bootstrap_api'],'GetModuleHandleA')
+        self.assertEqual(init['get_loaded_module_handle_helper_calls_verified'],2)
+        self.assertEqual(init['special_bootstrap_anchor_count'],10)
         self.assertFalse(report['runtime_execution_proven'])
 
     def test_flush_span_covers_all_generated_code(self):
