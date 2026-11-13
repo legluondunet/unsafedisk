@@ -832,6 +832,48 @@ not to assume SafeDisc or secdrv.sys has blocked the CD. The original
 retail may of course have separate SafeDisc and in-game anti-tamper
 mechanisms; this finding neither proves nor rules them out.
 
+### Two additional retained DAT errors: the game's window-aware Retry/Cancel dispatcher
+
+Beyond the fixed bootstrap's dialog, **two more shared original/GOG file
+opening failure branches** are byte-identical across the private exact
+SHA-pinned executable pair. These occur inside the indexed DAT lookup
+and its selected-file opening flow:
+
+| Branch / stage | Byte-identical retail vs GOG code | Error UI call |
+|---|---:|---|
+| At VA 0x0044EC44..0x0044EC6A, first selected file open error | **39 bytes** | \`CALL 0x004028F0\` at 0x0044EC59 |
+| At VA 0x0044F184..0x0044F1A6, second file open error | **35 bytes** | \`CALL 0x004028F0\` at 0x0044F195 |
+| Shared GUI error-dispatch routine VA 0x004028F0..0x00402949 | **90 bytes** | \`MessageBoxA\` or \`SendMessageA\` |
+
+Both callers push **uType=5** (Retry/Cancel), a caption pointer at
+\`0x004A2270\` (ASCII **"CDROM not found!"**) and a message
+pointer at \`0x004A06C0\` (ASCII **"Please insert the CD"**)
+before calling \`0x004028F0\`.
+
+The shared dispatcher checks a runtime GUI handle at \`0x004A6AC0\`.
+If no GUI handle is present, it calls
+**USER32.dll!MessageBoxA** at IAT \`0x0049C270\`
+(assembly \`0x00402940\`); if the handle is present, it
+uses **USER32.dll!SendMessageA** via IAT \`0x0049C228\`
+(at \`0x00402921\`). The two routes can therefore present differently
+at runtime; only the **static dispatch logic** is proven here.
+
+This means the original and GOG contain *three independently verified
+DAT file-opening failure branches*, not one. Both later errors share
+Retry/Cancel behavior and Cancel calls the program's shutdown
+routine \`0x004011C0\`, but their GUI path is conditional.
+No SafeDisc physical-disc challenge, secdrv.sys request, or proprietary
+CD sector check is demonstrated by any of these three strings.
+
+The same existing \`scripts/rayman2_dat_bootstrap.py\` verifier now checks
+all three branch ranges, the shared dispatcher, two constant messages,
+and both USER32 import callsite opcodes. The previously added
+\`test_rayman2_dat_bootstrap.py\` private sample integration asserts the
+extra findings. **25 of 25 actual local tests pass, no skips** when
+the owner's private binaries are present; GitHub code files match
+the locally exercised blobs byte-for-byte. There is no Wine gameplay
+test or original CD image involved.
+
 ## Read-only, falsifiable checks
 
 `scripts/rayman2_anti_tamper_assets.py` inspects only the two historical asset names and hashes, with case-insensitive per-component lookup, link rejection and bounded reading. Example:
