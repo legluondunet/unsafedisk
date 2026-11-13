@@ -171,18 +171,27 @@ environment. Before merging the stacked draft PRs, run:
 cargo test --bin unsafedisc-linux
 ```
 
+**Reference provenance warning:** The 1,468,928-byte reference executable
+below is from the **GOG edition**. Although it is DRM-free and its hash
+is known, it may contain unrelated GOG/third-party modifications.
+Differences from the original CD executable, including `INT3`/`NOP`
+bytes and added sections, **cannot be attributed exclusively to
+SafeDisc removal**. The 3,716-entry inventory resides in this GOG
+reference; it is **not an independently authenticated original-CD
+manifest**.
+
 **New direct EXE comparison:** The owner's independent 1,468,928-byte
-unprotected `Rayman2.exe` (SHA-256 `9bae484b…`) and the
+GOG `Rayman2.exe` (SHA-256 `9bae484b…`) and the
 676,352-byte protected EXE (SHA-256 `7927a106…`) share the same
 entry RVA and unchanged import/export data directories. When aligned
 by PE section RVA rather than file offsets, **97.8981% of backed
 `.text` bytes, 100% of `.rdata`, and 99.5999% of `.data`
 are identical**. Of 13,269 changed `.text` bytes, **10,851
-become `INT3` (0xCC)**; the unprotected reference additionally has
+become `INT3` (0xCC)**; the GOG reference additionally has
 `.extra`, `.extra2` and `.rsrc`.
 
 Its `.extra2` contains a length-prefixed inventory of **3,716
-original-CD filenames and claimed lengths**, including exactly
+file names and claimed lengths from the GOG image**, including exactly
 matching sizes for `RAYMAN2.EXE`, `RAYMAN2.ICD` and `DPLAYERX.DLL`.
 The declared sizes add up to **7,453,062,614 bytes (7.45 GB)**:
 this manifest is **not** an extraction plan or proof of physical
@@ -194,7 +203,7 @@ own copies:
 ```sh
 python scripts/pe_reference_diff.py \
   --protected Rayman2-protected.exe \
-  --reference Rayman2-unprotected.exe \
+  --reference Rayman2-GOG.exe \
   --manifest-section .extra2 \
   --focus-name RAYMAN2.EXE \
   --focus-name RAYMAN2.ICD \
