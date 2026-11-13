@@ -265,6 +265,36 @@ See [the Rayman 2 research notes](docs/safedisc-135-rayman2-research.md)
 for the three instruction addresses, verification
 limits and source references.
 
+**GOG also emulates CD-ROM properties (static evidence):**
+Three callbacks in the GOG-specific dispatch table return fixed
+answers resembling Win32 CD-drive functions:
+
+- Slot `+0x10` → `0x448EC4`:
+  `MOV EAX,5; RET 4` (`DRIVE_CDROM`, `GetDriveTypeA` signature).
+- Slot `+0x28` → `0x448E6C`: writes
+  `RAYMAN2`, `CDFS`, serial `0x6D380AE8`
+  and other hard-coded volume information
+  (`GetVolumeInformationA`-like signature).
+- Slot `+0x0C` → `0x448ED0`: reports
+  2048-byte sectors, one sector per cluster,
+  0 free clusters and 332,400 total clusters
+  (`GetDiskFreeSpaceA`-like signature).
+  Its reported capacity is 680,755,200 bytes.
+
+These are **hard-coded GOG outputs**, not authenticated
+properties of the original CD. The functions were
+identified by exact instruction and parameter-layout
+inspection, **not by running the game**.
+See `docs/safedisc-135-rayman2-research.md`.
+
+The generic PE analyzer now classifies
+`MOV EAX,imm32; RET imm16` return stubs,
+including the 8-byte drive-type example above;
+its synthetic regression test is committed.
+Independent local real-file byte checks passed
+**13/13**. No protected binaries are committed
+and no GitHub Actions run was launched.
+
 **GOG startup bypass identified statically (13 Nov 2026):**
 The direct CD/GOG startup call `0x401EFA → 0x449360`
 and the **complete 331-byte initializer at `0x449360`**
