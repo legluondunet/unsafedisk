@@ -94,6 +94,86 @@ Only hashes, byte counts, RVAs and limitation flags
 are reported; no game bytes are redistributed.
 
 
+## Original SafeDisc-era startup-to-API relay: preserved caller, neutralized GOG callees (13 November 2026)
+
+This is the next **protection-stage** research target following the
+whole-PE code boundary audit. The following evidence was verified
+byte-for-byte against the owner's **two exact SHA-256-known original
+CD and separately modified GOG executable files**, not reconstructed
+from the GOG archival \`.extra\` copy.
+
+**Both active executables use the same native startup CALL at
+VA 0x00401EFA** into **0x00449360**. The complete **331 bytes at
+0x00449360..0x004494AA** are *byte-identical* in the two active
+executables; their SHA-256 is
+\`508fb5bc006002d4a7efb27d30747ef453b843219f7fadd1f67b471e7ac30448\`.
+This initializer seeds a **281-word pseudo-random generator**
+at runtime global \`0x00510EA0\`, then prepares a
+module-table pointer and dispatches five original
+E8-relative CALL instructions.
+
+| CALL instruction VA | Original function VA | GOG active function |
+|---|---|---|
+| **0x0044947C** | **0x004478A0** | **RET + INT3 padding**; original special \`GetModuleHandleA\` bootstrap |
+| **0x00449485** | **0x00448DB0** | **RET + INT3 padding**; original 7-module handle loop |
+| **0x0044948E** | **0x00448D80** | **RET + INT3 padding**; original 35 ordinary API descriptor loop |
+| **0x0044949A** | **0x00447DE0** | **RET + INT3 padding**; original runtime masked-API-dependent helper |
+| **0x0044949F** | **0x00448E30** | Retains its first 42 bytes, then changes original logic at **0x00448E5A** into a short path initializer that writes the character **\`.\`** at global **0x004A6AD8** |
+
+The last two CALLs are behind a branch at **0x00449496**:
+they require a nonzero \`EBX\` (the routine's caller-supplied
+argument). The first three CALLs are outside that branch.
+Original functionality and its exact inferred role must
+not be extrapolated from GOG's stubs.
+
+**Independent startup compatibility edit, not decryption:**
+at **0x00401D8E**, original retail code calls the Win32
+\`GetWindowsDirectoryA\` IAT entry **0x0049C0B4** to
+initialize a path, then uses its original
+\`/UbiSoft\` and \`/ubi.ini\` strings for the game's
+configuration setup. GOG instead stores the literal
+character **\`.\`** into the path buffer, jumps
+directly to the common path continuation at
+**0x00401DEE**, and replaces 88 original bytes
+with INT3; GOG also uses backslash variants of
+those two path strings. This is evidence of a
+Windows installation-directory behavior change,
+not a SafeDisc decryption cipher. Both editions
+still contain ordinary later code for accessing
+a \`ubi.ini\` file.
+
+**Why this helps unwrapping:** the original call chain
+from the executable entrypoint to the
+\`GetModuleHandleA\` bootstrap, module-handle
+acquisition and masked Win32 function resolution
+is now explicit and testable. Its **GOG neutralization
+is target-specific**, not equivalent to "GOG decrypted
+all of the retail executable." It identifies concrete
+places to **observe** state in an original legitimate
+runtime (module-handle table, pointer descriptors,
+callback success) and possible smaller protected
+code paths, but neither proves a disk authentication
+transaction nor recovers a SafeDisc 1.35 key, decrypted
+ICD or post-load game image.
+
+**Reproducibility:** existing
+\`scripts/rayman2_trampoline_proof.py\`
+now includes \`verify_retained_bootstrap_chain\`
+with exact original/GOG SHA verification, six
+relative CALL instruction checks, nine shared
+generator anchors, four GOG RET/INT3 no-op sites,
+and original/GOG startup path modifications.
+Companion \`scripts/test_rayman2_trampoline_proof.py\`
+has **20 synthetic/optional owner-file test methods**;
+the independent full private-file local
+audit additionally executed **11/11 passing tests**
+and refused SHA-modified inputs. A local metadata-only
+JSON report is
+\`retail_gog_protection_bootstrap_verified_20261113.json\`.
+No proprietary samples are committed and no protected
+game binary is executed.
+
+
 ## New four-sample provenance and contemporary Rayman 2-specific study (13 November 2026)
 
 A **full, independent byte-level crosscheck** now links the user's exact
