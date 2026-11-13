@@ -82,6 +82,26 @@ class LogToGogTests(unittest.TestCase):
         result = compare(log, synthetic)
         self.assertFalse(result['historical_23_omitted_dat']['all_23_confirmed_in_both'])
 
+    def test_23_dat_sizes_alone_explain_nominal_overshoot(self):
+        from rayman2_cd_log_gog_compare import LEVEL_DAT_PATHS
+        fake_sum = 6_777_257_404
+        # Synthetic catalog with the same aggregate properties as the original
+        # log and hash-pinned GOG metadata. No commercial data is embedded.
+        names = sorted(LEVEL_DAT_PATHS)
+        fake = {name: fake_sum // 23 for name in names}
+        fake[names[0]] += fake_sum - sum(fake.values())
+        catalog = dict(fake)
+        catalog['test/ordinary.bin'] = 675_805_210
+        log = {'stats': {'files': 3718, 'declared_bytes': 7_450_158_839,
+                         'image_bytes': 678_168_576},
+               'omissions': fake}
+        result = compare(log, catalog)['full_23_dat_declared_size_reconciliation']
+        self.assertEqual(result['iso_nominal_bytes_without_23'], 672_901_435)
+        self.assertEqual(result['gog_nominal_bytes_without_23'], 675_805_210)
+        self.assertEqual(result['iso_image_bytes_minus_remaining_nominal'], 5_267_141)
+        del catalog[names[1]]
+        self.assertIsNone(compare(log, catalog)['full_23_dat_declared_size_reconciliation'])
+
     def test_catalog_malformed_and_wrong_hash_rejected(self):
         good = fake_pe_catalog([('RAYMAN2.ICD', 10)])
         with self.assertRaises(ValueError):
