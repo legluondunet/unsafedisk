@@ -208,6 +208,32 @@ from the GOG import-forwarding stubs and matching original descriptor
 address construction, not from a newly published entire decoded
 export list.
 
+
+### Execution-permission caveat for the original dynamic trampoline buffer
+
+Independent inspection of both exact PE32 section tables shows that the
+trampoline buffer **\`0x00510EA0\`** lies at offset \`0x71EA0\` in
+the virtual \`.data\` section (virtual size \`0x776D0\`, raw file size
+\`0x7C00\`). It is in *zero-filled virtual memory*, not original
+backed-on-disk bytes. That section is marked **\`0xC0000040\` = read/write,
+non-executable**, in both sampled PE headers.
+
+The retail code near \`0x44F286\` constructs x86 instructions at a
+PRNG-selected offset of this buffer and appears to call them
+indirectly. This creates a **possible DEP/NX compatibility issue** on
+modern Windows and Wine: a section header which is not executable does
+not itself establish the protection of its pages *at runtime*, and
+the game may use additional memory-management code or compatibility
+behavior. The PE import directory does not directly list
+\`VirtualProtect\` or \`VirtualAlloc\`; dynamically resolved functions
+are not excluded. **No DEP fault was observed or demonstrated**, so
+this is a research question and not a confirmed crash cause.
+
+The GOG forwarders dispense with these particular generated stubs,
+which is consistent with a simpler modern Win32 I/O path. This
+observation is **not** an instruction to make writable memory
+executable or to disable system security features.
+
 ## Read-only, falsifiable checks
 
 `scripts/rayman2_anti_tamper_assets.py` inspects only the two historical asset names and hashes, with case-insensitive per-component lookup, link rejection and bounded reading. Example:
