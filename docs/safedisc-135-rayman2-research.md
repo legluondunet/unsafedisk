@@ -12,6 +12,18 @@ reported file lengths** in the GOG reference, but does not authenticate the
 3,716 GOG entries as the original CD directory.
 
 
+**Focused 23-file subgroup:** the original ISO logs explicitly
+omit 23 atypically large `DATA/WORLD/LEVELS` numbered
+DAT records. Their combined declared size is
+**6,777,257,404 bytes**, whereas the physical original
+ISO image is **678,168,576 bytes**. The
+`rayman2_cd_log_gog_compare.py` tool independently
+confirms **23/23 exact filename and size matches** to
+GOG's `.extra2` virtual-CD catalog, in both archived
+logs; all **six** synthetic tests passed locally.
+This confirms metadata retention only, not physical file
+contents or an executed in-game anti-tamper predicate.
+
 ## Two original ISO inspection logs corroborate the GOG virtual catalog (14 November 2026)
 
 [Read-only original-ISO versus GOG log reconciliation]
