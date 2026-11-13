@@ -150,6 +150,110 @@ protected counterpart has no ordinary resource directory. These
 differences **do not establish how the unprotected EXE was produced**
 or imply a general-purpose SafeDisc 1.35 decoding method.
 
+### Retail masked-call descriptor array: 35 active records, 76-byte stride
+
+A new file-backed-data audit found a **regular, byte-identical
+structure in both SHA-256-verified executables**:
+
+| Property | Observed value |
+|---|---|
+| Base VA | `0x004A141C` in `.data` |
+| Record stride | **`0x4C` bytes (76 bytes)** |
+| Nonzero-initialized records | **35** (indices 0–34) |
+| Following all-zero record | index **35** (`0x004A1E80`) |
+| Total compared range | **36 × 76 = 2,736 bytes** |
+| SHA-256 of full range in **both** files | `f4a498cafd1b76536b3367c27b5fc6142b918ecc4525cadb0c2df4c8f2951cd5` |
+| First DWORD `+0x00` | nonzero and unique in each of 35 active records |
+| DWORD `+0x30` | **zero for all 36 records** |
+| Original-CD vs GOG | **2,736/2,736 bytes identical** |
+
+The 35 entries followed by one all-zero record are
+**consistent with an array of fixed-size descriptors plus a
+sentinel-like terminator**, but the full field semantics are
+not yet proven. In particular, the `+0x30` field is a
+**zero-initialized location on disk**, not a demonstrated
+runtime-resolved callback pointer.
+
+The 12 masked callback-table stores in the **retail
+`0x00467130` initializer** all reference record pairs with
+this exact geometry:
+
+```text
+mask_or_first_field = 0x004A141C + (index * 0x4C)
+other_field         = mask_or_first_field + 0x30
+computed_from_file  = [other_field] XOR [mask_or_first_field]
+```
+
+Representative callback-table slots:
+
+| Callback offset | Record index | First field VA | `+0x30` field VA |
+|---|---:|---|---|
+| `+0x08` | **7** | `0x004A1630` | `0x004A1660` |
+| `+0x1C` | **30** | `0x004A1D04` | `0x004A1D34` |
+| `+0x20` | **17** | `0x004A1928` | `0x004A1958` |
+
+On disk, each `+0x30` value is zero, and the first
+DWORD is not a valid directly callable GOG pointer. **No
+runtime-resolved pointer is implied by a direct XOR of
+these original file bytes.** The unchanged 2,736-byte
+descriptor block also proves that **GOG did not
+change this table on disk**, even though GOG modified
+the callback initializer to install several literal
+functions instead.
+
+#### Explicit x86 stub construction in the retail EXE
+
+A distinct protected-only code path at `0x0044F28C`
+writes an executable-style 13-byte sequence into a
+PRNG-offset scratch buffer:
+
+```asm
+A1 60 16 4A 00       ; mov eax, [0x004A1660]
+33 05 30 16 4A 00    ; xor eax, [0x004A1630]
+FF E0                ; jmp eax
+```
+
+The 13 bytes are **constructed at runtime**, not a
+contiguous block of instructions present in the
+retail EXE file. The code writes the opcode bytes
+and operands separately at `0x0044F28C`–`0x0044F2A9`,
+then performs indirect dispatch at `0x0044F2FA`.
+Similar dynamic-stub construction appears around
+`0x0044DED2` and `0x00450B42`.
+
+This connects the regular descriptor array to actual
+**masked indirect control-flow construction** in the
+protected game code. It does **not** reveal when or how
+the `+0x30` placeholder is populated, whether a
+separate protection stage updates it, or the original
+target address. It is also **not proof that all 35
+records correspond to independent SafeDisc callbacks**.
+
+#### Repeat the comparisons without patching either EXE
+
+The generic read-only `pe_reference_diff.py` CLI now
+accepts `--descriptor-layout BASE:STRIDE:COUNT:MASK_OFFSET:SLOT_OFFSET`
+and repeatable `--masked-pair FIRST:SECOND`. It uses
+file-backed PE virtual addresses, checks bounds, and
+labels its results **on-disk observations only**:
+
+```sh
+python scripts/pe_reference_diff.py \
+  --protected Rayman2-CD-protected.exe \
+  --reference Rayman2-GOG.exe --reference-origin GOG \
+  --descriptor-layout 0x4a141c:0x4c:36:0:0x30 \
+  --masked-pair 0x4a1660:0x4a1630 \
+  --masked-pair 0x4a1d34:0x4a1d04 \
+  --masked-pair 0x4a1958:0x4a1928
+```
+
+Four additional synthetic tests check complete-record
+comparisons despite differing raw PE offsets, a single
+changed record, invalid/unbacked ranges and CLI JSON
+safety. A separate local inspection of the owner's
+actual SHA-256-pinned binaries confirms the **35+1
+record structure and full 2,736-byte identity**.
+
 ### Dispatch-table linkage: GOG filename/size routines are assigned to game callbacks
 
 A follow-up read-only **two-binary disassembly and byte comparison**
