@@ -10,6 +10,8 @@ from pathlib import Path
 from pe_import_xrefs import parse_headers, rva_file_offset, import_entries
 from rayman2_cd_io_diff import safe_read
 CD_HASH='7927a106ac4f2244e304e57c196170f6cfb311af87ddf59eb6e6c48b9bb0d5e3'
+MAX_DAT_INDEX = 1023
+DAT_BLOCK_BYTES = 16 + 4*(MAX_DAT_INDEX+1)  # 4,112-byte maximum window, not confirmed disk record layout
 GOG_HASH='9bae484bd84a4afad8d4e7b1bb30a85ce1ce2367f8451463696eabab28a72713'
 
 
@@ -29,6 +31,19 @@ def rel_call(site,target):
     return b'\xe8'+struct.pack('<i',target-site-5)
 
 
+def derive_dat_index(state0_byte:int, state1_byte:int, modulus:int)->int:
+    """Symbolic x86 0x44ED2C..0x44ED8E derivation (not a runtime trace).
+
+    Dividend is the first byte (zero-extended), remainder q = state0 % modulus.
+    Switch selects r = state1 & 3. Index is (q << 2) + r.
+    The modulus comes from a previously read/decoded DAT value.
+    """
+    if not (0<=state0_byte<=255 and 0<=state1_byte<=255 and
+            1<=modulus<2**32):
+        raise ValueError('invalid DAT index state or divisor')
+    return 4*(state0_byte%modulus) + (state1_byte&3)
+
+
 def derive_dat_word(header:bytes, indexed_word:int, index:int)->int:
     """Reconstruct the shared x86 arithmetic, not a SafeDisc key decoder.
 
@@ -37,7 +52,7 @@ def derive_dat_word(header:bytes, indexed_word:int, index:int)->int:
     word comes from 16 + 4*index bytes after that prior position, but
     only if both Win32 reads and both seeks succeed.
     """
-    if len(header)!=16 or not 0<=indexed_word<2**32 or not 0<=index<65536:
+    if len(header)!=16 or not 0<=indexed_word<2**32 or not 0<=index<=MAX_DAT_INDEX:
         raise ValueError('invalid DAT header/index/word')
     a,b,c,d=struct.unpack('<4I',header)
     aa=(a+c*index)&0xffffffff
@@ -80,6 +95,39 @@ def analyze(cd:bytes,gog:bytes)->dict:
                and x['dll'].lower()=='kernel32.dll'
                for x in import_entries(cd,ch)):
         raise ValueError('SetFilePointer import pointer not confirmed')
+    # Both builds retain the same 4-case DAT word-index selector and
+    # the outer chain. Its byte-sized quotient and two-bit remainder
+    # constrain n = 4*q + r to the inclusive range 0..1023.
+    index_anchors = (
+      (0x44ED2C, 'A1 F0 16 51 00 33 D2 25 FF 00 00 00 F7 35 50 17 51 00'),
+      (0x44ED3E, '33 C0 A0 F1 16 51 00 88 15 F0 16 51 00'),
+      (0x44ED50, '83 E0 03 33 C2 2B C2 33 D2 A2 F1 16 51 00'),
+      (0x44ED5E, '8B 0D F0 16 51 00 8A D0 81 E1 FF 00 00 00 8B C2 C1 E1 02'),
+      (0x44ED71, '83 F8 03 89 4D FC 77 15 FF 24 85 04 F2 44 00'),
+      (0x44ED80, '41 EB 08'),
+      (0x44ED83, '83 C1 02 EB 03'),
+      (0x44ED88, '83 C1 03 89 4D FC'),
+    )
+    call_anchors = (
+      (0x44D9EA,'E8 71 AF FC FF 84 C0 74 16 53 E8 A7 0E 00 00'),
+      (0x44D9FC,'84 C0 74 09 B0 01'),
+      (0x44E8CF,'8D 45 FC 50 E8 68 02 00 00'),
+      (0x44E8DD,'83 FB FF 89 5D F4'),
+      (0x44E8EF,'8B 7D FC'),
+      (0x44E99F,'6A 00 6A 00 57 53'),
+      (0x44EA7A,'8B 45 F4'),
+      (0x44EA97,'89 06 C7 46 04 01 00 00 00'),
+    )
+    for data,head in ((cd,ch),(gog,gh)):
+        for site,hexbytes in (*index_anchors,*call_anchors):
+            want(data,head,site,bytes.fromhex(hexbytes))
+        if struct.unpack('<4I',region(data,head,0x44F204,16)) != (
+                0x44ED8E,0x44ED80,0x44ED83,0x44ED88):
+            raise ValueError('DAT index jump table does not match its 4 cases')
+    want(cd,ch,0x44E8F2,bytes.fromhex('81 F1 24 D9 5B 07'))
+    want(gog,gh,0x44E8F2,bytes.fromhex('E9 A8 00 00 00'))
+    want(cd,ch,0x44E9A5,bytes.fromhex('FF D6'))
+    want(gog,gh,0x44E9A5,bytes.fromhex('FF 15 48 C0 49 00'))
     # 4-byte extraction and transformation (common to both).
     want(cd,ch,0x44F0A6,b'\x6a\x04')
     want(gog,gh,0x44F0A6,b'\x6a\x04')
@@ -118,6 +166,22 @@ def analyze(cd:bytes,gog:bytes)->dict:
     return {
       'read_only':True,'exact_retail_gog_sha256':True,
       'runtime_flow_verified':False,'safedisc_removal_attributed':False,
+      'indexed_table':{'index_formula':'4*(first_state_byte % runtime_modulus) + (second_state_byte & 3)',
+                       'index_min':0,'index_max':MAX_DAT_INDEX,
+                       'header_bytes':16,'indexed_word_count':MAX_DAT_INDEX+1,
+                       'indexed_word_bytes':(MAX_DAT_INDEX+1)*4,
+                       'candidate_block_bytes':DAT_BLOCK_BYTES,
+                       'requires_successful_nonzero_runtime_modulus':True,
+                       'disk_record_size_confirmed':False,
+                       'jump_table_va':'0x0044F204','branch_cases':4},
+      'retained_caller_chain':{'outer_entry':'0x0044D990',
+                               'conditional_call':'0x0044D9F4 -> 0x0044E8A0',
+                               'inner_call':'0x0044E8D3 -> 0x0044EB40',
+                               'returned_word_local':'[EBP-4] at outer caller',
+                               'outer_seek':'0x0044E9A5, FILE_BEGIN, decoded/adjusted position',
+                               'retail':'indirect generated SetFilePointer',
+                               'gog':'direct KERNEL32.dll!SetFilePointer IAT',
+                               'liveness':'static conditional call chain, no runtime reachability proven'},
       'initial_dat_seek':{'va':'0x0044EEC9','move_method':'FILE_BEGIN',
                           'offset':'runtime-computed base, not necessarily 0'},
       'preceding_header_read':{'va':'0x0044EF5D','requested_bytes':16,
