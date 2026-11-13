@@ -4,7 +4,10 @@ import os
 from pathlib import Path
 from rayman2_trampoline_proof import (analyze,code_gen,flush_pattern,p32,WRAPPERS,
                                       masked_slot,verify_slot_initializer,SLOT_ANCHORS,
-                                      SLOT_INIT_CALLS,BOOTSTRAP_ANCHORS,BOOTSTRAP_RECORD,BOOTSTRAP_SLOT)
+                                      SLOT_INIT_CALLS,BOOTSTRAP_ANCHORS,BOOTSTRAP_RECORD,BOOTSTRAP_SLOT,
+                                      RELAY_ENTRY,RELAY_LENGTH,RELAY_STARTUP_CALL,
+                                      RELAY_CALLS,GOG_IMMEDIATE_RET_CALLEES,
+                                      RELAY_GENERATOR_ANCHORS,verify_retained_bootstrap_chain)
 
 
 class TrampolineProofTests(unittest.TestCase):
@@ -88,6 +91,68 @@ class TrampolineProofTests(unittest.TestCase):
         self.assertEqual(init['get_loaded_module_handle_helper_calls_verified'],2)
         self.assertEqual(init['special_bootstrap_anchor_count'],10)
         self.assertFalse(report['runtime_execution_proven'])
+        relay=report['retained_retail_GOG_bootstrap_callchain']
+        self.assertEqual(relay['initializer_bytes_compared'],331)
+        self.assertEqual(relay['total_original_direct_CALLs_verified'],6)
+        self.assertTrue(relay['gog_four_callees_replaced_with_RET_INT3_verified'])
+        self.assertTrue(relay['gog_fifth_callee_rewritten_to_store_dot_in_global_0x004A6AD8'])
+
+    @staticmethod
+    def synthetic_retail_relay():
+        # Synthetic PE RVA mapping: no copyrighted game instructions in fixtures.
+        block=bytearray(b'\x90'*0x49000)
+        h={'image_base':0x00400000,'sections':[{
+            'rva':0x1000,'raw_off':0,
+            'raw_size':len(block),'virtual_size':len(block)
+        }]}
+        def put(site,value):
+            ofs=site-0x00401000
+            block[ofs:ofs+len(value)]=value
+        put(RELAY_ENTRY,bytes.fromhex('55 8B EC 83 EC 08 A1'))
+        for addr,pattern in RELAY_GENERATOR_ANCHORS.items():
+            put(addr,bytes.fromhex(pattern))
+        for site,target in {RELAY_STARTUP_CALL:RELAY_ENTRY,**RELAY_CALLS}.items():
+            import struct
+            put(site,b'\xe8'+struct.pack('<i',target-site-5))
+        put(0x00449496,bytes.fromhex('85 DB 74 0A'))
+        put(0x00401D8E,bytes.fromhex('68 04 01 00 00'))
+        put(0x00401D93,bytes.fromhex('50 FF 15 B4 C0 49 00'))
+        return block,h
+
+    def test_relay_original_five_call_inventory(self):
+        self.assertEqual(RELAY_ENTRY,0x00449360)
+        self.assertEqual(RELAY_LENGTH,331)
+        self.assertEqual(len(RELAY_CALLS),5)
+        self.assertEqual(len(GOG_IMMEDIATE_RET_CALLEES),4)
+        self.assertEqual(len(RELAY_GENERATOR_ANCHORS),9)
+        self.assertEqual(set(RELAY_CALLS.values())-
+                         set(GOG_IMMEDIATE_RET_CALLEES),{0x00448E30})
+
+    def test_synthetic_retail_bootstrap_initializer(self):
+        b,h=self.synthetic_retail_relay()
+        report=verify_retained_bootstrap_chain(bytes(b),h)
+        self.assertEqual(report['total_original_direct_CALLs_verified'],6)
+        self.assertEqual(report['shared_PRNG_seed_word_count'],281)
+        self.assertFalse(report['runtime_execution_proven'])
+        self.assertFalse(report['gog_four_callees_replaced_with_RET_INT3_verified'])
+
+    def test_synthetic_relay_rejects_modified_CALL(self):
+        b,h=self.synthetic_retail_relay()
+        b[0x00449485-0x00401000]^=1
+        with self.assertRaisesRegex(ValueError,'opcode pattern'):
+            verify_retained_bootstrap_chain(bytes(b),h)
+
+    def test_synthetic_relay_rejects_wrong_seed(self):
+        b,h=self.synthetic_retail_relay()
+        b[0x0044939E-0x00401000]^=1
+        with self.assertRaisesRegex(ValueError,'opcode pattern'):
+            verify_retained_bootstrap_chain(bytes(b),h)
+
+    def test_synthetic_relay_rejects_missing_original_helper(self):
+        b,h=self.synthetic_retail_relay()
+        b[0x00447DE0-0x00401000]=0xc3
+        with self.assertRaisesRegex(ValueError,'retail callee'):
+            verify_retained_bootstrap_chain(bytes(b),h)
 
     def test_flush_span_covers_all_generated_code(self):
         self.assertGreaterEqual(0x464,0x455-1+13)
