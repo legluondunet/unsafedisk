@@ -240,6 +240,34 @@ for this exact address. These counts do
 not exclude indirect writes or demonstrate
 the live guard value.
 
+**Complete GOG dispatch map (static, read-only):** The
+initializer at `0x00467130` fills **16
+four-byte callback slots** (`+0x00` through
+`+0x3C`). Independent analysis finds
+**15 literal function addresses and one
+import pointer read from `[0x0049C0C8]`**
+(the `+0x34` slot). The latter cannot
+be inferred to be a fixed target address.
+The generic research utility
+[`pe_callback_table_map.py`](scripts/pe_callback_table_map.py)
+can reproduce the mapping from an owner's
+`objdump -d -M intel` output:
+
+```sh
+objdump -d -M intel Rayman2-GOG.exe > gog-disasm.txt
+python scripts/pe_callback_table_map.py \
+  --objdump gog-disasm.txt \
+  --start-va 0x467130 --end-va 0x467206 \
+  --expected-slots 16
+```
+
+The **five synthetic unit tests** pass
+locally; the complete 16-slot GOG mapping
+was also checked offline. Results are
+only candidate x86 assignments, not
+proof of code execution or SafeDisc-only
+changes.
+
 **GOG virtual CD-ROM compatibility callbacks (static evidence,
 13 Nov 2026):** The GOG callback initializer assigns:
 `+0x10 → 0x448EC4` (returns **5 = `DRIVE_CDROM`**),
