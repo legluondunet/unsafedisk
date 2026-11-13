@@ -248,12 +248,127 @@ def verify_fix_sidecars(manifest: dict[str,int]) -> dict:
     }
 
 
+
+def executable_text_delta(original: bytes, active_gog: bytes,
+                          *, page_size: int = 4096) -> dict:
+    """Raw-byte-only PE code comparison; no inference of a cipher.
+
+    The modified GOG reference is not a pristine, merely decrypted EXE.
+    Int3 ('CC') means an opcode value changed to INT3, not a verified
+    original function boundary or proof that that code was protection.
+    """
+    if not original or len(original)!=len(active_gog):
+        raise ValueError('equal nonempty code arrays required')
+    if page_size <= 0 or (page_size & (page_size-1)):
+        raise ValueError('page size must be a power of two')
+    diff=sum(a!=b for a,b in zip(original,active_gog))
+    to_int3=sum(a!=b and b==0xcc for a,b in zip(original,active_gog))
+    ranges=changed_runs(original,active_gog)
+    changed_pages=[]
+    for off in range(0,len(original),page_size):
+        n=sum(a!=b for a,b in zip(original[off:off+page_size],
+                                   active_gog[off:off+page_size]))
+        if n:
+            changed_pages.append({'rva':f'0x{0x1000+off:X}',
+                                  'different_bytes':n})
+    longest=0
+    start=0
+    for begin,end in ranges:
+        longest=max(longest,begin-start)
+        start=end
+    longest=max(longest,len(original)-start)
+    pages=(len(original)+page_size-1)//page_size
+    return {'retail_text_bytes':len(original),
+            'identical_bytes':len(original)-diff,
+            'different_bytes':diff,
+            'changed_to_gog_INT3_bytes':to_int3,
+            'other_changed_gog_bytes':diff-to_int3,
+            'contiguous_changed_byte_ranges':len(ranges),
+            'pages_total':pages,
+            'identical_pages':pages-len(changed_pages),
+            'changed_pages':changed_pages,
+            'longest_identical_byte_run':longest}
+
+
+def pe_section_flags(data: bytes, name: str) -> int:
+    """Read section characteristics only after the bounded PE parser."""
+    pe_sections(data)
+    nt=struct.unpack_from('<I',data,0x3c)[0]
+    optlen=struct.unpack_from('<H',data,nt+20)[0]
+    n=struct.unpack_from('<H',data,nt+6)[0]
+    table=nt+24+optlen
+    for i in range(n):
+        at=table+40*i
+        if data[at:at+8].split(b'\0')[0].decode('ascii','strict')==name:
+            return struct.unpack_from('<I',data,at+36)[0]
+    raise ValueError(f'missing PE section {name}')
+
+
+def audit_executable_code_boundary(retail: bytes, gog: bytes,
+                                   retail_sections: dict[str,bytes],
+                                   gog_sections: dict[str,bytes]) -> dict:
+    """Known pair only; inspect() verifies all reference SHA-256 first."""
+    original=retail_sections['.text']
+    gog_active=gog_sections['.text']
+    if len(original)!=0x9A200 or len(gog_active)<len(original):
+        raise ValueError('unexpected retail/GOG .text lengths')
+    d=executable_text_delta(original,gog_active[:len(original)])
+    expected={
+        'retail_text_bytes':631296,'identical_bytes':618027,
+        'different_bytes':13269,
+        'changed_to_gog_INT3_bytes':10851,
+        'other_changed_gog_bytes':2418,
+        'contiguous_changed_byte_ranges':102,
+        'pages_total':155,'identical_pages':141,
+        'longest_identical_byte_run':268900,
+    }
+    for key,value in expected.items():
+        if d[key]!=value:
+            raise ValueError(f'unexpected original/GOG .text fingerprint: {key}')
+    changed_rvas=[int(p['rva'],16) for p in d['changed_pages']]
+    if changed_rvas != [0x1000,0x2000,0x5000,0x47000,0x48000,
+                        0x49000,0x4d000,0x4e000,0x4f000,0x50000,
+                        0x51000,0x67000,0x70000,0x7b000]:
+        raise ValueError('modified code pages do not match known editions')
+    if gog_sections['.extra'][0x1000:0x1000+len(original)]!=original:
+        raise ValueError('nonexecutable GOG archival copy differs')
+    if pe_section_flags(gog,'.extra')&0x20000000:
+        raise ValueError('unexpected executable GOG archival .extra section')
+    nt=struct.unpack_from('<I',retail,0x3c)[0]
+    opt=nt+24
+    base=struct.unpack_from('<I',retail,opt+28)[0]
+    entry=base+struct.unpack_from('<I',retail,opt+16)[0]
+    nt_g=struct.unpack_from('<I',gog,0x3c)[0]
+    opt_g=nt_g+24
+    entry_g=(struct.unpack_from('<I',gog,opt_g+28)[0]
+             +struct.unpack_from('<I',gog,opt_g+16)[0])
+    if entry!=entry_g or entry!=0x0045FCC0:
+        raise ValueError('original and GOG entrypoints differ')
+    off=entry-0x00401000
+    startup=original[off:off+16384]
+    if (len(startup)!=16384 or startup!=gog_active[off:off+16384] or
+            not startup.startswith(bytes.fromhex('55 8b ec 6a ff 68 d0 c9 49 00'))):
+        raise ValueError('changed or unknown original startup prologue')
+    return {'read_only':True,'dynamic_unwrapping_observed':False,
+            'retail_and_gog_entry_va':'0x0045FCC0',
+            'startup_16_kib_identical':True,
+            'gog_archived_retail_text_sha256':hashlib.sha256(original).hexdigest(),
+            'gog_archived_copy_exact':True,
+            'gog_archive_section_marked_executable':False,
+            'code_page_differentiation':d,
+            'large_encrypted_retail_text_payload_demonstrated':False,
+            'GOG_reference_is_not_clean_unprotected_retail':True,
+            'safedisc_135_decoder_or_key_recovered':False}
+
+
+
 def inspect(samples: dict[str, bytes]) -> dict:
     for key, (sha, size) in REFS.items():
         if key not in samples or len(samples[key]) != size or hashlib.sha256(samples[key]).hexdigest() != sha:
             raise ValueError(f'unknown or changed {key} sample')
     retail, gog = pe_sections(samples['retail']), pe_sections(samples['gog'])
     data_delta = audit_cd_gog_data_changes(retail,gog)
+    code_boundary = audit_executable_code_boundary(samples['retail'],samples['gog'],retail,gog)
     if '.text' not in retail or '.extra' not in gog or '.extra2' not in gog:
         raise ValueError('expected reference PE sections missing')
     text = retail['.text']
@@ -298,6 +413,7 @@ def inspect(samples: dict[str, bytes]) -> dict:
     return {
         'read_only':True, 'all_four_exact_sha256_verified':True,
         'original_to_gog_data_changes':data_delta,
+        'retail_vs_gog_executable_code_boundary':code_boundary,
         'private_input_bytes_reproduced_in_report':False,
         'gog_virtual_cd_record_count':len(entries),
         'gog_manifest_end_offset':used,
