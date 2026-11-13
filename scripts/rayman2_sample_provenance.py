@@ -39,8 +39,13 @@ def read_bounded(path: Path) -> bytes:
                  getattr(os, 'O_BINARY', 0))
     with os.fdopen(fd, 'rb') as fh:
         opened = os.fstat(fh.fileno())
-        if (opened.st_dev, opened.st_ino, opened.st_size) != (st.st_dev, st.st_ino, st.st_size):
-            raise ValueError('file replaced before reading')
+        # On Windows, stat() and fstat() may disagree on inode/device for
+        # an unchanged file. Keep strict POSIX checks; on Windows compare
+        # common snapshot fields (best effort, not a TOCTOU guarantee).
+        if ((opened.st_size, opened.st_mtime_ns) != (st.st_size, st.st_mtime_ns)
+                or (os.name != 'nt' and
+                    (opened.st_dev, opened.st_ino) != (st.st_dev, st.st_ino))):
+            raise ValueError('file replaced or changed before reading')
         data = fh.read(MAX_INPUT + 1)
         after = os.fstat(fh.fileno())
     if (len(data) != opened.st_size or len(data) > MAX_INPUT or
