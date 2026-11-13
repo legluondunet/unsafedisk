@@ -102,6 +102,25 @@ class LogToGogTests(unittest.TestCase):
         del catalog[names[1]]
         self.assertIsNone(compare(log, catalog)['full_23_dat_declared_size_reconciliation'])
 
+    def test_iso_volume_geometry_matches_gog_to_1759_bytes(self):
+        from rayman2_cd_log_gog_compare import LEVEL_DAT_PATHS
+        nominal_fake = 6_777_257_404
+        names = sorted(LEVEL_DAT_PATHS)
+        fake = {name: nominal_fake // 23 for name in names}
+        fake[names[-1]] += nominal_fake - sum(fake.values())
+        catalog = dict(fake)
+        catalog['sample'] = 675_805_210
+        log = {'stats': {'files': 3718, 'declared_bytes': 7_450_158_839,
+                         'image_bytes': 678_168_576,
+                         'volume_bytes': 677_853_184},
+               'omissions': fake}
+        report = compare(log, catalog)['full_23_dat_declared_size_reconciliation']
+        self.assertEqual(report['iso_volume_minus_remaining_nominal'], 4_951_749)
+        self.assertEqual(report['gog_virtual_volume_minus_remaining_nominal'], 4_949_990)
+        self.assertEqual(report['iso_vs_gog_volume_slack_difference'], 1_759)
+        self.assertEqual(report['iso_physical_image_bytes'] -
+                         report['iso_reported_volume_bytes'], 315_392)
+
     def test_catalog_malformed_and_wrong_hash_rejected(self):
         good = fake_pe_catalog([('RAYMAN2.ICD', 10)])
         with self.assertRaises(ValueError):
