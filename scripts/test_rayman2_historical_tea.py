@@ -8,6 +8,7 @@ import unittest
 from rayman2_historical_tea import (
     DELTA, KEY, ROUNDS, ZERO_CIPHER, PUBLISHED_SUFFIX,
     encrypt_block, decrypt_block, historical_vector, scan_known_zero,
+    verify_known_prng_samples,
 )
 
 
@@ -47,6 +48,25 @@ class HistoricalRayman2TEATests(unittest.TestCase):
         self.assertEqual(found["candidate_zero_block_count"], 2)
         self.assertEqual(found["candidate_offsets_first_16"],
                          [1, 1 + 8 + len(b"not a section")])
+
+    def test_known_owner_prng_regeneration_not_tea_ciphertext(self):
+        report = verify_known_prng_samples()
+        self.assertEqual(set(report), {"RAYMAN2.ICD", "DPLAYERX.DLL"})
+        self.assertEqual(report["RAYMAN2.ICD"]["byte_length"], 683565)
+        self.assertEqual(report["DPLAYERX.DLL"]["byte_length"], 165888)
+        self.assertEqual(
+            report["RAYMAN2.ICD"]["reconstructed_sha256"],
+            "4daeae51ded23687fccecd5046dd366b1c083d4931af0a381a0ad0b64bd3d1a6"
+        )
+        self.assertEqual(
+            report["DPLAYERX.DLL"]["reconstructed_sha256"],
+            "0d5160b1b123636e03a09ae00714f0ff66bbdd759a3f2b639734ecaa487018ee"
+        )
+        for result in report.values():
+            self.assertTrue(result["sha256_matches_owner_sample"])
+            self.assertEqual(result["historical_complete_zero_block_hits"], 0)
+            self.assertEqual(result["historical_seven_byte_suffix_hits"], 0)
+            self.assertTrue(result["no_decrypted_payload_recovered"])
 
     def test_no_false_claim_without_signature(self):
         self.assertEqual(scan_known_zero(b"\x00" * 128)["candidate_zero_block_count"], 0)
