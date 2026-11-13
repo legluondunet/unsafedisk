@@ -104,14 +104,57 @@ def scan_known_zero(data: bytes) -> dict:
     }
 
 
+
+def verify_known_prng_samples() -> dict:
+    """Reconstruct BOTH owner-hash-matched opaque files in volatile memory.
+
+    This does not recover any PE/DLL payload. A fully reproducible PRNG
+    stream need not be inert, and the file provenance on physical media
+    is not established. No bytes are written or emitted.
+    """
+    import hashlib
+
+    streams = (
+        ("RAYMAN2.ICD", 0x6EE4C08A, 170891, bytes.fromhex("5b"),
+         "4daeae51ded23687fccecd5046dd366b1c083d4931af0a381a0ad0b64bd3d1a6"),
+        ("DPLAYERX.DLL", 0x0030FBEC, 41472, b"",
+         "0d5160b1b123636e03a09ae00714f0ff66bbdd759a3f2b639734ecaa487018ee"),
+    )
+    out = {}
+    for name, seed, nwords, prefix, expected_sha in streams:
+        state = seed
+        generated = bytearray(prefix)
+        for _ in range(nwords):
+            generated.extend(struct.pack("<I", state))
+            state = 16807 * (state ^ 0x075BD924) % 2147483647
+        content = bytes(generated)
+        digest = hashlib.sha256(content).hexdigest()
+        if digest != expected_sha:
+            raise AssertionError("PRNG regeneration failed independent SHA-256 check")
+        signature = scan_known_zero(content)
+        out[name] = {
+            "byte_length": len(content),
+            "reconstructed_sha256": digest,
+            "sha256_matches_owner_sample": True,
+            "historical_complete_zero_block_hits": signature["candidate_zero_block_count"],
+            "historical_seven_byte_suffix_hits": content.count(PUBLISHED_SUFFIX),
+            "no_decrypted_payload_recovered": True,
+        }
+    return out
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--decrypt-block", metavar="16_HEX_DIGITS",
                         help="Show the candidate plaintext for ONE 8-byte block")
     parser.add_argument("--scan", type=Path,
                         help="Read-only scan for repeated historical zero-block ciphertext")
+    parser.add_argument("--verify-known-streams", action="store_true",
+                        help="Regenerate owner-identified PRNG streams in RAM; never save files")
     args = parser.parse_args(argv)
     result = historical_vector()
+    if args.verify_known_streams:
+        result["known_streams"] = verify_known_prng_samples()
     if args.decrypt_block is not None:
         try:
             cipher = bytes.fromhex(args.decrypt_block)
