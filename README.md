@@ -212,6 +212,34 @@ Runtime reachability and file-system behavior remain untested.
 added section base VAs, cautiously labeled byte-pattern candidates.
 The local synthetic comparison suite passed **13 tests**.
 
+**Retail on-disk XOR descriptor structure (new):** A `.data`
+block beginning at VA `0x004A141C` contains **35 nonzero
+76-byte records**, followed by a 36th all-zero record.
+The whole **2,736-byte block** is identical in the
+protected CD and GOG executables (SHA-256
+`f4a498cafd1b76536b3367c27b5fc6142b918ecc4525cadb0c2df4c8f2951cd5`).
+For every record, the DWORD at offset `+0x30` is zero
+on disk. **12 masked callback slots** in the retail
+initializer use a record's first DWORD and that
+`+0x30` DWORD as XOR operands. A retail routine at
+`0x0044F28C` dynamically constructs instructions
+equivalent to `mov eax,[slot]; xor eax,[mask]; jmp eax`.
+**The actual runtime target values are not known.**
+GOG keeps the on-disk records unchanged but installs
+several callbacks explicitly.
+
+The read-only `pe_reference_diff.py` tool can now
+inspect this generic fixed-stride layout and individual
+on-disk XOR pairs without asserting decoded pointers:
+
+```sh
+python scripts/pe_reference_diff.py \
+  --protected Rayman2-CD-protected.exe \
+  --reference Rayman2-GOG.exe --reference-origin GOG \
+  --descriptor-layout 0x4a141c:0x4c:36:0:0x30 \
+  --masked-pair 0x4a1660:0x4a1630
+```
+
 **GOG callback-table linkage (static, read-only):** Both retail
 protected and GOG PE32 files call the same callback initializer
 at VA `0x00467130`, from identical `CALL rel32` sites at
