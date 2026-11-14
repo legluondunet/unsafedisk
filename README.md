@@ -182,6 +182,35 @@ hashes. See [the reconciliation report]
 
 **Extended five-file finding (13 Nov 2026):**
 
+**New eight-file SafeDisc evidence (14 Nov):** Three further
+owner-supplied original-CD-associated files — `00000001.TMP`
+(20 bytes), `0000040C.016` (153,718 bytes) and
+`0000040C.256` (308,278 bytes) — are also fully reproducible
+masked Park–Miller byte streams with the **identical
+`0x075BD924` XOR salt**. The `.016`/`.256`
+streams begin after **two retained prefix bytes**.
+The combined **eight** files total 1,548,525 bytes,
+**387,130 observed states, all distinct**,
+with **387,122/387,122 verified PRNG transitions**
+and zero finite-range overlap. Exact in-memory
+regeneration matched all eight owner SHA-256 values.
+The new three names/sizes are confirmed in a
+Rayman2Fix original ISO inspection log **and** GOG
+virtual CD metadata; content equality to the
+original physical ISO remains unverified.
+
+The updated `rayman2_auxiliary_stream_audit.py`
+and `rayman2_tea_known_plaintext.py`
+now accept these three new private inputs.
+The direct historical-key TEA known-plaintext scan
+also yields **zero matches for the three new files**.
+See [eight SafeDisc-era PRNG streams]
+(docs/rayman2-eight-safedisc-auxiliary-streams.md).
+This does **not** reconstruct a SafeDisc-loaded DLL
+or an original game PE, and the 20-byte TMP is only
+exact-SHA validated rather than generically
+classified from its four transitions alone.
+
 **January 2000 historical Rayman 2 code-stage audit (14 Nov):**
 [exact-SHA anchored comparison](docs/rayman2-january2000-binary-anchor-audit.md)
 against the paper's claimed **decoded ICD** code identifies
