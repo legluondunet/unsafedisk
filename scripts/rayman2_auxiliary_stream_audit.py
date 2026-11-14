@@ -127,10 +127,56 @@ def inspect_pinned(name: str, data: bytes) -> dict:
         "prefix_bytes": len(prefix),
         "initial_state": f"0x{seed:08X}",
         "little_endian_words": n,
+        "terminal_state": f"0x{struct.unpack_from('<I', data, len(data)-4)[0]:08X}",
         "recurrence_transitions_verified": n-1,
         "complete_file_reconstructible": True,
         "is_valid_on_disk_pe32": False,
         "role_on_original_physical_cd_proven": False,
+    }
+
+
+
+def probe_stream_boundary_gaps(inspected: dict[str, dict],
+                               max_steps: int) -> dict:
+    """Search bounded forward PRNG gaps between exact verified file spans.
+
+    An initial partial state counts as the start of that stream, because
+    its low-order byte(s) are the exact verified file prefix.
+    No match within this range does not imply globally independent seeds.
+    """
+    if (type(max_steps) is not int or not 1 <= max_steps <= 1_000_000 or
+            not 2 <= len(inspected) <= 8):
+        raise ValueError("boundary probe requires 2..8 streams and 1..1e6 steps")
+    starts: dict[int, list[str]] = {}
+    ends: dict[str, int] = {}
+    for name, report in inspected.items():
+        first = int(report["initial_state"], 16)
+        start = (reverse_masked_prng_state(first)
+                 if report["prefix_bytes"] else first)
+        terminal = int(report["terminal_state"], 16)
+        if not 0 <= terminal < MODULUS:
+            raise ValueError("terminal state outside valid generator domain")
+        starts.setdefault(start, []).append(name)
+        ends[name] = terminal
+    hits = []
+    for name, terminal in ends.items():
+        state = terminal
+        for step in range(1, max_steps + 1):
+            state = (MULTIPLIER * (state ^ MASKED_SALT)) % MODULUS
+            for target in starts.get(state, ()):
+                if target != name:
+                    hits.append({
+                        "from": name, "to": target,
+                        "steps_from_end_to_start": step,
+                    })
+    return {
+        "stream_count": len(inspected),
+        "ordered_distinct_stream_pairs": len(inspected) * (len(inspected)-1),
+        "forward_states_per_stream": max_steps,
+        "forward_state_steps_evaluated": len(inspected) * max_steps,
+        "matches": hits,
+        "no_direct_or_short_gap_connection_within_window": not hits,
+        "does_not_prove_globally_independent_seeds": True,
     }
 
 
@@ -458,7 +504,7 @@ def compare_gog_manifest(manifest: dict[str, int], inspected: dict[str, dict]) -
 
 
 def inspect(samples: dict[str, bytes], gog: bytes | None = None,
-            retail: bytes | None = None) -> dict:
+            retail: bytes | None = None, *, boundary_steps: int = 0) -> dict:
     if not samples:
         raise ValueError("at least one sample is required")
     checked = {name: inspect_pinned(name, blob)
@@ -467,6 +513,9 @@ def inspect(samples: dict[str, bytes], gog: bytes | None = None,
               "finite_stream_overlap": observed_stream_state_overlap(checked),
               "decrypted_pe_recovered": False,
               "physical_cd_source_authenticated": False}
+    if boundary_steps:
+        result["interfile_boundary_probe"] = probe_stream_boundary_gaps(
+            checked, boundary_steps)
     if retail is not None:
         if hashlib.sha256(retail).hexdigest() != RETAIL_SHA256 or len(retail) != 676352:
             raise ValueError("original retail EXE differs from owner SHA-256-pinned input")
@@ -502,6 +551,9 @@ def main(argv: list[str] | None = None) -> int:
                         help="Optional exact-hash GOG executable for size-only metadata check")
     parser.add_argument("--retail", type=Path,
                         help="Optional SHA-256-pinned original EXE: literal ASCII/UTF-16LE name scan")
+    parser.add_argument("--probe-boundaries", type=int, default=0,
+                        metavar="STEPS",
+                        help="Optional per-file gap search, 1..1000000 words, requires 2+ exact samples")
     args = parser.parse_args(argv)
     paths = {
         "RAYMAN2.ICD": args.icd,
@@ -520,7 +572,7 @@ def main(argv: list[str] | None = None) -> int:
                    if path is not None}
         gog = read_bounded(args.gog) if args.gog else None
         retail = read_bounded(args.retail) if args.retail else None
-        result = inspect(samples, gog, retail)
+        result = inspect(samples, gog, retail, boundary_steps=args.probe_boundaries)
     except (OSError, ValueError) as exc:
         parser.error(str(exc))
     print(json.dumps(result, indent=2, sort_keys=True))
