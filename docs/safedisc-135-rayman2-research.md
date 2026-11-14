@@ -148,6 +148,23 @@ to this analysis. There is **no
 recovered executable payload or
 loaded DPLAYERX PE memory image**.
 
+**Additional narrower opcode map:** in the original
+PE code, `MOV ECX,[0x510BF0]` begins at
+64 distinct instruction sites; GOG retains
+22 at the same offsets and changes 42.
+At the changed starts, **31 are INT3**,
+**three NOP**, **four newly normal
+prologues** for the already verified
+KERNEL32 CloseHandle/ReadFile/CreateFileA/
+SetFilePointer forwarding replacements,
+and **four further edits**. These are
+instruction starts rather than necessarily
+independent functions; none is automatic
+proof of an executed SafeDisc check.
+The existing Python eight-file audit now
+exposes this source-locked classification,
+with a synthetic positive/negative test.
+
 ## Exact runtime PRNG bootstrap and vanished GOG references (14 November 2026)
 
 The [dedicated SHA-pinned bootstrap and
