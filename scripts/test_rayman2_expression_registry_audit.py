@@ -45,6 +45,11 @@ class RegistryAuditTests(unittest.TestCase):
         mapping[0x480880]=b'\x00'+mapping[0x480880][1:]
         with self.assertRaisesRegex(ValueError,'shared opcode'):
             validate_anchors(lambda a,n:mapping[a][:n])
+    def test_secondary_callback_dispatch_sites(self):
+        for address in (0x470187,0x4701ED,0x4815F0,0x481623,
+                        0x481800,0x481822,0x481847,0x481850,0x481860):
+            self.assertIn(address,SHARED)
+        self.assertIn(b'\xff\xd0',bytes.fromhex(SHARED[0x481847]))
     def test_sample_readonly(self):
         cd=locked_read(ROOT/'Rayman2(3).exe','cd')
         gog=locked_read(ROOT/'Rayman2.exe','gog')
