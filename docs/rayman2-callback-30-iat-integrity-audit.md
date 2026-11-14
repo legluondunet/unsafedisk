@@ -108,3 +108,8 @@ L'analyseur vérifie les **SHA-256 complets**, la géométrie PE et les sections
 Identifier sur un lancement légal de Rayman 2 si le code indirect atteint réellement `0x448AB0`, quel descripteur il lui passe, la valeur IAT à cet instant et l'usage du retour. Une trace **passive** à cette adresse et à `0x448D66` distinguerait « mécanisme observé » de « mécanisme conservé mais dormant » sans patcher le jeu. Pour la branche `0x2C`, effectuer le même relevé à `0x448DE0` et récupérer le nom d'export transmis, sans confondre les deux retours.
 
 **Pas de chargement de vrai CD SafeDisc observé, pas de reconstitution du binaire déprotégé, pas de publication ni de fusion de PR.**
+
+
+## Précision — comparaison de préfixe et NUL
+
+Une [contre-vérification dédiée](rayman2-iat-descriptor-nul-boundary.md) corrige un raccourci de l'exposé précédent : le nom décodé est comparé à un **préfixe** de l'import PE (mais, dans nos deux EXE, les 18 correspondances de préfixe sont toutes des correspondances de noms entiers). Surtout, les descripteurs encodés de 76 octets ne sont **pas** comparés octet par octet sur 76 octets : le chercheur d'enregistrement s'arrête au **premier octet nul égal**. Les enregistrements #3 et #26 contiennent un NUL dès les offsets 5 et 3, respectivement ; ils ne comparent donc que 6 et 4 octets (NUL compris) dans cette deuxième étape. Le modèle de différences de pointeurs reste valide **uniquement si la recherche de l'import et celle du record réussissent** ; il n'y a toujours aucune trace d'appel runtime ou de verdict SafeDisc.
