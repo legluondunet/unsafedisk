@@ -1,5 +1,6 @@
 """Synthetic and optional exact-binary tests for Rayman 2 classes 5..40."""
 import os
+import shutil
 from pathlib import Path
 import struct
 import unittest
@@ -9,7 +10,8 @@ from rayman2_remaining_object_classes_audit import (
     LITERAL_SIZE, SPECIAL, SPECIAL_ANCHORS, DIRECT_CALLS,
     audit, call_target, classify_handler, examine,
 )
-from rayman2_selfread_archive_audit import locked_read, sections
+from rayman2_selfread_archive_audit import locked_read, sections, by_rva
+from rayman2_selfread_typed_callback_audit import disassemble_text, parse_direct_xrefs
 
 
 class SyntheticControls(unittest.TestCase):
@@ -83,6 +85,7 @@ class OptionalExactSourceControls(unittest.TestCase):
         a,b=root/'Rayman2(3).exe',root/'Rayman2.exe'
         if not (a.is_file() and b.is_file()):
             raise unittest.SkipTest('Exact private owner samples absent; synthetic tests remain active')
+        cls.retail_path,cls.gog_path=a,b
         cls.cd=locked_read(a,'cd');cls.gog=locked_read(b,'gog')
         _,cls.ss=sections(cls.cd)
 
@@ -138,6 +141,23 @@ class OptionalExactSourceControls(unittest.TestCase):
     def test_mutated_parser_table_rejected(self):
         with self.assertRaisesRegex(ValueError,'changed code/table span'):
             examine(self.change(0x4A4180))
+
+    def test_common_error_helper_has_59_preserved_direct_calls(self):
+        if shutil.which('objdump') is None:
+            self.skipTest('GNU objdump missing; standalone source-only checks remain active')
+        cd_sites=parse_direct_xrefs(disassemble_text(self.retail_path),0x480FB0)
+        gog_sites=parse_direct_xrefs(disassemble_text(self.gog_path),0x480FB0)
+        self.assertEqual(len(cd_sites),59)
+        self.assertEqual(cd_sites,gog_sites)
+        # A common error path used by the parser and several other mechanisms.
+        for required in (0x4803F2,0x480B6F,0x47011A):
+            self.assertIn(required,cd_sites)
+        for image in (self.cd,self.gog):
+            _,ss=sections(image)
+            for site in cd_sites:
+                with self.subTest(site=hex(site)):
+                    actual=by_rva(image,ss,site-0x400000,5)
+                    self.assertEqual(call_target(site,actual),0x480FB0)
 
 
 if __name__ == '__main__':
