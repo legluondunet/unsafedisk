@@ -4,11 +4,25 @@ import struct
 import unittest
 
 from rayman2_tea_known_plaintext import (
-    compare_raw, sliding_words, encrypt_block, historical_vector_valid,
+    compare_raw, sliding_words, encrypt_block, historical_vector_valid, KNOWN,
+    verify_exact_references, RETAIL_SIZE,
 )
 
 
 class KnownPlaintextTests(unittest.TestCase):
+    def test_eight_owner_file_inventory_and_strict_hash_gates(self):
+        self.assertEqual(set(KNOWN), {
+            "RAYMAN2.ICD", "DPLAYERX.DLL", "CLOKSPL.EXE",
+            "CLCD32.DLL", "DRVMGT.DLL",
+            "00000001.TMP", "0000040C.016", "0000040C.256"})
+        self.assertEqual(KNOWN["00000001.TMP"][0], 20)
+        self.assertEqual(KNOWN["0000040C.016"][0], 153718)
+        self.assertEqual(KNOWN["0000040C.256"][0], 308278)
+        with self.assertRaises(ValueError):
+            verify_exact_references(b"x" * RETAIL_SIZE, {
+                "00000001.TMP": b"x" * 20})
+        self.assertTrue(all(len(digest) == 64 for _, digest in KNOWN.values()))
+
     def test_historical_tea_known_vector(self):
         self.assertTrue(historical_vector_valid())
 
