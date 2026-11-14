@@ -89,6 +89,9 @@ class GuardedRangeTests(unittest.TestCase):
         self.assertEqual(report['changed_bytes_outside_guarded_regions'],4600)
         self.assertEqual(report['secondary_slots'],[0,1,2,5])
         self.assertEqual(report['paired_slot_addresses'],56)
+        self.assertEqual(report['gog_int3_filled_region_count'],11)
+        self.assertEqual(report['gog_int3_filled_region_bytes'],4738)
+        self.assertEqual(report['gog_unchanged_region_count'],12)
         self.assertEqual(sum(r['begin']-r['zero_guard_branch_target_va']==8
                              for r in report['ranges']),1)
         self.assertFalse(report['all_regions_proven_to_be_safedisc'])
