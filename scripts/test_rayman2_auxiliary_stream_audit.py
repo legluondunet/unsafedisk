@@ -127,9 +127,11 @@ class AuxiliaryStreamAuditTests(unittest.TestCase):
             literal_name_hits(b"test", [""])
 
     def test_retail_original_hash_gate_rejects_fake_binary(self):
-        raw = synthetic_stream(0x0030FBEC, 6)
-        # Check no valid user sample is accidentally produced here:
-        with self.assertRaises(ValueError):
+        size, seed, prefix, expected_sha = KNOWN["DPLAYERX.DLL"]
+        raw = synthetic_stream(seed, (size - len(prefix)) // 4, prefix)
+        self.assertEqual(hashlib.sha256(raw).hexdigest(), expected_sha)
+        # A valid auxiliary file MUST NOT bypass the separate EXE SHA gate.
+        with self.assertRaisesRegex(ValueError, "original retail EXE"):
             inspect({"DPLAYERX.DLL": raw}, retail=raw)
 
     def test_gog_checks_all_eight_selected_lengths_only(self):
