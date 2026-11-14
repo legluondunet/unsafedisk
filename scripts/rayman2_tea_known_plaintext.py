@@ -3,7 +3,7 @@
 
 Compare the historical 32-round repeated-word TEA encoding of every distinct
 8-byte *overlapping* window of the owner's original retail EXE against every
-8-byte sliding window of the five exact owner-provided opaque files.
+8-byte sliding window of the eight exact owner-provided opaque files.
 
 A zero result falsifies ONLY this direct, constant-key transform from those
 particular on-disk source windows; it does not rule out transformed memory
@@ -29,6 +29,9 @@ KNOWN: dict[str, tuple[int, str]] = {
     "CLOKSPL.EXE": (177152, "6efcb3f4ba8052ab8bbd58be703a1de0f9e6eacc8f47c0d6501b0981380edaeb"),
     "CLCD32.DLL": (27648, "432074cae948d0cee2704f66b47f72a4dee2f9bed288e23912fbc531b041f2a5"),
     "DRVMGT.DLL": (32256, "6111ab0664948e05171468835be20b00f6b69d366fab28d7cd1ca9d9b67af35b"),
+    "00000001.TMP": (20, "06ba601c966e6770747d84fe1c3fafaab9f48b07db6eae07a9250f7232415396"),
+    "0000040C.016": (153718, "5c53568c900404bea863ef5ac6e87e49193d95a06674f3a49d70dcefd3f28608"),
+    "0000040C.256": (308278, "5f25849ffa80abb15d3897ba5f4bc44ffa6f06819e370b873e9d172fc00f9933"),
 }
 
 
@@ -144,7 +147,7 @@ def verify_exact_references(retail: bytes, samples: dict[str, bytes]) -> None:
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--retail', type=Path, required=True)
-    for name in ('icd', 'dplayerx', 'clokspl', 'clcd32', 'drvmgt'):
+    for name in ('icd', 'dplayerx', 'clokspl', 'clcd32', 'drvmgt', 'tmp', 'file016', 'file256'):
         parser.add_argument('--' + name, type=Path)
     args = parser.parse_args(argv)
     paths = {
@@ -153,6 +156,9 @@ def main(argv: list[str] | None = None) -> int:
         'CLOKSPL.EXE': args.clokspl,
         'CLCD32.DLL': args.clcd32,
         'DRVMGT.DLL': args.drvmgt,
+        '00000001.TMP': args.tmp,
+        '0000040C.016': args.file016,
+        '0000040C.256': args.file256,
     }
     if not any(paths.values()):
         parser.error('supply at least one owner opaque sample')
