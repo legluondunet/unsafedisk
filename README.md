@@ -240,6 +240,35 @@ runtime execution evidence**.
 See [the runtime PRNG audit]
 (docs/rayman2-runtime-prng-bootstrap.md).
 
+**Inter-file PRNG continuity and installer-name audit (14 Nov):**
+after SHA-256 checking all **eight** owner auxiliary files,
+a fully independent local checker advanced
+**one million further generated states after
+each file**, finding **zero links** to any
+other file's effective first generator
+state (**8 million transitions; 56 ordered pairs**).
+A positive synthetic two-step join was
+detected, so the check can find actual
+links. This rejects only near-contiguous
+assembly; longer gaps and different
+initializations remain possible.
+
+An unrelated but actionable
+[Rayman2Fix CD exclusion-name discrepancy]
+(docs/rayman2-prng-boundary-and-install-exclusions.md)
+was also identified: its current root
+filter names **`dxplayerx.dll`**,
+whereas GOG's catalog and the
+owner-supplied PRNG file are
+**`dplayerx.dll`** (no X after D).
+Neither `CLOKSPL.EXE`, `CLCD32.DLL`
+nor `DRVMGT.DLL` is in the six-name
+exclusion list. This is a
+**file-selection policy review item**,
+not an automatic justification to
+change or delete files. No
+Rayman2Fix code was changed.
+
 **Complete eight-file inverse PRNG reconstruction (14 Nov):**
 the previously unexplained **one ICD prefix byte**
 (`5B`) and two bytes in each
