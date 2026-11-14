@@ -58,6 +58,7 @@ SHARED_ANCHORS = {
     0x480880: '56 8b 74 24 0c 8b 06', # generic subtype3 wrapper
     0x4808B0: '56 8b 74 24 0c 8b 06', # generic subtype2 wrapper
     0x482690: '8b 44 24 04 8b 04 c5 e0 43 4a 00',
+    0x482680: '8b 44 24 04 8a 04 c5 e4 43 4a 00',
 }
 CALL_TARGETS = {
     0x470140: 0x481C10,
@@ -67,7 +68,7 @@ CALL_TARGETS = {
     0x481C23: 0x480B90,
     0x481C35: 0x4136D0,
 }
-GENERIC_COUNTS = {0x481C10: 15, 0x480B90: 757}
+GENERIC_COUNTS = {0x481C10: 15, 0x480B90: 757, 0x482680: 68, 0x482690: 1}
 # The 112 bytes between the two pointer registries are seven 16-byte
 # numeric-looking blocks; one word differs in the sixth block. This checks
 # a deliberate non-pointer boundary, not the semantics of the constants.
