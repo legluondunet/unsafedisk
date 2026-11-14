@@ -241,9 +241,9 @@ def main(argv: list[str] | None = None) -> int:
         from rayman2_cd_io_diff import safe_read
         try:
             scan_data = safe_read(args.scan)
-        result["scan"] = scan_known_zero(scan_data)
-        if args.scan_fixed_tea_pe:
-            result["fixed_tea_pe_scan"] = scan_fixed_tea_for_pe32(scan_data)
+            result["scan"] = scan_known_zero(scan_data)
+            if args.scan_fixed_tea_pe:
+                result["fixed_tea_pe_scan"] = scan_fixed_tea_for_pe32(scan_data)
         except (OSError, ValueError) as exc:
             parser.error(str(exc))
     print(json.dumps(result, indent=2, sort_keys=True))
