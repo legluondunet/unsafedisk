@@ -38,6 +38,19 @@ The active-code disassembly contains exactly **16 direct `E8 rel32` calls** to `
 
 Only **one** of these 16 direct call sites belongs to the particular `0x170` handler (`0x4701ED`). The others establish that the dispatcher is heavily reused by the broader engine. This inventory is for `objdump`-recognised direct calls in active `.text`; it is not a complete dynamic call graph or a runtime call count.
 
+## Independent generic-engine call-site cross-check
+
+The same exact x86 instruction-boundary audit also counts calls to three upstream/downstream generic helpers. All call sites are verified as actual on-disk `E8 rel32` instructions and all are preserved at identical addresses in active GOG `.text`:
+
+| Helper | Original CD exact direct calls | GOG identical sites | Role established statically |
+|---|---:|---:|---|
+| `0x480B90` | **757** | **757** | Object/expression parser selected by `[object+7]` and the 16-entry table at `0x4A4180` |
+| `0x4815F0` | **7** | **7** | Type/property-dependent converter invoked before `0x170` computes its square |
+| `0x4817B0` | **2** | **2** | Shared type callback, also reachable indirectly through the metadata table |
+| `0x481800` | **16** | **16** | Generic typed-value callback dispatcher |
+
+In particular the conversion result at **`0x470187`** (`CMP AL,1; JNE`) is reached after `CALL 0x4815F0` at **`0x47017F`**. The same conversion helper has six other direct callers; **this gate is evidence of a common conversion-success path, not a demonstrated DRM integrity comparison**. The larger 757-site inventory reinforces that `0x480B90` is a broadly reused engine parser, not a dedicated SafeDisc verifier. These are static *instruction-site* counts, not a trace of invoked functions.
+
 ## Discovery 3: how the returned 64-bit result is passed onward
 
 The following instructions are byte-identical at exact VA in both EXEs:
@@ -51,7 +64,7 @@ The following instructions are byte-identical at exact VA in both EXEs:
 
 ## Tests and limits
 
-The new `rayman2_selfread_typed_callback_audit.py` reports the six-record family, the 16 exact call sites, and the 14 cross-checked opcode anchors for each exact PE. **20 new Python unit tests** include full two-file integration, negative in-memory opcode/descriptor mutations, malformed x86 rel32 rejection, extraction of disassembler instruction sites and missing-call detection. Full locally run suite: **216/216 tests passed** (196 previous + 20 new). CI, Wine gameplay, actual SafeDisc driver, and physical CD errors were not tested here.
+The new `rayman2_selfread_typed_callback_audit.py` reports the six-record family, the 16 exact call sites, and the 14 cross-checked opcode anchors for each exact PE. **23 new Python unit tests** include full two-file integration, negative in-memory opcode/descriptor mutations, malformed x86 rel32 rejection, extraction of disassembler instruction sites and missing-call detection. Full locally run suite: **219/219 tests passed** (196 previous + 23 new). CI, Wine gameplay, actual SafeDisc driver, and physical CD errors were not tested here.
 
 **What the results mean:** the engine contains a real module-memory sum-of-squares path, but its immediate output dispatch is a generic typed-value system. No known static checksum constant or dedicated comparison/rejection branch has been established at this junction. The input records of type `0x170` and their expected outputs would have to be found in authentic resource data or observed read-only at runtime before classifying this path as executable anti-piracy enforcement. Do not change or neutralise the generic `0x481800` dispatcher.
 
