@@ -5,7 +5,7 @@ import unittest
 
 from rayman2_tea_known_plaintext import (
     compare_raw, sliding_words, encrypt_block, historical_vector_valid, KNOWN,
-    verify_exact_references, RETAIL_SIZE,
+    verify_exact_references, RETAIL_BYTES as RETAIL_SIZE,
 )
 
 
