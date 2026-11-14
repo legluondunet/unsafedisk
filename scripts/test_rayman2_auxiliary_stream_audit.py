@@ -23,16 +23,51 @@ def synthetic_stream(seed: int, words: int, prefix: bytes = b"") -> bytes:
     return bytes(output)
 
 
-def synthetic_prng_code(refs: int, salts: int, size: int) -> bytes:
-    """Create synthetic code bytes with exact literal-DWORD fingerprints."""
-    result = bytearray(b"\x90" * size)
-    state = struct.pack("<I", 0x00510BF0)
-    salt = struct.pack("<I", MASKED_SALT)
-    for i in range(refs):
-        result[i*8:i*8+4] = state
-    for i in range(salts):
-        result[200000+i*8:200000+i*8+4] = salt
-    return bytes(result)
+def synthetic_owner_rng_code_pair() -> tuple[bytes, bytes]:
+    """Only synthetic bytes: exact reference histograms, no original code."""
+    retained = {
+        "state": {
+            0x2000: 11, 0x3000: 7, 0x4000: 15, 0xC000: 3,
+            0x48000: 3, 0x49000: 4, 0x4E000: 4,
+            0x67000: 3, 0x70000: 6, 0x7B000: 12,
+        },
+        "salt": {
+            0x2000: 4, 0x3000: 2, 0x4000: 8, 0xC000: 1,
+            0x48000: 1, 0x49000: 2, 0x4E000: 2,
+            0x51000: 1, 0x67000: 1, 0x70000: 2, 0x7B000: 5,
+        },
+    }
+    removed = {
+        "state": {
+            0x47000: 12, 0x48000: 45, 0x49000: 9,
+            0x4D000: 3, 0x4E000: 17, 0x4F000: 12,
+            0x50000: 15, 0x51000: 15,
+        },
+        "salt": {
+            0x47000: 4, 0x48000: 15, 0x49000: 3,
+            0x4D000: 1, 0x4E000: 6, 0x4F000: 4,
+            0x50000: 5, 0x51000: 6,
+        },
+    }
+    original = bytearray(b"\x90" * 631296)
+    active = bytearray(b"\x90" * 634880)
+    for family, word, location_start in (
+        ("state", 0x00510BF0, 0x100),
+        ("salt", MASKED_SALT, 0x800),
+    ):
+        used: dict[int, int] = {}
+        for is_retained, group in ((True, retained[family]),
+                                   (False, removed[family])):
+            for page, count in group.items():
+                for _ in range(count):
+                    slot = used.get(page, 0)
+                    used[page] = slot + 1
+                    at = page - 0x1000 + location_start + slot*16
+                    word_bytes = struct.pack("<I", word)
+                    original[at:at+4] = word_bytes
+                    if is_retained:
+                        active[at:at+4] = word_bytes
+    return bytes(original), bytes(active)
 
 
 def synthetic_pe(sections: list[tuple[str, bytes, bool]]) -> bytes:
@@ -170,8 +205,7 @@ class AuxiliaryStreamAuditTests(unittest.TestCase):
             inspect({"DPLAYERX.DLL": raw}, retail=raw)
 
     def test_independent_section_prng_fingerprints(self):
-        original = synthetic_prng_code(196, 73, 631296)
-        live = synthetic_prng_code(68, 29, 634880)
+        original, live = synthetic_owner_rng_code_pair()
         self.assertEqual(count_prng_code_literals(original),
                          {"state_global_pointer_le": 196,
                           "masked_prng_xor_salt_le": 73})
@@ -189,10 +223,15 @@ class AuxiliaryStreamAuditTests(unittest.TestCase):
         self.assertTrue(verified["all_eight_seed_literals_absent_from_gog"])
         self.assertEqual(verified["per_section_raw_dword_occurrences"]
                          ["gog_active_text"]["state_global_pointer_le"], 68)
+        delta = verified["original_vs_active_gog_dword_offset_diff"]
+        self.assertEqual(delta["state_global_pointer_le"]["removed_in_gog"], 128)
+        self.assertEqual(delta["masked_prng_xor_salt_le"]["removed_in_gog"], 44)
+        self.assertEqual(delta["state_global_pointer_le"]["introduced_in_gog"], 0)
+        self.assertEqual(delta["state_global_pointer_le"]
+                         ["removed_rva_pages"]["0x48000"], 45)
 
     def test_archived_copy_and_nonexecutability_are_required(self):
-        original = synthetic_prng_code(196, 73, 631296)
-        live = synthetic_prng_code(68, 29, 634880)
+        original, live = synthetic_owner_rng_code_pair()
         retail = synthetic_pe([(".text", original, True)])
         archive = b"\x00"*4096 + original + b"\x00"*3584
         corrupted = bytearray(archive)
