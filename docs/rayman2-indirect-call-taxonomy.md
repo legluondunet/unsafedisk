@@ -32,6 +32,15 @@ The two previously unnamed transfers use the pair `0x4A1400 / 0x4A13D0`. The lat
 - In original routine `0x4478A0`, a direct `MOV [0x4A1400],EAX` at `0x4478FB` writes the masked pointer, and `0x447A76` overwrites or clears it on a later path. This establishes a specific bootstrap initialisation and validation mechanism, **not observed success at runtime**.
 - **Independent PE-import cross-check:** both exact EXEs import `GetModuleHandleA` through the unchanged IAT slot `0x49C064`, and the original initializer itself contains `CALL DWORD PTR [0x49C064]` at `0x447944`. The new descriptor name is therefore supported both by its encoded bytes and by a native imported function used in the same initializer. This does not establish runtime success on every path.
 
+### Two static modes of bootstrap record #0
+
+The unchanged common initializer at `0x449360` passes its `EBX` mode argument to the original bootstrap resolver at `0x44947B: PUSH EBX; 0x44947C: CALL 0x4478A0`. In original `0x4478A0`, the branch at `0x4478D0` distinguishes zero from nonzero:
+
+- **Nonzero mode** enters `0x4478D4`, invokes helper `0x447D10` and export-name comparison `0x447730`, XOR-masks the resulting pointer with `[0x4A13D0]` and writes **`[0x4A1400]` at `0x4478FB`**.
+- **Zero mode** enters `0x447907`, decodes an export name, calls the ordinary PE import `GetModuleHandleA` through `[0x49C064]` at `0x447944`, follows PE export structures and compares a candidate pointer with the stored masked value. If the comparison fails at `0x447A70..0x447A74`, it zeroes EAX, then **stores EAX to `[0x4A1400]` at `0x447A76`**.
+
+This supports **initialise-versus-validate** as a static interpretation of the original two-mode routine. The actual branch taken or validity of the slot during a Windows/Wine run was **not observed**. GOG replaces the original bootstrap resolver entry `0x4478A0` with an immediate `RET` while retaining its initializer caller.
+
 Hence we have **36 named records**: a bootstrap record index zero at `0x4A13D0` and the already-known 35 numbered records 1–35 at `0x4A141C` onward; the previously documented all-zero sentinel after record 35 is a separate slot.
 
 ### Named API histogram across all 106 matching sites
