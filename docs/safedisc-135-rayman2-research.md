@@ -165,6 +165,60 @@ The existing Python eight-file audit now
 exposes this source-locked classification,
 with a synthetic positive/negative test.
 
+## Eight-file boundary search and Rayman2Fix exclusion-name discrepancy (14 November 2026)
+
+An independent [file-extent and installer policy audit]
+(rayman2-prng-boundary-and-install-exclusions.md)
+verified all eight SHA-256 owner auxiliary samples
+and evaluated **1,000,000 further PRNG states
+after each file's last complete DWORD**.
+The effective first state of files with a
+one/two-byte prefix is the already-validated
+**one-step inverted preceding word**.
+Across **8,000,000** generated states and
+**56 ordered distinct-file pairs**, there
+were **zero observed inter-file joins**.
+A deliberately synthetic two-step link
+was correctly found. This rules out
+near-contiguous creation in the tested
+window, not a common maker with
+longer skips or any shared full cycle.
+`rayman2_auxiliary_stream_audit.py`
+now supports optional, bounded
+`--probe-boundaries STEPS` (up to
+1,000,000; 2-8 exact owner inputs).
+The default skips this expensive probe.
+Its new unit tests include a
+positive two-file join and invalid-horizon
+rejection; the independently authored
+local script was run on all eight
+actual user files.
+
+Cross-project provenance issue:
+`Rayman2Fix/include/rayman2fix/cd_exclusions.hpp`
+currently excludes the literal
+**`dxplayerx.dll`** at the CD root,
+while the SHA-256 user sample and
+GOG's virtual file index #6 are
+**`dplayerx.dll`**; there is no
+GOG virtual record with the X-added
+spelling. Current Rayman2Fix code
+also does not list
+`clokspl.exe`, `clcd32.dll`,
+or `drvmgt.dll` as root
+exclusions. Its ISO extraction
+routine copies valid source extents
+rather than synthesizing PRNG bytes.
+The original ISO logged
+**1,618 omissions only**, so
+we cannot cryptographically certify
+the retained root-file content
+without the full original image.
+This is an installation-filter
+review point; **no change to
+Rayman2Fix** has been made as
+part of the SafeDisc research PR.
+
 ## Novel inverse PRNG result: all five previously unexplained prefix bytes are generated (14 November 2026)
 
 New independent, **exact-SHA-256** reconstruction
