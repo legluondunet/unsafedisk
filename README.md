@@ -240,6 +240,24 @@ runtime execution evidence**.
 See [the runtime PRNG audit]
 (docs/rayman2-runtime-prng-bootstrap.md).
 
+**SafeDisc 1.35 is a size fingerprint, not validated loader code:**
+the connected GitHub source of
+[BurnOutSharp's SafeDisc V1 detector]
+(https://github.com/claunia/BurnOutSharp/blob/master/BurnOutSharp/ProtectionFind.cs)
+maps `DPLAYERX.DLL` of **165,888
+bytes** to `1.35`, and **172,544
+bytes** to `1.40` — *using only
+the file's length*. Our **165,888-byte
+owner sample** therefore matches the
+1.35 fingerprint even though its
+body is a **complete PRNG stream
+rather than a valid PE32 DLL**.
+A version-detection hit is not proof
+that the loaded 1.35 SafeDisc decoder
+exists in these exact bytes.
+See [boundary and installer-source audit]
+(docs/rayman2-prng-boundary-and-install-exclusions.md).
+
 **Inter-file PRNG continuity and installer-name audit (14 Nov):**
 after SHA-256 checking all **eight** owner auxiliary files,
 a fully independent local checker advanced
