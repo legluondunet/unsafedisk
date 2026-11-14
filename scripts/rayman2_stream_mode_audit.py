@@ -160,7 +160,18 @@ def verify_dat_resource_setup(at, modified: bool) -> dict:
     template = b'%s\\%s\0' if modified else b'%c:\\%s\\%s\0'
     if template_va != expected_va or at(template_va, len(template)) != template:
         raise ValueError('DAT path format mismatch')
+    selected = bytes.fromhex('8b 15 90 20 4a 00') if modified else bytes.fromhex('8b 14 9d 90 20 4a 00')
+    if at(0x44F13A, len(selected)) != selected:
+        raise ValueError('DAT filename selection did not match retail/GOG')
+    if at(0x44F17D, 5) != bytes.fromhex('e8 9e 00 00 00'):
+        raise ValueError('second DAT CreateFileA call changed')
+    if at(0x44F1F2, 2) != bytes.fromhex('8b c7'):
+        raise ValueError('returned DAT file handle changed')
     return {
+        'initial_probe_basename': 'LEVELS0.DAT',
+        'actual_stream_DAT_basename': 'LEVELS0.DAT' if modified else None,
+        'retail_selected_via_24_entry_table': not modified,
+        'actual_retail_stream_filename_known': False if not modified else True,
         'file_basename': 'LEVELS0.DAT',
         'file_basename_pointer_va': '0x004A2090',
         'file_template_va': f'0x{template_va:08X}',
