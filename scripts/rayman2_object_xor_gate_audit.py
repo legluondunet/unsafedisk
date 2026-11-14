@@ -130,7 +130,7 @@ def inspect(retail:bytes,gog:bytes)->dict:
     for sections in (rs,gs):
         sec=sections['.data']
         offset=0x500fd0-0x400000-sec['rva']
-        if not sec['raw_size']<=offset and offset+4<=sec['virtual_size']:
+        if not (sec['raw_size']<=offset and offset+4<=sec['virtual_size']):
             raise ValueError('second head not loader-zero-filled .data')
     return {
         'retail_sha256':RETAIL_SHA,'gog_sha256':GOG_SHA,
