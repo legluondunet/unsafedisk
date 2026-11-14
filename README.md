@@ -221,6 +221,25 @@ accepts `--retail` and reports the counts
 after exact source hash verification. See the
 [eight-file research](docs/rayman2-eight-safedisc-auxiliary-streams.md).
 
+**Exact original/GOG obfuscation-site breakdown:**
+64 original `MOV ECX,[0x510BF0]`
+instruction starts were identified;
+**22 survive unchanged in GOG**,
+while the other **42** now start
+with **31 INT3, 3 NOPs, 4 normal
+Win32 forwarding prologues and
+4 other edits**. The four
+forwarder entry VAs
+(`0x448500`, `0x44E750`,
+`0x44F220`, `0x44F380`)
+match prior independent
+`rayman2_win32_forwarders.py`
+research. These are **static
+instruction-site counts, not
+runtime execution evidence**.
+See [the runtime PRNG audit]
+(docs/rayman2-runtime-prng-bootstrap.md).
+
 **Runtime PRNG provenance breakthrough (14 Nov):**
 [QPC/bootstrap and 8-page GOG code-diff audit]
 (docs/rayman2-runtime-prng-bootstrap.md).
