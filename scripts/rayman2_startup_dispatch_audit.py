@@ -31,6 +31,10 @@ UNCHANGED = {
 }
 GOG_VOLUME = bytes.fromhex('b0 2e a2 d8 6a 4a 00 8b e5 5d c3')
 GOG_NOOP = b'\xc3' + b'\xcc'*15
+CHECKSUM_LITERALS = {
+    0x4a1f30:b'CheckSum.lst\x00',
+    0x4a1efc:b'%i - Begin: 0x%08x End: 0x%08x Checksum: 0x%08x\n\x00',
+}
 
 
 def rel_target(code,va):
@@ -66,6 +70,21 @@ def inspect(retail:bytes,gog:bytes):
         raise ValueError('GOG local path substitution changed')
     if bytes_at(retail,sr,0x448e5a,len(GOG_VOLUME))==GOG_VOLUME:
         raise ValueError('no retail/GOG CD-volume difference')
+    # Only exact direct pointer operands in active .text; absence does
+    # not exclude computed pointers or external code consumers.
+    checksum_ptr_counts={}
+    for va,literal in CHECKSUM_LITERALS.items():
+        needle=struct.pack('<I',va)
+        counts=[]
+        for program,sections_map in ((retail,sr),(gog,sg)):
+            if bytes_at(program,sections_map,va,len(literal)) != literal:
+                raise ValueError(f'checksum labelled string unexpectedly changed at {va:#x}')
+            sec=sections_map['.text']
+            raw=program[sec['file_offset']:sec['file_offset']+sec['raw_size']]
+            counts.append(raw.count(needle))
+        if counts != [0,0]:
+            raise ValueError('new checksum-string pointer literal requires classification')
+        checksum_ptr_counts[f'0x{va:08X}']={'retail_text':counts[0],'gog_text':counts[1]}
     return {'retail_sha256':RETAIL_SHA,'gog_sha256':GOG_SHA,
       'initial_call_va':'0x00401EFA','initial_argument':1,
       'initializer_va':'0x00449360','guard_bss_zero_on_pe_load':True,
@@ -73,6 +92,8 @@ def inspect(retail:bytes,gog:bytes):
       'peripheral_state_count':7,'secondary_state_count':36,
       'unchanged_direct_calls':edges,
       'gog_ret_only_targets':[f'0x{va:08X}' for va in RET_STUBS],
+      'checksum_string_direct_text_pointer_counts':checksum_ptr_counts,
+      'checksum_string_indirect_access_ruled_out':False,
       'gog_volume_probe_replaced_by_dot':True,
       'gog_drive_selector_va':'0x004A6AD8',
       'retail_drive_volume_authentication_proven':False,
