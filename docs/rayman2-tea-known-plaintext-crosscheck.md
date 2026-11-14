@@ -1,5 +1,20 @@
 # Rayman 2 — historical TEA known-plaintext crosscheck
 
+**14 November update:** Three newly examined owner files,
+`00000001.TMP`, `0000040C.016`, and `0000040C.256`,
+extend this historical two-key TEA test to
+**eight exact file samples**, adding **461,995
+eight-byte overlapping ciphertext windows**,
+with zero historical-key matches. Across the
+eight files, **1,548,469** eight-byte windows
+were checked with **zero matches for either
+key**. The new files also regenerate entirely
+as masked Park–Miller streams, preserving
+their 0/2-byte initial prefixes. This remains
+a negative test only for the *fixed-key
+on-disk* relationship. See
+[eight-file research](rayman2-eight-safedisc-auxiliary-streams.md).
+
 **13 November 2026 — negative result, not a SafeDisc decoder.** Tested only on six SHA-256-pinned owner samples; no proprietary bytes or outputs published.
 
 ## Exact test
