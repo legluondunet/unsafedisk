@@ -100,3 +100,27 @@ side effects are mixed into the resource-loading path. No valid
 retail post-decryption EXE was created. The same script now checks
 the filename pointer, original/GOG format selection, seed
 replacement and four-byte dispatch in its exact-SHA integration.
+
+## Correction of DAT handle provenance (14 November, follow-up)
+
+**Important correction to the shorthand above:** an initial resource name
+`LEVELS0.DAT` is opened by `0x44EB40`, but the returned OS HANDLE for
+the flag-6 stream is not necessarily this first file on the original CD.
+At `0x44F13A`, the retail code selects **`[EBX*4+0x4A2090]`** from
+its 24-entry DAT name table, opens that second filename at `0x44F17D`,
+and returns its HANDLE via `MOV EAX,EDI` at `0x44F1F2`. The flag-6
+constructor then receives the returned handle at `0x44EA97`.
+
+In GOG, the dynamic indexed name read at `0x44F13A` is replaced with
+`MOV EDX,[0x4A2090]`, choosing the first entry `LEVELS0.DAT`, and
+the second 512-byte probe is skipped. Thus the flag-6 **actual stream
+file is dynamically selected on retail, but pinned to the first DAT
+entry in the GOG branch**. Runtime selected EBX/file and status remain
+unobserved. Any earlier sentence claiming that this read always comes
+from LEVELS0.DAT should be interpreted as referring only to the initial
+probe, not to the retail returned handle.
+
+The new separate SHA-gated
+`scripts/rayman2_stream_seed_audit.py` models the full x86 state update
+and compares it to the different recurrence observed in auxiliary PRNG
+files; see `docs/rayman2-xor-stream-seed-vs-auxiliary-prng.md`.
