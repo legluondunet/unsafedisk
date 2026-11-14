@@ -63,6 +63,18 @@ class PeAnchors(unittest.TestCase):
         self.assertEqual(out['anchored_opcodes_per_sample'],23)
         self.assertTrue(out['gog_archive']['same_code_section'])
         self.assertEqual(out['expression_type_0x170']['typed_output_tag'],'0x15')
+    def test_neighbor_0x171_patch_is_not_0x170(self):
+        report=inspect(self.cd,self.gog)
+        self.assertEqual(report['neighbor_type_0x171']['gog_call_region_replaced_by_nops'],17)
+        self.assertIn('ShellExecuteA', report['neighbor_type_0x171']['original_iat_call'])
+    def test_neighbor_gog_nop_patch_rejects_unexpected_bytes(self):
+        mutated=patch_va(self.gog,0x470256,b'\xCC')
+        with self.assertRaisesRegex(ValueError, 'ShellExecuteA'):
+            inspect(self.cd,mutated)
+    def test_neighbor_cd_call_patch_rejects_unexpected_bytes(self):
+        mutated=patch_va(self.cd,0x470261,b'\x90')
+        with self.assertRaisesRegex(ValueError, 'ShellExecuteA'):
+            inspect(mutated,self.gog)
     def test_original_opcode_mutation_rejected(self):
         mutated=patch_va(self.cd,0x4701bf,b'\x90')
         with self.assertRaisesRegex(ValueError,'4701BF'):
