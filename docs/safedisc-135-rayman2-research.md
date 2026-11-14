@@ -165,6 +165,30 @@ The existing Python eight-file audit now
 exposes this source-locked classification,
 with a synthetic positive/negative test.
 
+**Independent SafeDisc version classification caution:**
+the open-source
+[BurnOutSharp `SafeDisc1` detector]
+(https://github.com/claunia/BurnOutSharp/blob/master/BurnOutSharp/ProtectionFind.cs)
+classifies **DPLAYERX.DLL 165,888
+bytes** as version **1.35** and
+**172,544 bytes** as version **1.40**.
+Our exact owner DPLAYERX stream has
+the former byte count, so it fits
+the *size-only* 1.35 heuristic.
+But every byte has been fully
+reproduced as masked PRNG data
+and the file is not a loadable
+PE32 DLL, so that match **does not
+verify an authentic SafeDisc
+runtime module**. The same source
+uses the literal spelling
+`DPLAYERX.DLL`, providing an
+independent check against
+Rayman2Fix's current
+`dxplayerx.dll` exclusion.
+See the [provenance and exclusion report]
+(rayman2-prng-boundary-and-install-exclusions.md).
+
 ## Eight-file boundary search and Rayman2Fix exclusion-name discrepancy (14 November 2026)
 
 An independent [file-extent and installer policy audit]
