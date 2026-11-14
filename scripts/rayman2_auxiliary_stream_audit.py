@@ -161,6 +161,53 @@ def _compare_literal_code_offsets(original: bytes, active: bytes, value: int) ->
     }
 
 
+def compare_masked_mov_ecx_sites(original: bytes, active: bytes) -> dict:
+    """Classify replaced x86 MOV ECX,[0x510BF0] instruction beginnings.
+
+    A site is not necessarily a function entry, nor a proven DRM call.
+    The existing rayman2_win32_forwarders.py separately verifies the
+    actual imported APIs used by the four direct-forwarding replacements.
+    """
+    op = b"\x8b\x0d" + struct.pack("<I", 0x00510BF0)
+    original_sites = _literal_dword_positions(original, 0x00510BF0)
+    current_sites = _literal_dword_positions(active, 0x00510BF0)
+    orig = {pos-2 for pos in original_sites
+            if pos >= 2 and original[pos-2:pos+4] == op}
+    gog = {pos-2 for pos in current_sites
+           if pos >= 2 and active[pos-2:pos+4] == op}
+    removed = sorted(orig - gog)
+    kind_counts = {
+        "int3_at_old_site": 0,
+        "nop_at_old_site": 0,
+        "plain_prologue_at_old_site": 0,
+        "other_replacement_at_old_site": 0,
+    }
+    plain_entries = []
+    for pos in removed:
+        b = active[pos:pos+3]
+        if b.startswith(b"\xcc"):
+            key = "int3_at_old_site"
+        elif b.startswith(b"\x90"):
+            key = "nop_at_old_site"
+        elif b == b"\x55\x8b\xec":
+            key = "plain_prologue_at_old_site"
+            plain_entries.append(f"0x{0x401000+pos:08X}")
+        else:
+            key = "other_replacement_at_old_site"
+        kind_counts[key] += 1
+    return {
+        "original_mov_ecx_global_sites": len(orig),
+        "gog_mov_ecx_global_sites": len(gog),
+        "retained_at_identical_offsets": len(orig & gog),
+        "removed_or_replaced_in_gog": len(removed),
+        "introduced_at_new_offsets": len(gog - orig),
+        "replacement_starts": kind_counts,
+        "plain_prologue_replacement_vas": sorted(plain_entries),
+        "instruction_sites_are_not_always_function_entries": True,
+        "no_attribution_to_safedisc_alone": True,
+    }
+
+
 def signed_x86_masked_prng_step(value: int) -> int:
     """x86 PRNG step, including signed 32-bit QPC first-word behavior.
 
@@ -315,6 +362,7 @@ def original_vs_gog_rng_code(retail: bytes, gog: bytes) -> dict:
     return {
         "per_section_raw_dword_occurrences": counts,
         "original_vs_active_gog_dword_offset_diff": offset_diff,
+        "masked_mov_ecx_original_vs_gog_sites": compare_masked_mov_ecx_sites(original, active),
         "all_eight_seed_literals_absent_from_retail": not any(seeds_in_retail.values()),
         "all_eight_seed_literals_absent_from_gog": not any(seeds_in_gog.values()),
         "per_file_seed_literal_occurrences_retail": seeds_in_retail,
