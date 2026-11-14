@@ -38,6 +38,12 @@ In both, a conditional branch with **zero displacement** converges at the immedi
 
 Three further original instruction spans are replaced in GOG with five-byte unconditional `JMP rel32`: at `0x450ADE → 0x450C05`, `0x450C52 → 0x450D6B`, and `0x450F5D → 0x451078`. All source bytes and calculated destinations were verified on both exact PE images.
 
+## Static candidate seed and negative ICD prefix test
+
+In both exact PE files, `0x450A2D` is `C7 46 14 79 CC B5 6A`, or `MOV DWORD PTR [ESI+0x14],0x6AB5CC79`. The preceding conditional `CALL 0x450EC0` tests **bit 1** of the flags byte at `[ESI+0x18]`, and the following `CALL 0x450ED0` tests **bit 2**. If bit 1 is set and bit 2 clear, the CD initializer selects the preserved `0x451090` XOR reader; if bit 2 is set, it selects a different reader `0x451110`. In GOG, `JNE +0` at `0x450A46` removes that alternative and consistently chooses `0x451090` in this branch. These flag conditions are **static control flow**, not a runtime execution trace.
+
+The particular user-owned 683,565-byte `RAYMAN2(1).ICD`, exact SHA-256 `4daeae51ded23687fccecd5046dd366b1c083d4931af0a381a0ad0b64bd3d1a6`, was tested in-memory with the above per-byte XOR model and seed `0x6AB5CC79` from file offset zero. The **first four transformed bytes are `97 4F 1F 28`**, **not** an `MZ` DOS executable header. Reinitializing the same seed at offsets 1, 2, 16, 512 and 2048 similarly did not yield an `MZ` prefix. This is a **negative test of one simplistic hypothesis only**; it does not establish actual runtime handler use on this ICD, rule out other starting states or offsets, or prove absence of an encrypted payload at some other stage.
+
 ## Verification and scope
 
 The local SHA-pinned Python helper `rayman2_gog_delta_hotspots_audit.py` and `test_rayman2_gog_delta_hotspots_audit.py` were executed against both exact owner inputs. **18 new tests** passed; the complete local Rayman 2 research suite passed **314/314 tests** on 14 November 2026. The tool, tests, full JSON result and test log are retained in a separate downloadable research archive, **not yet committed as Python source to this PR**. This report documents precisely the measured result; no game bytes are exported by the helper, no Wine game run, native build, CI, or dynamic tracing occurred.
