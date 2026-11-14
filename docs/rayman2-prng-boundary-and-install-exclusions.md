@@ -100,6 +100,44 @@ research PR deliberately **does not modify Rayman2Fix**
 or conclude, without a verified installation dependency,
 that all companion filenames can safely be dropped.
 
+## A size-based SafeDisc version detector can misidentify these PRNG bytes
+
+The open-source
+[BurnOutSharp `ProtectionFind.cs`, `SafeDisc1` function]
+(https://github.com/claunia/BurnOutSharp/blob/master/BurnOutSharp/ProtectionFind.cs)
+has an explicit size-only switch on files named
+`DPLAYERX.DLL`:
+
+| DPLAYERX file length | BurnOutSharp version result |
+|---|---|
+| 163,328 bytes | `1.3x` |
+| **165,888 bytes** | **`1.35`** |
+| 172,544 bytes | `1.40` |
+| 138,752 bytes | `1.5x` |
+
+Our owner-provided exact sample has the matching
+**165,888-byte** length and thus would
+trigger the tool's **`1.35` classification**.
+But all its bytes are independently reconstructed as a
+masked Park–Miller stream and it has **no PE32 DLL header**.
+BurnOutSharp does **not** validate the DLL
+body before assigning the version label.
+The file size alone therefore **cannot establish a valid
+loaded SafeDisc 1.35 module** or verify authentic original
+CD sectors. In particular, historical *r2*/*r3*
+labels and SafeDisc version *1.35*/*1.40*
+must not be conflated without a corroborated
+same-edition binary.
+
+The same BurnOutSharp detection code calls
+`FileExists("DPLAYERX.DLL", ...)`, matching
+the **real observed spelling** but not
+Rayman2Fix's current root exclusion
+`dxplayerx.dll`. This independently
+corroborates the name-discrepancy finding,
+without establishing which helpers an original
+game installation requires.
+
 ## No plain eight-file seed literals in the original game EXE
 
 The eight known initial 31-bit file-stream states are absent
