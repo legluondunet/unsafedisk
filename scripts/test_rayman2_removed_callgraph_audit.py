@@ -53,6 +53,8 @@ class DeletedCallgraphTests(unittest.TestCase):
         self.assertEqual(report['gog_removed_E8_calls'],14)
         self.assertEqual(report['gog_preserved_E8_calls'],2)
         self.assertEqual(report['gog_entrypoint_classes']['int3'],8)
+        self.assertEqual(report['gog_function_pointer_stub_returns'],{'0x00448DE0':1,'0x00448AB0':0})
+        self.assertFalse(report['indirect_call_to_this_specific_vector_proven'])
         self.assertFalse(report['indirect_or_self_modified_calls_ruled_out'])
 
 if __name__=='__main__': unittest.main()
