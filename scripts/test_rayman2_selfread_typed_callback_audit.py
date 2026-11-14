@@ -8,7 +8,7 @@ HERE=Path(__file__).parent
 sys.path.insert(0,str(HERE))
 from rayman2_selfread_archive_audit import locked_read,sections
 from rayman2_selfread_typed_callback_audit import (
-    BASE,ROW_BASE,ROW_FIRST,ROW_BYTES,TRIPLE,EXPECTED_CALLS,
+    BASE,ROW_BASE,ROW_FIRST,ROW_BYTES,TRIPLE,EXPECTED_CALLS,GENERIC_HELPERS,
     relcall,parse_direct_xrefs,callbacks_at,inspect_one,inspect,disassemble_text,
 )
 
@@ -80,6 +80,23 @@ class CallbackAuditTests(unittest.TestCase):
     def test_expected_16_live_direct_calls(self):
         self.assertEqual(parse_direct_xrefs(self.cd_asm), list(EXPECTED_CALLS))
         self.assertEqual(parse_direct_xrefs(self.gog_asm), list(EXPECTED_CALLS))
+
+    def test_generic_helper_call_counts(self):
+        self.assertEqual(GENERIC_HELPERS,{0x480B90:757,0x4815F0:7,0x4817B0:2,0x481800:16})
+        for target,count in GENERIC_HELPERS.items():
+            self.assertEqual(len(parse_direct_xrefs(self.cd_asm,target)),count)
+            self.assertEqual(parse_direct_xrefs(self.cd_asm,target),parse_direct_xrefs(self.gog_asm,target))
+
+    def test_already_generic_field_converter_is_used_elsewhere(self):
+        calls=parse_direct_xrefs(self.cd_asm,0x4815F0)
+        self.assertEqual(len(calls),7)
+        self.assertIn(0x47017F,calls)
+        self.assertIn(0x481CCC,calls)
+
+    def test_generic_parser_has_many_direct_calls(self):
+        self.assertEqual(len(parse_direct_xrefs(self.cd_asm,0x480B90)),757)
+        self.assertEqual(parse_direct_xrefs(self.cd_asm,0x480B90),
+                         parse_direct_xrefs(self.gog_asm,0x480B90))
 
     def test_wrong_anchor_detected(self):
         broken=self.changed(self.cd,self.cs,0x4701E5,b'\x90')
