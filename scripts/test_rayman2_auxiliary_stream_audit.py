@@ -12,6 +12,7 @@ from rayman2_auxiliary_stream_audit import (
     observed_stream_state_overlap, literal_name_hits,
     count_prng_code_literals, original_vs_gog_rng_code,
     signed_x86_masked_prng_step, inspect_runtime_rng_initializer,
+    compare_masked_mov_ecx_sites,
 )
 
 
@@ -277,6 +278,32 @@ class AuxiliaryStreamAuditTests(unittest.TestCase):
         for invalid in (-1, 0x100000000, True, 1.5, "0x12345678", None):
             with self.assertRaises(ValueError):
                 signed_x86_masked_prng_step(invalid)
+
+    def test_masked_x86_mov_site_classifier(self):
+        op = b"\x8b\x0d" + struct.pack("<I", 0x00510BF0)
+        original = bytearray(b"\x90"*120)
+        sites = (8, 24, 40, 56, 72)
+        for pos in sites:
+            original[pos:pos+len(op)] = op
+        active = bytearray(original)
+        active[24:30] = b"\xcc"*6  # old PRNG routine erased
+        active[40:46] = b"\x90"*6  # former routine NOPed
+        active[56:62] = b"\x55\x8b\xec\x90\x90\x90"  # normal prologue
+        active[72:78] = b"\x40"*6  # another edit
+        report = compare_masked_mov_ecx_sites(bytes(original), bytes(active))
+        self.assertEqual(report["original_mov_ecx_global_sites"], 5)
+        self.assertEqual(report["gog_mov_ecx_global_sites"], 1)
+        self.assertEqual(report["retained_at_identical_offsets"], 1)
+        self.assertEqual(report["removed_or_replaced_in_gog"], 4)
+        self.assertEqual(report["introduced_at_new_offsets"], 0)
+        self.assertEqual(report["replacement_starts"], {
+            "int3_at_old_site": 1, "nop_at_old_site": 1,
+            "plain_prologue_at_old_site": 1,
+            "other_replacement_at_old_site": 1,
+        })
+        self.assertEqual(report["plain_prologue_replacement_vas"],
+                         ["0x00401038"])
+        self.assertTrue(report["no_attribution_to_safedisc_alone"])
 
     def test_runtime_initializer_rejects_wrong_binary(self):
         # No proprietary executable fixtures are present in test suite.
