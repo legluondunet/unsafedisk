@@ -124,6 +124,29 @@ def audit(retail:bytes,gog:bytes):
              for kind in STUB_PREFIX}
     if classes!={'int3':8,'ret':2,'xor-eax-ret':1}:
         raise ValueError('unexpected stub classes')
+    # A zero direct-E8 count does NOT imply no consumer. This engine-
+    # created function-vector retains an address to the zero-return stub;
+    # the other retained slot points at a one-return stub.
+    address_taken={
+        0x4671EB:(0x2C,0x448DE0),
+        0x4671F4:(0x30,0x448AB0),
+    }
+    for site,(field,target) in address_taken.items():
+        literal=b'\xC7\x40'+bytes((field,))+struct.pack('<I',target)
+        if bytes_at(retail,rs,site,7)!=literal or bytes_at(gog,gs,site,7)!=literal:
+            raise ValueError(f'function pointer store altered at {site:#x}')
+    if bytes_at(gog,gs,0x448DE0,16)!=b'\x33\xC0\x40\xC3'+b'\xCC'*12:
+        raise ValueError('GOG nonzero-success callback changed')
+    for site in (0x4674C8,0x47B01B):
+        call=bytes_at(retail,rs,site,5)
+        if (call!=bytes_at(gog,gs,site,5) or call[0]!=0xE8
+                or site+5+struct.unpack('<i',call[1:])[0]!=0x467130):
+            raise ValueError('function-vector builder call changed')
+    indirect_candidates={0x42E087:bytes.fromhex('ff5130'),
+                         0x45224F:bytes.fromhex('ff543a30')}
+    for site,code in indirect_candidates.items():
+        if bytes_at(retail,rs,site,len(code))!=code or bytes_at(gog,gs,site,len(code))!=code:
+            raise ValueError('offset +0x30 indirect CALL changed')
     return {'original_sha256':RETAIL_SHA, 'gog_sha256':GOG_SHA,
         'sha256_strict':True,'pure_static_call_patterns':True,
         'full_int3_body_count':len(relevant),
@@ -133,6 +156,11 @@ def audit(retail:bytes,gog:bytes):
         'gog_removed_E8_calls':14,
         'gog_removed_calls_are_CC_filled':True,
         'direct_incoming_calls_to_eight_cc_entrypoints_on_gog':0,
+        'preserved_function_pointer_store_sites':{'0x004671EB':'0x00448DE0','0x004671F4':'0x00448AB0'},
+        'gog_function_pointer_stub_returns':{'0x00448DE0':1,'0x00448AB0':0},
+        'function_vector_builder_calls':['0x004674C8','0x0047B01B'],
+        'possible_plus30_indirect_call_sites':['0x0042E087','0x0045224F'],
+        'indirect_call_to_this_specific_vector_proven':False,
         'indirect_or_self_modified_calls_ruled_out':False,
         'static_sites':sources,
         'decrypted_retail_executable_generated':False}
