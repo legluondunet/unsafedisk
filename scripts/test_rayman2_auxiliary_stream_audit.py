@@ -14,6 +14,7 @@ from rayman2_auxiliary_stream_audit import (
     signed_x86_masked_prng_step, inspect_runtime_rng_initializer,
     compare_masked_mov_ecx_sites,
     reverse_masked_prng_state, verify_predecessor_prefix,
+    probe_stream_boundary_gaps,
 )
 
 
@@ -112,6 +113,47 @@ class AuxiliaryStreamAuditTests(unittest.TestCase):
         self.assertEqual(KNOWN["0000040C.016"][2], bytes.fromhex("abde"))
         self.assertEqual(KNOWN["0000040C.256"][2], bytes.fromhex("4dc7"))
         self.assertEqual(KNOWN["00000001.TMP"][2], b"")
+
+    def test_boundary_probe_detects_synthetic_concatenation(self):
+        multiplier, modulus, salt = MULTIPLIER, MODULUS, MASKED_SALT
+        seed = 0x00123456
+        last = seed
+        for _ in range(8):
+            last = (last ^ salt) * multiplier % modulus
+        next_state = (last ^ salt) * multiplier % modulus
+        reports = {
+            "A": {
+                "initial_state": f"0x{seed:08X}",
+                "prefix_bytes": 0,
+                "terminal_state": f"0x{last:08X}",
+            },
+            "B": {
+                "initial_state": f"0x{next_state:08X}",
+                "prefix_bytes": 0,
+                "terminal_state": f"0x{next_state:08X}",
+            },
+        }
+        result = probe_stream_boundary_gaps(reports, 20)
+        self.assertEqual(result["ordered_distinct_stream_pairs"], 2)
+        self.assertEqual(result["forward_state_steps_evaluated"], 40)
+        self.assertEqual(result["matches"], [{
+            "from": "A", "to": "B", "steps_from_end_to_start": 1}])
+        self.assertFalse(result["no_direct_or_short_gap_connection_within_window"])
+
+    def test_boundary_probe_rejects_invalid_horizons(self):
+        sample = {
+            name: {
+                "initial_state": f"0x{seed:08X}",
+                "terminal_state": f"0x{seed:08X}",
+                "prefix_bytes": 0,
+            }
+            for name, (_, seed, _, _) in list(KNOWN.items())[:2]
+        }
+        for steps in (-2, 0, 1_000_001, None, True):
+            with self.assertRaises(ValueError):
+                probe_stream_boundary_gaps(sample, steps)
+        with self.assertRaises(ValueError):
+            probe_stream_boundary_gaps({list(sample)[0]: next(iter(sample.values()))}, 50)
 
     def test_original_partial_prefixes_are_reversed_prng_words(self):
         known = {
