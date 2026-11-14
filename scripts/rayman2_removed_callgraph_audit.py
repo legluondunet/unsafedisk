@@ -147,6 +147,15 @@ def audit(retail:bytes,gog:bytes):
     for site,code in indirect_candidates.items():
         if bytes_at(retail,rs,site,len(code))!=code or bytes_at(gog,gs,site,len(code))!=code:
             raise ValueError('offset +0x30 indirect CALL changed')
+    # 0x42E087 is *not* evidence of invoking the stored 0x448AB0:
+    # the same object field is overwritten immediately beforehand.
+    overwrite_context={0x42E074:bytes.fromhex('8b5008'),
+                       0x42E077:bytes.fromhex('c7423090584900'),
+                       0x42E082:bytes.fromhex('8b4808')}
+    for site,code in overwrite_context.items():
+        if (bytes_at(retail,rs,site,len(code))!=code or
+            bytes_at(gog,gs,site,len(code))!=code):
+            raise ValueError('local indirect call overwrite site changed')
     return {'original_sha256':RETAIL_SHA, 'gog_sha256':GOG_SHA,
         'sha256_strict':True,'pure_static_call_patterns':True,
         'full_int3_body_count':len(relevant),
@@ -160,6 +169,8 @@ def audit(retail:bytes,gog:bytes):
         'gog_function_pointer_stub_returns':{'0x00448DE0':1,'0x00448AB0':0},
         'function_vector_builder_calls':['0x004674C8','0x0047B01B'],
         'possible_plus30_indirect_call_sites':['0x0042E087','0x0045224F'],
+        'known_local_indirect_call_overwrites_plus30_before_call':'0x0042E087',
+        'other_plus30_call_requires_runtime_object_identity':'0x0045224F',
         'indirect_call_to_this_specific_vector_proven':False,
         'indirect_or_self_modified_calls_ruled_out':False,
         'static_sites':sources,
