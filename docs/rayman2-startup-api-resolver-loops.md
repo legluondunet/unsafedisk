@@ -36,6 +36,20 @@ Dans l'exécutable GOG actif, les deux entrées de boucle à `0x448DB0` et `0x44
 
 Il est **faux** de conclure que toutes ces 42 opérations sont des vérifications de disque ou une routine de décryptage de `.ICD`. Leur rôle principal observé est le remplissage ou la vérification de pointeurs de modules/API nécessaires à plusieurs routines masquées. Ces fonctions sont aussi susceptibles d'être nécessaires à l'exécutable original si l'on conserve ses appels d'API indirects. **Ne pas les remplir d'`INT3` dans le CD.**
 
+## Trois réactualisations ponctuelles dans une autre routine
+
+L'inventaire de désassemblage complet montre trois autres appels directs **dans le corps original de `0x447DE0`** :
+
+| Appel | Arguments `PUSH` avant l'appel | Destination |
+| --- | --- | --- |
+| `0x44818A` | flag=1, index=2 | `0x447A90` |
+| `0x448196` | flag=1, index=24 (`0x18`) | `0x447AF0` |
+| `0x4481A2` | flag=1, index=25 (`0x19`) | `0x447AF0` |
+
+Les trois **instructions `CALL E8 rel32` et les six `PUSH`** sont vérifiés par octets et destinations sur le CD. Dans la `.text` GOG active, les trois plages `PUSH/PUSH/CALL` de 9 octets sont toutes `INT3`. C'est cohérent avec le remplacement antérieur du gestionnaire `0x447DE0`, mais ne prouve pas leur atteinte à l'exécution originale.
+
+**Ces trois appels ne font pas partie des 42 itérations du démarrage** : ils relèvent d'un autre chemin, potentiellement parcouru si les conditions de la routine originale sont satisfaites. Le nombre total de résolutions effectivement réalisées à l'exécution reste inconnu.
+
 ## Reproduction
 
 ```sh
@@ -49,7 +63,7 @@ RAYMAN2_GOG_EXE=/prive/Rayman2_GOG.exe \
   -p 'test_rayman2_startup_resolver_loops_audit.py'
 ```
 
-Le programme refuse toute divergence de SHA-256, valide les opcodes des boucles complètes, toutes les destinations d'appels, les constantes de compteurs, les stubs GOG et les 36 descripteurs. Les tests locaux ont réussi : **9/9**, dont deux exercices contre les vrais exécutables et des mutations négatives de cinq positions de code ou de données. La CI sans fichiers commerciaux exécute les sept tests synthétiques.
+Le programme refuse toute divergence de SHA-256, valide les opcodes des boucles complètes, toutes les destinations d'appels, les constantes de compteurs, les stubs GOG et les 36 descripteurs. Les tests locaux ont réussi : **10/10**, dont deux exercices contre les vrais exécutables et des mutations négatives de sept positions de code ou de données. La CI sans fichiers commerciaux exécute les huit tests synthétiques.
 
 ## Prochaine étape
 
