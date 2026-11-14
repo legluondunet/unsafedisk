@@ -121,6 +121,46 @@ def count_prng_code_literals(blob: bytes) -> dict[str, int]:
     }
 
 
+def _literal_dword_positions(raw: bytes, dword: int) -> set[int]:
+    """All literal byte offsets, including unaligned positions; no x86 claims."""
+    needle = struct.pack("<I", dword)
+    found: set[int] = set()
+    pos = 0
+    while True:
+        pos = raw.find(needle, pos)
+        if pos < 0:
+            return found
+        found.add(pos)
+        pos += 1
+
+
+def _rva_page_distribution(byte_offsets: set[int], text_rva: int = 0x1000) -> dict[str, int]:
+    """Small metadata histogram, never underlying byte sequences."""
+    per_page: dict[int, int] = {}
+    for offset in byte_offsets:
+        page = (offset + text_rva) & ~0xFFF
+        per_page[page] = per_page.get(page, 0) + 1
+    return {f"0x{page:05X}": per_page[page] for page in sorted(per_page)}
+
+
+def _compare_literal_code_offsets(original: bytes, active: bytes, value: int) -> dict:
+    """Compare matching byte-offset references in two PE sections at same RVA."""
+    old_offsets = _literal_dword_positions(original, value)
+    new_offsets = _literal_dword_positions(active, value)
+    common = old_offsets & new_offsets
+    missing = old_offsets - new_offsets
+    introduced = new_offsets - old_offsets
+    return {
+        "original_literal_occurrences": len(old_offsets),
+        "active_gog_literal_occurrences": len(new_offsets),
+        "retained_at_same_rva": len(common),
+        "removed_in_gog": len(missing),
+        "introduced_in_gog": len(introduced),
+        "removed_rva_pages": _rva_page_distribution(missing),
+        "instruction_boundaries_not_proven_by_literal_scan": True,
+    }
+
+
 def original_vs_gog_rng_code(retail: bytes, gog: bytes) -> dict:
     """SHA-gated caller must supply the exact owner CD and GOG executables.
 
@@ -156,6 +196,33 @@ def original_vs_gog_rng_code(retail: bytes, gog: bytes) -> dict:
     }
     if counts != expected:
         raise ValueError("unexpected PRNG code literal fingerprint")
+    offset_diff = {
+        "state_global_pointer_le": _compare_literal_code_offsets(
+            original, active, 0x00510BF0),
+        "masked_prng_xor_salt_le": _compare_literal_code_offsets(
+            original, active, MASKED_SALT),
+    }
+    expected_missing = {
+        "state_global_pointer_le": {
+            "removed_in_gog": 128, "retained_at_same_rva": 68, "introduced_in_gog": 0,
+            "removed_rva_pages": {
+                "0x47000": 12, "0x48000": 45, "0x49000": 9,
+                "0x4D000": 3, "0x4E000": 17, "0x4F000": 12,
+                "0x50000": 15, "0x51000": 15,
+            },
+        },
+        "masked_prng_xor_salt_le": {
+            "removed_in_gog": 44, "retained_at_same_rva": 29, "introduced_in_gog": 0,
+            "removed_rva_pages": {
+                "0x47000": 4, "0x48000": 15, "0x49000": 3,
+                "0x4D000": 1, "0x4E000": 6, "0x4F000": 4,
+                "0x50000": 5, "0x51000": 6,
+            },
+        },
+    }
+    for name, measures in expected_missing.items():
+        if any(offset_diff[name][key] != value for key, value in measures.items()):
+            raise ValueError("unexpected PRNG reference RVA-page fingerprint")
     seeds_in_retail = {}
     seeds_in_gog = {}
     for name, (_, seed, _, _) in KNOWN.items():
@@ -164,6 +231,7 @@ def original_vs_gog_rng_code(retail: bytes, gog: bytes) -> dict:
         seeds_in_gog[name] = gog.count(word)
     return {
         "per_section_raw_dword_occurrences": counts,
+        "original_vs_active_gog_dword_offset_diff": offset_diff,
         "all_eight_seed_literals_absent_from_retail": not any(seeds_in_retail.values()),
         "all_eight_seed_literals_absent_from_gog": not any(seeds_in_gog.values()),
         "per_file_seed_literal_occurrences_retail": seeds_in_retail,
