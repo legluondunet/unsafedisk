@@ -43,6 +43,13 @@ LOOPS = {
 }
 # Distinct later refreshes in the original helper 0x447DE0, *not*
 # extra guaranteed iterations in the two startup loops.
+# These are Win32 export names decoded from the three original records.
+# The names do not prove that their calls were reached at runtime.
+REFRESH_EXPORTS = {
+    2: 'GetCurrentProcess',
+    24: 'EnumProcesses',
+    25: 'EnumProcessModules',
+}
 REFRESH_CALLS = {
     0x44818A: (0x447A90, 2),
     0x448196: (0x447AF0, 24),
@@ -81,6 +88,23 @@ def expected_indices(initial: int, limit: int) -> list[int]:
     if not 0 <= initial <= 255 or not 0 <= limit <= 255:
         raise ValueError('loop bounds must be byte-sized')
     return list(range(initial, limit))
+
+
+def decode_export(record: bytes) -> str:
+    """Reconstruct the bounded legacy subtract+XOR encoded export name."""
+    if len(record) != 76:
+        raise ValueError('export descriptor must be exactly 76 bytes')
+    sub, xor, sub_step, xor_step, length = record[:5]
+    if not 1 <= length <= 43:
+        raise ValueError('bad encoded export name length')
+    value = bytearray()
+    for item in record[5:5+length]:
+        value.append(((item - sub) & 255) ^ xor)
+        sub = (sub + sub_step) & 255
+        xor = (xor + xor_step) & 255
+    if any(not 0x21 <= item <= 0x7e for item in value):
+        raise ValueError('invalid decoded Win32 export name')
+    return value.decode('ascii')
 
 
 def inspect(retail: bytes, gog: bytes) -> dict:
@@ -140,6 +164,7 @@ def inspect(retail: bytes, gog: bytes) -> dict:
     # On disk the pointer slots are zero, and the 36 76-byte records are
     # the bootstrap descriptor #0 followed by descriptor indices 1..35.
     masks = []
+    decoded_names = {}
     for idx in range(36):
         addr = 0x4A13D0 + 76*idx
         orig = get_bytes(retail, cp, addr, 76)
@@ -147,8 +172,12 @@ def inspect(retail: bytes, gog: bytes) -> dict:
         if orig != other or orig[0x30:0x34] != b'\x00'*4:
             raise ValueError(f'descriptor {idx} differs or pointer not initially zero')
         masks.append(struct.unpack_from('<I', orig, 0)[0])
+        decoded_names[idx] = decode_export(orig)
     if not all(masks):
         raise ValueError('unexpected empty descriptor mask')
+    for idx, expected in REFRESH_EXPORTS.items():
+        if decoded_names[idx] != expected:
+            raise ValueError(f'refresh export #{idx} differs from expected')
     return {
         'retail_sha256_verified': CD_HASH,
         'gog_sha256_verified': GOG_HASH,
@@ -167,6 +196,7 @@ def inspect(retail: bytes, gog: bytes) -> dict:
         'original_statically_implied_callback_visits_if_mode_1': 42,
         'later_conditional_original_refresh_calls': refresh,
         'extra_refresh_calls_not_counted_as_startup_loop_iterations': 3,
+        'three_named_refresh_exports': {str(i): decoded_names[i] for i in REFRESH_EXPORTS},
         'runtime_call_count_measured': False,
         'safedisc_decryption_or_cd_authentication_proven': False,
         'executable_patched': False,
