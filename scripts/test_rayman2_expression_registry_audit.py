@@ -10,6 +10,7 @@ from rayman2_expression_registry_audit import (
 from rayman2_selfread_archive_audit import locked_read, sections
 
 ROOT=Path(__file__).resolve().parent
+PRIVATE_SAMPLES_PRESENT = (ROOT/'Rayman2(3).exe').is_file() and (ROOT/'Rayman2.exe').is_file()
 
 class RegistryAuditTests(unittest.TestCase):
     def test_synthetic_rows(self):
@@ -50,6 +51,7 @@ class RegistryAuditTests(unittest.TestCase):
                         0x481800,0x481822,0x481847,0x481850,0x481860):
             self.assertIn(address,SHARED)
         self.assertIn(b'\xff\xd0',bytes.fromhex(SHARED[0x481847]))
+    @unittest.skipUnless(PRIVATE_SAMPLES_PRESENT, 'owner-supplied retail and GOG EXEs unavailable on CI')
     def test_sample_readonly(self):
         cd=locked_read(ROOT/'Rayman2(3).exe','cd')
         gog=locked_read(ROOT/'Rayman2.exe','gog')
@@ -58,6 +60,7 @@ class RegistryAuditTests(unittest.TestCase):
         self.assertFalse(result['downstream_integrity_verdict_observed'])
         self.assertEqual(result['other_special_type_0x170']['handler'],'0x470000')
         self.assertEqual(len(result['other_registry_rows_checked']),5)
+    @unittest.skipUnless(PRIVATE_SAMPLES_PRESENT, 'owner-supplied retail and GOG EXEs unavailable on CI')
     def test_sample_corrupt_data_row(self):
         cd=locked_read(ROOT/'Rayman2(3).exe','cd')
         gog=bytearray(locked_read(ROOT/'Rayman2.exe','gog'))
@@ -67,6 +70,7 @@ class RegistryAuditTests(unittest.TestCase):
         gog[off]^=0x01
         with self.assertRaisesRegex(ValueError,'changed handler'):
             inspect(cd,bytes(gog))
+    @unittest.skipUnless(PRIVATE_SAMPLES_PRESENT, 'owner-supplied retail and GOG EXEs unavailable on CI')
     def test_sample_corrupt_gog_branch(self):
         cd=locked_read(ROOT/'Rayman2(3).exe','cd')
         gog=bytearray(locked_read(ROOT/'Rayman2.exe','gog'))
