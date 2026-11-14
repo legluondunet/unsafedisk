@@ -2,6 +2,87 @@
 
 **14 November 2026 | Private, read-only, full-byte verification.** Earlier research proved five owner-provided files were complete pseudo-random streams, not PE executables. Three additional original-CD-associated files were discovered in the owner's existing file library, and have now been inspected at the byte level: `00000001.tmp`, `0000040c.016`, and `0000040c.256`.
 
+## Historically, .016/.256 are SafeDisc splash BMP files — but these copies are not BMPs
+
+Three mutually supporting **external historical accounts**
+must be distinguished from our exact private byte findings:
+
+1. [Gravure-News, 28 June 2004](https://www.gravure-news.com/article/identification-manuelle-des-protections-2-2.php)
+   associates SafeDisc `.016` and `.256` files,
+   typically the `0000040C` language-identifier pair,
+   with **logos displayed during the authentication
+   or decryption splash**. It explicitly notes that
+   these filenames can also appear on **SafeDisc 1**
+   CDs; they are not a SafeDisc 2 discriminator.
+2. A [2011 contemporary protection discussion]
+   (https://www.fileforums.com/showthread.php?goto=nextoldest&t=104458)
+   describes `.016` and `.256` files as
+   renamed BMP images used for the startup logo,
+   not essential encrypted executable sections.
+   This is historical community experience,
+   not a verifier of our Rayman 2 edition.
+3. [Redump's SafeDisc preservation guide]
+   (https://wiki.redump.info/SafeDisc)
+   says standard SafeDisc has intentionally
+   defective **C2 error sectors near the
+   first ~10,000 sectors**, and that `.tmp`
+   dummy files correlate with those error
+   regions. Some disc-authentication information
+   occurs outside ordinary ISO9660 file payloads.
+   It warns that remnant SafeDisc files may
+   persist even if active protection is removed.
+
+**Against the owner's actual exact `.016/.256` bytes:**
+
+| Filename | Supplied byte count | First 2 bytes | Raw BMP signature at offset 0 | Completely reproducible as PRNG |
+|---|---:|---|---|---|
+| `0000040C.016` | 153,718 | `AB DE` | **no** | **yes**, after 2-byte prefix |
+| `0000040C.256` | 308,278 | `4D C7` | **no** | **yes**, after 2-byte prefix |
+
+For reference, an **ordinary uncompressed 640×480
+8-bit Windows BMP with a full 256-entry 4-byte
+palette** has nominal size
+`14 (BITMAPFILEHEADER) + 40 (BITMAPINFOHEADER)
++ 1024 (palette) + 640*480 (pixel bytes)
+= 308,278 bytes`: exactly the length of
+the supplied `.256`. This **size equality
+is compatible** with such a splash picture,
+but does **not** reveal its pixels, prove
+the intended dimensions or authenticate
+the file contents. The `.016` file is
+likewise not a standard plain BMP at offset
+zero; no dimensions are inferred.
+
+Since **every byte** of the two actual owner
+files was independently regenerated from
+public PRNG arithmetic, neither is a
+plain readable bitmap or an arbitrary
+independently encrypted unknown image
+payload *in its current representation*.
+These may be synthetic replacements,
+protection-related padding or an
+unverified extraction/install stage; the
+evidence does **not** decide which.
+Crucially, these two files are now **poor
+targets for attempting to reconstruct
+Rayman 2 executable code**. A separate
+working SafeDisc loader/ICD stage, if
+one exists on this edition, must be
+verified independently.
+
+**Physical-disc limitation:** the archived
+Rayman2Fix logs describe an ISO9660
+**2048-byte-sector ISO**. Even if all its
+ordinary payload sectors are copied
+correctly, that representation does not
+include the physical-drive's C2 error
+observations, drive authentication
+signatures or full subchannel metadata.
+Redump's description applies to standard
+SafeDisc discs generally; the actual
+Rayman 2 copy has not been measured
+for those properties in this study.
+
 ## Eight filenames absent as literals from the original game EXE
 
 A separate direct byte scan used the exact original
