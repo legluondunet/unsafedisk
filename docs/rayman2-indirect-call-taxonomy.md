@@ -16,16 +16,24 @@ GNU `objdump -d -M intel` on the original active `.text` locates **367** two-byt
 | Masked `CALL EAX` for `GetCurrentProcess` | **37** | Yes, descriptor #2 |
 | Masked `CALL EAX` for `FlushInstructionCache` | **1** | Yes, descriptor #1 |
 | Masked `CALL ECX` for `FlushInstructionCache` | **31** | Yes, descriptor #1 |
-| `CALL ECX` through masked pair outside the API descriptor table | **1** | No named export established |
+| `CALL ECX` through bootstrap descriptor index #0 | **1** | Yes, `GetModuleHandleA` |
 | Dynamically built 13-byte `MOV/XOR/JMP` or `MOV/XOR/PUSH/RET` trampoline | **30** | Yes, encoded API descriptors |
 | Dynamically built `PUSH imm32; RET` | **3** | Yes, `CloseHandle` descriptor #11 |
 | Dynamically built `JMP rel32` | **2** | Yes, `Module32First` / `Module32Next` descriptors #22 / #23 |
-| Dynamically built `MOV EAX,[ptr]; XOR EAX,[mask]; JMP EAX` with **non-table** mask | **1** | No named export established |
-| **Total** | **106** | **104 named, 2 same non-table pointer pair** |
+| Dynamically built `MOV EAX,[ptr]; XOR EAX,[mask]; JMP EAX` using bootstrap descriptor #0 | **1** | Yes, `GetModuleHandleA` |
+| **Total** | **106** | **106 named, none unnamed** |
 
-The two not-yet-named transfers share the **exact on-disk pointer/mask address pair `0x4A1400 / 0x4A13D0`**. The first at `0x447ACE` is `CALL ECX` within the loader/resolver pathway. At `0x448B8E`, the loader constructs a 13-byte trampoline whose pointer DWORD is `0x4A1400` and whose mask DWORD is supplied by `EDI`, loaded with `0x4A13D0` at `0x448ABE`. These are a shared code mechanism, **not proof** of which runtime export/function they call or that their actual targets are identical on all executions.
+## Newly recognised bootstrap API descriptor #0
 
-### Named API histogram across the 104 matching sites
+The two previously unnamed transfers use the pair `0x4A1400 / 0x4A13D0`. The latter is **exactly one 0x4C-byte descriptor stride before the former #1 at `0x4A141C`**. Decoding its length-16 encoded export name with the same subtract/XOR recurrence yields **`GetModuleHandleA`**. The 76-byte descriptor SHA-256 is `c2b66e4d6b60b7691e82f2dc1ed82e2266406be57b77ca2599b61bd1bb50dd0b`, **identical in the original and GOG files**; the pointer field `+0x30` is zero on disk in both.
+
+- Original `0x447ACE`: masked `CALL ECX` with `EDX=[0x4A1400]`, `ECX=[0x4A13D0]`, `XOR ECX,EDX`. Its caller passes an EAX argument (consistent with a module name).
+- Original `0x448B8E`: a constructed 13-byte `MOV EAX,[0x4A1400]; XOR EAX,[0x4A13D0]; JMP EAX` trampoline, with `EDI` loaded with `0x4A13D0` at `0x448ABE`. The call passes `NULL` (consistent with `GetModuleHandleA(NULL)`).
+- In original routine `0x4478A0`, a direct `MOV [0x4A1400],EAX` at `0x4478FB` writes the masked pointer, and `0x447A76` overwrites or clears it on a later path. This establishes a specific bootstrap initialisation and validation mechanism, **not observed success at runtime**.
+
+Hence we have **36 named records**: a bootstrap record index zero at `0x4A13D0` and the already-known 35 numbered records 1–35 at `0x4A141C` onward; the previously documented all-zero sentinel after record 35 is a separate slot.
+
+### Named API histogram across all 106 matching sites
 
 | Decoded API name | Sites |
 |---|---:|
@@ -37,10 +45,11 @@ The two not-yet-named transfers share the **exact on-disk pointer/mask address p
 | `CloseHandle` | 3 |
 | `LoadLibraryA` | 2 |
 | `CreateToolhelp32Snapshot` | 2 |
+| `GetModuleHandleA` | 2 |
 | `EnumProcessModules`, `GetDriveTypeA`, `GetLogicalDrives`, `GetVolumeInformationA`, `Module32First`, `Module32Next` | 1 each |
-| **Total** | **104** |
+| **Total** | **106** |
 
-These names are independently obtained by decoding the CD's **35** static masked Win32 API descriptor records, not by assuming every changed GOG instruction is an equivalent operation.
+These names are independently obtained by decoding the CD's **36** static masked Win32 API descriptor records (bootstrap index zero plus 1–35), not by assuming every changed GOG instruction is an equivalent operation.
 
 ## Five newly decoded special call sites
 
@@ -62,8 +71,8 @@ Static linear disassembly at identical original VAs found: **71 `INT3`, 15 `CALL
 
 ## Verification and limitations
 
-Three local Python analyzer/test pairs were exercised: **21/21 synthetic unit tests passed**. The additional taxonomy was run against the two original user files whose SHA-256 hashes are stated above: **106 changed sites identified, 106 classified, zero unclassified**, and the descriptor index/name was verified for all 104 named sites. The machine-readable JSON lists each site, its opcode-derived classification, masked pointer locations and the GOG mnemonic at the same VA.
+Three local Python analyzer/test pairs were exercised: **21/21 synthetic unit tests passed**. The additional taxonomy was run against the two original user files whose SHA-256 hashes are stated above: **106 changed sites identified, 106 classified, zero unclassified**, and the encoded descriptor index/name was verified for all 106 named sites. The machine-readable JSON lists each site, its opcode-derived classification, masked pointer locations and the GOG mnemonic at the same VA.
 
 This is a **bounded static statement**, not a proof of runtime reachability. Linear disassembly is not a control-flow graph. The 35 descriptor slots are zero on disk and require runtime initialisation before corresponding decoded exports can be called. Dynamic code generation, different disc mastering, runtime anti-tamper, and unrelated GOG edits remain possible. None of these findings validates the historical 1.35 driver module's actual physical-CD provenance, removes SafeDisc end-to-end, proves gameplay, or justifies distributing reconstructed game binaries.
 
-**Next target:** determine the live initialisation and target of the shared out-of-table masked-pointer pair `0x4A1400 / 0x4A13D0` (especially the original resolver at `0x447ACE`), including its call arguments and dataflow. Treat `GetProcAddress` or `LoadLibraryA` as hypotheses, **not established identities**.
+**Next target:** trace whether the bootstrap record #0 (`GetModuleHandleA`) is successfully initialised in Windows/Wine, and then follow the later import resolution, physical-CD checks and anti-tamper paths. Neither a named export nor its masked slot proves any particular runtime execution result.
