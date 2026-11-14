@@ -22,6 +22,8 @@ The first type registry begins at original virtual address **`0x4A43E0`**, with 
 | Neighbor type `0x171` entry | **`(0x470210, 0)`** |
 | SHA-256 of 4,112 record bytes | `b6cbd675c8faa32c8f94631d81e6ebcb3321365893ac8adf8e3fe209075fb41a` |
 
+The flag itself does **not** identify a SafeDisc-only entry: **299** types have flag `1`, and the reader at `0x482680` is called at **68 separate direct instruction sites** (all unchanged in GOG). The semantics of the flag have not been established from these counts.
+
 **Why stop at 514?** Immediately after entry `0x201` (VA **`0x4A53F0`**), the 112 bytes up to the *other* registry at `0x4A5460` are **seven 16-byte constant blocks**, not plausible function/flag pairs. Each starts with the identical 12-byte constant prefix and ends with a DWORD 0 (except block index 5 with DWORD 1). This is a validated on-disk boundary and prevents confusing numeric data with 14 extra handlers. These numbers **do not establish a runtime-checked maximum ID**; the lookup `0x482690` itself indexes by type ID without an immediately adjacent bounds check.
 
 - Full record table SHA-256 is identical in CD and GOG.
@@ -57,7 +59,7 @@ The original handler beginning `0x470000` is registered only for type ID `0x170`
 
 The nearby **`0x11B`** handler obtains its type ID using the same relative layout: `MOV EBP,[EAX-8]` at `0x47B185`, followed by a `CMP EBP,0x11B` at `0x47B29B`. Both tags therefore belong to a data-driven expression/record system. They need **not** be present as immediate DWORD literals in code outside their respective handlers.
 
-**Independent generic reuse evidence:** GNU `objdump` recognises **15** direct instruction-boundary calls into `0x481C10` and **757** into `0x480B90` in active `.text` in each build, and all those locations are identical between the two builds. Every direct `E8 rel32` instruction byte was revalidated. These are static sites, not runtime frequencies or a complete call graph.
+**Independent generic reuse evidence:** GNU `objdump` recognises **15** direct instruction-boundary calls into `0x481C10`, **757** into `0x480B90`, **68** into the generic flag reader `0x482680` and **one** into the function registry reader `0x482690` in active `.text` in each build, and all those locations are identical between the two builds. Every direct `E8 rel32` instruction byte was revalidated. These are static sites, not runtime frequencies or a complete call graph.
 
 In both PE files, there are **zero literal DWORD `0x170` and `0x11B` matches in the on-disk `.rdata` and `.data` raw sections**. This is only a statement about these two specific sections; type IDs might be generated, encrypted, read from external resources, or instantiated dynamically. It **does not prove** that `0x170` is unused or that SafeDisc enforcement is absent.
 
@@ -74,6 +76,6 @@ python scripts/rayman2_registry_object_provenance_audit.py \
 python -m unittest discover -s scripts -p 'test_rayman2_*.py'
 ```
 
-The audit authenticates the two inputs by exact SHA-256 and length, validates PE32 section-backed addresses, 23 shared opcode anchors, six direct call targets, both complete data tables and their expected SHA-256 hashes, the boundary constants, and the complete 15/757 direct-call-site inventories by GNU `objdump` plus independent raw `E8 rel32` calculation. **23 new tests, 242/242 local suite tests passed**; the integration tests are skipped if the user-owned executable files are unavailable to the runner. No GitHub Actions CI, Wine runtime game execution, compiled Rust artifact or original-CD raw-sector capture occurred.
+The audit authenticates the two inputs by exact SHA-256 and length, validates PE32 section-backed addresses, 24 shared opcode anchors, six direct call targets, both complete data tables and their expected SHA-256 hashes, the boundary constants, and the complete 15/757/68/1 direct-call-site inventories by GNU `objdump` plus independent raw `E8 rel32` calculation. **24 new tests, 243/243 local suite tests passed**; the integration tests are skipped if the user-owned executable files are unavailable to the runner. No GitHub Actions CI, Wine runtime game execution, compiled Rust artifact or original-CD raw-sector capture occurred.
 
 **Next genuinely discriminating observation:** capture *real object data* for a `0x170` record and its parser-dispatched offset (and the later typed-result consumer) from authentic Rayman 2 resources or a strictly read-only runtime trace. Without that, the existence of a sum-of-squares function and its dispatch is **not** sufficient to identify a checksum reference value, failure branch, or working SafeDisc decryption.
