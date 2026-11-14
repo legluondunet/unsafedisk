@@ -119,7 +119,7 @@ or a specific original-CD authentication step.
 
 ## Formal limitation of the eight on-disc PRNG files
 
-The eight previously verified SHA-256-pinned auxiliary files contain **1,548,525 total bytes**, yet all are generated from eight 31-bit initial states plus **5 retained prefix bytes** with a fully known recurrence and known file lengths. Conditioned on the recurrence and lengths, that is an **upper bound of 8×31+5×8 = 288 bits of variable source data**, for over **12 million output bits**. This is a deterministic description-length bound, **not a measured Shannon entropy estimate**.
+The eight SHA-256-pinned auxiliary files contain **1,548,525 total bytes**. A new [inverse-state/prefix audit](rayman2-eight-safedisc-auxiliary-streams.md) demonstrates that all **five previously 'retained prefix bytes'** (one in the ICD and two in each `.016`/`.256`) are actually the *low-order bytes of the preceding generator word*, recovered without input from those prefix bytes. Once the recurrence and file lengths are fixed, **eight 31-bit initial states fully determine all eight files**: an upper bound of **8×31 = 248 variable bits** for over 12 million output bits. The earlier **288-bit upper bound is superseded**. This is a deterministic description-length bound, **not a measured Shannon entropy estimate**.
 
 Those exact bytes therefore cannot independently encode a general, unknown multi-hundred-KiB native PE executable. Recovering any such game payload would require an **external data source, different disc stage or additional provenance**. Do not assume that their SafeDisc-style names prove they contain a genuine encrypted loader image.
 
