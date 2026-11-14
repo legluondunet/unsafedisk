@@ -66,6 +66,8 @@ class PatchDependencyTest(unittest.TestCase):
         gog=Path(os.environ['RAYMAN2_GOG_EXE']).read_bytes()
         report=m.audit(cd,gog)
         self.assertEqual(report['total_changed_bytes'],13269)
+        self.assertEqual(report['redirected_case_selector_value'],5)
+        self.assertEqual(report['dispatch_table_entries'],16)
         self.assertEqual(report['seven_minor_changed_bytes'],307)
         self.assertEqual(report['gog_helper_compared_result_constant'],'0x00632EA0')
         self.assertTrue(report['nonportable_retargeted_helper'])
