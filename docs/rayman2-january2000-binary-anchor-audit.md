@@ -133,3 +133,17 @@ python -m unittest discover -s scripts -p 'test_rayman2_historical_anchors.py'
 ```
 
 The tool is read-only, exact SHA-256 gated, does not reveal proprietary bytes, and contains synthetic-only tests. **5/5 local synthetic tests and the two-real-binary integration audit passed.** The published GitHub blobs of the script and tests match the locally tested files (SHA-1 Git blobs `629935a37c1e5f06a444d160285484333a048ccc` and `d9aca5823c4f93d0a5ab4d7844c73b4db4bb3103`). No Wine execution, native Rust build, or GitHub Actions job was requested.
+
+## Addendum : instructions de l'OEP et incompatibilité de deux anciens offsets
+
+Une seconde contre-vérification byte-exacte du même texte historique (chapitres 3.1.2 et 3.1.4) identifie deux nouvelles divergences **de stade**, sans prétendre qu'elles indiquent nécessairement une édition différente.
+
+- **OEP historique, 0x45FCC0.** Les **22 premiers octets** du prologue dit « déchiffré » (jusqu'au premier \`PUSH EAX\`, inclus) figurent déjà sur disque aux mêmes VA dans les deux PE SHA-256 approuvés ; le précédent audit n'avait fixé que les dix premiers. L'AddressOfEntryPoint commun est également 0x45FCC0.
+- **Ancien \`CALL\` 0x410A94 → 0x4270AD.** La séquence \`E8 14 66 01 00\` attendue d'après le texte de 2000 est absente de la plage \`.text\` active commune de **631 296 octets** des deux exécutables. À **0x410A93**, nos deux fichiers contiennent plutôt \`MOV ECX,1\` : **0x410A94** est le début de l'immédiat 32 bits de cette instruction. Appliquer ici la modification publiée corromprait une instruction étrangère au code décrit.
+- **Ancien contrôle de fichier 0x4052E0.** Le texte historique situe là une comparaison sur un mot mémoire. Dans nos deux PE, **0x4052DF** est un \`PUSH 0x3FC00000\` : **0x4052E0** se trouve dans son immédiat et n'est pas le début d'une comparaison.
+
+Ces trois diagnostics sont produits par la nouvelle entrée \`historical_runtime_stage_discriminator\` de \`scripts/rayman2_historical_anchors.py\`, de façon **lecture seule**, toujours à partir des véritables sections \`.text\` actives. Deux contrôles synthétiques nouveaux couvrent l'absence réelle et un contrôle positif avec le véritable opcode \`CALL rel32\`. Ils s'ajoutent aux cinq contrôles antérieurs sans toucher aux fichiers commerciaux.
+
+**Interprétation bornée :** nous avons un exécutable original dont une séquence historique « déchiffrée » est déjà lisible sur disque, mais les anciens points de modification 0x410A94 / 0x4052E0 appartiennent à une autre représentation (étape, révision, ou transcription). Ce fait ne démontre **ni** que le fichier ICD historique a été correctement extrait du CD, **ni** que tous les contrôles SafeDisc sont absents. La distinction entre le chargement SafeDisc initial et le contrôle logique du volume \`RAYMAN2\` reste indispensable.
+
+**Prochaine preuve discriminante :** sous un débogueur 32 bits, observer si le vrai processus atteint l'OEP 0x45FCC0, puis tracer passivement l'éventuel premier écrivain de \`0x5113EC\` et l'appel original \`0x44949F → 0x448E30\`. Aucun patch de l'exécutable n'est justifié à cette étape.
