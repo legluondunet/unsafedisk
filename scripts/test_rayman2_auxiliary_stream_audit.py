@@ -13,6 +13,7 @@ from rayman2_auxiliary_stream_audit import (
     count_prng_code_literals, original_vs_gog_rng_code,
     signed_x86_masked_prng_step, inspect_runtime_rng_initializer,
     compare_masked_mov_ecx_sites,
+    reverse_masked_prng_state, verify_predecessor_prefix,
 )
 
 
@@ -111,6 +112,47 @@ class AuxiliaryStreamAuditTests(unittest.TestCase):
         self.assertEqual(KNOWN["0000040C.016"][2], bytes.fromhex("abde"))
         self.assertEqual(KNOWN["0000040C.256"][2], bytes.fromhex("4dc7"))
         self.assertEqual(KNOWN["00000001.TMP"][2], b"")
+
+    def test_original_partial_prefixes_are_reversed_prng_words(self):
+        known = {
+            "RAYMAN2.ICD": (0x5611AA5B, bytes.fromhex("5b")),
+            "0000040C.016": (0x47EFDEAB, bytes.fromhex("abde")),
+            "0000040C.256": (0x255AC74D, bytes.fromhex("4dc7")),
+        }
+        for name, (preceding_word, partial_bytes) in known.items():
+            size, seed, prefix, digest = KNOWN[name]
+            self.assertEqual(prefix, partial_bytes)
+            self.assertEqual(reverse_masked_prng_state(seed), preceding_word)
+            sample = synthetic_stream(seed, (size-len(prefix))//4, prefix)
+            self.assertEqual(hashlib.sha256(sample).hexdigest(), digest)
+            result = verify_predecessor_prefix(sample, prefix=prefix)
+            self.assertEqual(result["preceding_state"], f"0x{preceding_word:08X}")
+            self.assertEqual(result["prefix_independent_source_bytes"], 0)
+            self.assertTrue(result["prefix_is_low_little_endian_bytes_of_preceding_state"])
+            self.assertEqual(sample[:len(prefix)],
+                             preceding_word.to_bytes(4, "little")[:len(prefix)])
+
+    def test_partial_prefix_not_an_arbitrary_independent_byte(self):
+        seed = KNOWN["0000040C.256"][1]
+        sample = synthetic_stream(seed, 20, b"zz")
+        # An ordinary recurrence checker accepts an arbitrary supplied prefix.
+        self.assertEqual(verify_stream(sample, seed=seed, prefix=b"zz"), 20)
+        # The stronger reverse-generation audit must reject it.
+        with self.assertRaisesRegex(ValueError, "partial first PRNG word"):
+            verify_predecessor_prefix(sample, prefix=b"zz")
+        with self.assertRaisesRegex(ValueError, "unique inverse"):
+            reverse_masked_prng_state(0)
+        for invalid in (MODULUS, -1, True, "1", 1.5):
+            with self.assertRaises(ValueError):
+                reverse_masked_prng_state(invalid)
+
+    def test_backwards_state_roundtrip_generated_cases(self):
+        state = 0x1234ABCD
+        for _ in range(10000):
+            next_state = ((state ^ MASKED_SALT) * MULTIPLIER) % MODULUS
+            if next_state:
+                self.assertEqual(reverse_masked_prng_state(next_state), state)
+            state = next_state
 
     def test_generator_with_prefix_and_full_byte_coverage(self):
         data = synthetic_stream(0x6EE4C08A, 400, bytes.fromhex("5b"))
