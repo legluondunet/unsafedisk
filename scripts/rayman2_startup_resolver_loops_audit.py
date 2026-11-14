@@ -41,7 +41,16 @@ LOOPS = {
         'call_va': 0x448D96,
     },
 }
+# Distinct later refreshes in the original helper 0x447DE0, *not*
+# extra guaranteed iterations in the two startup loops.
+REFRESH_CALLS = {
+    0x44818A: (0x447A90, 2),
+    0x448196: (0x447AF0, 24),
+    0x4481A2: (0x447AF0, 25),
+}
+
 ANCHORS = {
+    0x401EF8: '6a01e861740400',  # PUSH mode=1; CALL initializer
     0x4493FA: 'c705e813510007000000',
     0x449404: 'c705f013510024000000',
     0x4493E7: '8b5d08',
@@ -114,6 +123,20 @@ def inspect(retail: bytes, gog: bytes) -> dict:
             'gog_direct_callee_is_ret_int3_stub': True,
             'call_instruction_preserved_in_gog_initializer': True,
         }
+    refresh = []
+    for site, (callee, idx) in REFRESH_CALLS.items():
+        if idx > 0xff:
+            raise ValueError('unexpected refresh index')
+        push_args = bytes([0x6A, 1, 0x6A, idx])
+        if get_bytes(retail, cp, site - 4, 4) != push_args:
+            raise ValueError(f'refresh PUSH flags/index mismatch at {site:#x}')
+        if target(get_bytes(retail, cp, site, 5), site) != callee:
+            raise ValueError(f'original refresh CALL mismatch at {site:#x}')
+        if get_bytes(gog, gp, site - 4, 9) != b'\xcc'*9:
+            raise ValueError(f'GOG refresh still appears in active .text at {site:#x}')
+        refresh.append({'call_va': hex(site), 'callee_va': hex(callee),
+                        'descriptor_or_module_index': idx, 'flag_argument': 1,
+                        'gog_replaced_with_int3': True})
     # On disk the pointer slots are zero, and the 36 76-byte records are
     # the bootstrap descriptor #0 followed by descriptor indices 1..35.
     masks = []
@@ -142,6 +165,8 @@ def inspect(retail: bytes, gog: bytes) -> dict:
         'original_dynamic_callee_masked_getmodulehandlea_site': '0x447ACE',
         'original_per_descriptor_pointer_writer_site': '0x447BC2',
         'original_statically_implied_callback_visits_if_mode_1': 42,
+        'later_conditional_original_refresh_calls': refresh,
+        'extra_refresh_calls_not_counted_as_startup_loop_iterations': 3,
         'runtime_call_count_measured': False,
         'safedisc_decryption_or_cd_authentication_proven': False,
         'executable_patched': False,
