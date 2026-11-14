@@ -182,6 +182,21 @@ hashes. See [the reconciliation report]
 
 **Extended five-file finding (13 Nov 2026):**
 
+**Eight auxiliary filename cross-references (14 Nov):**
+a direct scan of the owner SHA-pinned retail and GOG
+EXEs confirms **zero ASCII/UTF-16LE spelling
+occurrences of all eight auxiliary filenames** in
+the original on-disk game, versus **one ASCII
+occurrence each** in the edited GOG binary's
+appended virtual-CD catalog. This absence only
+rules out *plaintext literal name references
+on disk*, not dynamically generated names,
+SafeDisc module access or raw-sector reads.
+The eight-file read-only audit now optionally
+accepts `--retail` and reports the counts
+after exact source hash verification. See the
+[eight-file research](docs/rayman2-eight-safedisc-auxiliary-streams.md).
+
 **New eight-file SafeDisc evidence (14 Nov):** Three further
 owner-supplied original-CD-associated files — `00000001.TMP`
 (20 bytes), `0000040C.016` (153,718 bytes) and
