@@ -1,0 +1,373 @@
+#!/usr/bin/env python3
+"""Read-only Rayman 2 DAT bootstrap metadata research (not SafeDisc decryption).
+
+For exact owner-supplied retail and GOG PE32 samples, verifies static code
+patterns that create six global DAT parameters. An independent pure helper
+models a *hypothetical* first 48-byte DAT buffer for synthetic tests. It
+never executes the game, authenticates media, or reads binary resource data.
+"""
+from __future__ import annotations
+
+import argparse
+import hashlib
+import json
+import math
+import re
+from pathlib import Path
+import struct
+
+RETAIL_SHA256 = '7927a106ac4f2244e304e57c196170f6cfb311af87ddf59eb6e6c48b9bb0d5e3'
+GOG_SHA256 = '9bae484bd84a4afad8d4e7b1bb30a85ce1ce2367f8451463696eabab28a72713'
+UINT32 = 0xffffffff
+# Eight 4-byte reads after a 16-byte header; first and last words have no
+# direct output to the six globals in this local function.
+READ_CALL_VAS = (0x44E387, 0x44E43C, 0x44E4FE, 0x44E5B8,
+                 0x44E662, 0x44E6B0, 0x44E6E5, 0x44E71A)
+# After each successful nominal 4-byte read, the corresponding write to a
+# global; the first/last reads are not assigned one of these six globals.
+OUTPUTS = ((1, 0x5117B0, 0x44E471, 0),
+           (2, 0x511750, 0x44E52C, 2),
+           (3, 0x5117B4, 0x44E6AA, 0),
+           (4, 0x5117C0, 0x44E6CA, 0),
+           (5, 0x511754, 0x44E714, 0),
+           (6, 0x5117BC, 0x44E732, 0))
+
+
+def decode_bootstrap_48(data: bytes) -> dict[str, int]:
+    """Model x86 unsigned-32 arithmetic for first 48 bytes of a DAT stream.
+
+    Only a *mathematical* model: read success, actual file provenance and
+    the file position are not inferred. The two unconsumed words in this
+    function must still be present, but should not be called encrypted data.
+    """
+    if len(data) != 48:
+        raise ValueError('DAT bootstrap model requires exactly 48 bytes')
+    a, b, c, d = struct.unpack_from('<4I', data, 0)
+    result: dict[str, int] = {}
+    for i in range(8):
+        (word,) = struct.unpack_from('<I', data, 16+4*i)
+        if 1 <= i <= 6:
+            output, shift = next((addr, shift) for k, addr, _, shift in OUTPUTS if k == i)
+            value = (((word - a) & UINT32) ^ b) >> shift
+            result[f'0x{output:08X}'] = value
+        if i != 7:
+            a = (a + c) & UINT32
+            b = (b + d) & UINT32
+    return result
+
+
+def pe_va(data: bytes, va: int, length: int) -> bytes:
+    if len(data) < 0x40 or data[:2] != b'MZ' or not 0 < length <= 64:
+        raise ValueError('invalid PE32 or read length')
+    nt = struct.unpack_from('<I', data, 0x3c)[0]
+    if nt + 24 > len(data) or data[nt:nt+4] != b'PE\0\0':
+        raise ValueError('invalid PE32 header')
+    sections = struct.unpack_from('<H', data, nt+6)[0]
+    optional_len = struct.unpack_from('<H', data, nt+20)[0]
+    opt = nt+24
+    if (sections > 64 or sections < 1 or opt+optional_len+40*sections > len(data)
+            or struct.unpack_from('<H', data, opt)[0] != 0x10b):
+        raise ValueError('unsupported PE32 layout')
+    image_base = struct.unpack_from('<I', data, opt+28)[0]
+    rva = va-image_base
+    for i in range(sections):
+        entry = opt+optional_len+i*40
+        section_rva = struct.unpack_from('<I', data, entry+12)[0]
+        raw_len, raw_off = struct.unpack_from('<II', data, entry+16)
+        if 0 <= rva-section_rva <= raw_len-length:
+            start = raw_off + rva-section_rva
+            if start+length > len(data):
+                raise ValueError('PE section exceeds file')
+            return data[start:start+length]
+    raise ValueError(f'VA 0x{va:08X} is not backed by file bytes')
+
+
+def analyze_executables(retail: bytes, gog: bytes) -> dict:
+    if hashlib.sha256(retail).hexdigest() != RETAIL_SHA256:
+        raise ValueError('original retail sample SHA-256 mismatch')
+    if hashlib.sha256(gog).hexdigest() != GOG_SHA256:
+        raise ValueError('GOG sample SHA-256 mismatch')
+    checks=[]
+    # Bootstrap always begins with the first DAT name; only the later
+    # game-resource lookup selects among 24 names in the original edition.
+    for binary, format_va in ((retail, 0x004A2264), (gog, 0x004A2268)):
+        if pe_va(binary,0x44DE9D,5)!=bytes.fromhex('A1 90 20 4A 00'):
+            raise ValueError('missing bootstrap first-name table lookup')
+        name_va=struct.unpack('<I',pe_va(binary,0x004A2090,4))[0]
+        if name_va!=0x004A221C or pe_va(binary,name_va,12)!=b'LEVELS0.DAT\0':
+            raise ValueError('unexpected bootstrap DAT filename')
+        if pe_va(binary,0x44DEB7,5)!=b'\x68'+struct.pack('<I',format_va):
+            raise ValueError('unexpected bootstrap filename formatting')
+    # A 16-byte header and eight 4-byte words are read in the retail path.
+    for va, n in ((0x44E289,16), (0x44E383,4), (0x44E438,4),
+                  (0x44E4FA,4), (0x44E5B4,4), (0x44E65E,4),
+                  (0x44E6A6,4), (0x44E6E1,4), (0x44E710,4)):
+        enc = b'\x6a'+bytes([n])
+        if pe_va(retail,va,2)!=enc or pe_va(gog,va,2)!=enc:
+            raise ValueError(f'nonmatching DAT bootstrap length at 0x{va:08X}')
+        checks.append({'va':f'0x{va:08X}','purpose':'read length'})
+    if pe_va(retail,0x44E28D,2)!=b'\xff\xd6':
+        raise ValueError('missing original 16-byte indirect ReadFile')
+    if pe_va(gog,0x44E28D,6)!=bytes.fromhex('FF 15 4C C0 49 00'):
+        raise ValueError('missing GOG direct ReadFile for 16-byte header')
+    for va in READ_CALL_VAS[:5]:
+        if pe_va(retail,va,2)!=b'\xff\xd6':
+            raise ValueError(f'missing original 4-byte indirect call at {va:#x}')
+        if pe_va(gog,va,6)!=bytes.fromhex('FF 15 4C C0 49 00'):
+            raise ValueError(f'missing GOG 4-byte direct ReadFile at {va:#x}')
+    # Last 3 calls route via a preserved original wrapper address, which
+    # GOG supplies as a direct-IAT forwarder. Check the shared E8 bytes.
+    for va in READ_CALL_VAS[5:]:
+        expected=b'\xe8'+struct.pack('<i', 0x44E750-va-5)
+        if pe_va(retail,va,5)!=expected or pe_va(gog,va,5)!=expected:
+            raise ValueError(f'expected preserved ReadFile wrapper at {va:#x}')
+    for i, address, site, shift in OUTPUTS:
+        expected=b'\x89\x15'+struct.pack('<I',address)
+        for binary in (retail,gog):
+            if pe_va(binary,site,6)!=expected:
+                raise ValueError(f'missing shared global write at 0x{site:08X}')
+        checks.append({'va':f'0x{site:08X}','read_index_zero_based':i,
+                       'global_va':f'0x{address:08X}','right_shift':shift})
+    for binary in (retail,gog):
+        if pe_va(binary,0x44E529,3)!=bytes.fromhex('C1 EA 02'):
+            raise ValueError('missing two-bit shift on third read')
+        if pe_va(binary,0x44E469,8)!=bytes.fromhex('2B D0 33 D1 03 C3 03 CE'):
+            raise ValueError('missing shared arithmetic on second word')
+    seek_report = verify_seek_selector(retail, gog)
+    dialog_report = verify_missing_dat_dialog(retail, gog)
+    return {**seek_report, **dialog_report, 'read_only':True,'sha256_verified':True,'sample_pair': 'retail CD and modified GOG',
+            'bootstrap_filename':'LEVELS0.DAT','later_retail_alias_selector_independent':True,
+            'header_length_bytes':16,'following_4byte_reads':8,'nominal_minimum_bytes':48,
+            'return_values_checked_for_full_reads':False,'global_writes':checks,
+            'two_unused_read_indices':[0,7],
+            'actual_cd_DAT_payload_verified':False,
+            'warning':'Static read-path structure, not proof of actual data or SafeDisc decryption.'}
+
+
+# Core x87 selector instructions are identical across the two exact samples.
+SELECTOR_VA = 0x0044ED8E
+SELECTOR_LENGTH = 192
+SELECTOR_CONSTANTS = (1.06913, 1.69314, -0.69314, -0.52658, 1000000.0, 1e-6)
+SELECTOR_ANCHORS = {
+    0x0044ED92:'A0 F2 16 51 00',
+    0x0044ED99:'F7 35 B4 17 51 00',
+    0x0044EDB2:'0F 86 42 04 00 00',
+    0x0044EDC8:'DC 0D 48 C9 49 00',
+    0x0044EDCE:'D9 FE D9 E1',
+    0x0044EDD2:'DC 0D 50 C9 49 00',
+    0x0044EDDC:'DC 25 58 C9 49 00',
+    0x0044EDF7:'E8 56 11 01 00',
+    0x0044EDFC:'DC 0D 60 C9 49 00',
+    0x0044EE0B:'E8 3C 11 01 00',
+    0x0044EE18:'DC 0D 68 C9 49 00',
+    0x0044EE31:'E8 16 11 01 00',
+    0x0044EE39:'E8 72 10 01 00',
+    0x0044EE40:'8B 35 54 17 51 00',
+    0x0044EE46:'0F AF 1D BC 17 51 00 03 DE',
+}
+
+
+
+
+def _va_span(data: bytes, start: int, end: int) -> bytes:
+    """Read a bounded code region through actual PE RVA/offset mapping."""
+    if end <= start or end-start > 512:
+        raise ValueError('invalid diagnostic code span')
+    return b''.join(pe_va(data, pos, min(64, end-pos))
+                    for pos in range(start, end, 64))
+
+
+def _recover_dat_retry_strings(code: bytes) -> tuple[str, str]:
+    """Reconstruct stack strings from two constrained x86 byte-store forms.
+
+    Only valid for the specific already hash-pinned CD and GOG code span;
+    this is not a general disassembler. Synthetic fixtures are also allowed.
+    """
+    stack: dict[int, int] = {}
+    for m in re.finditer(rb'\xc6\x45(?P<offset>.)(?P<value>.)', code, re.DOTALL):
+        disp = int.from_bytes(m['offset'], 'little', signed=True)
+        if -0x58 <= disp <= -0x0f:
+            if disp in stack and stack[disp] != m['value'][0]:
+                raise ValueError('conflicting encoded retry string bytes')
+            stack[disp] = m['value'][0]
+    for m in re.finditer(rb'\x88\x5d(?P<offset>.)', code, re.DOTALL):
+        disp = int.from_bytes(m['offset'], 'little', signed=True)
+        if -0x58 <= disp <= -0x0f:
+            if disp in stack and stack[disp] != 0x20:
+                raise ValueError('conflicting encoded retry string spaces')
+            stack[disp] = 0x20  # BL was set to ASCII space at 0x44DFD4
+    strings=[]
+    for start in (-0x58,-0x24):
+        chars=bytearray()
+        for offset in range(start,-0x0e):
+            if offset not in stack:
+                raise ValueError('incomplete encoded retry message')
+            if stack[offset]==0:
+                break
+            chars.append(stack[offset])
+        else:
+            raise ValueError('unterminated encoded retry message')
+        strings.append(chars.decode('ascii'))
+    return tuple(strings)
+
+
+def verify_missing_dat_dialog(retail: bytes, gog: bytes) -> dict:
+    """Prove a retained file-not-found Retry/Cancel path in both editions.
+
+    Caller must verify the two exact executable hashes before invoking this.
+    No program code executes and no files are opened by this function.
+    """
+    common_start, common_end = 0x0044DFC9, 0x0044E0EB
+    original = _va_span(retail, common_start, common_end)
+    reference = _va_span(gog, common_start, common_end)
+    if original != reference:
+        raise ValueError('original/GOG DAT retry dialog code differs')
+    signatures = (
+        (0x44DFC9, bytes.fromhex('83 F8 FF 8B F8 0F 85 2F 02 00 00')),
+        (0x44DFD4, bytes.fromhex('B3 20 8D 55 DC 6A 05')),
+        (0x44E0DB, bytes.fromhex('FF 15 70 C2 49 00')),
+        (0x44E0E1, bytes.fromhex('83 F8 02 75 05')),
+        (0x44E0E6, bytes.fromhex('E8 D5 30 FB FF')),
+        (0x44E15F, bytes.fromhex('6A 00 68 80 00 00 00 6A 03 6A 00 6A 00')),
+        (0x44E1F8, bytes.fromhex('83 F8 FF 8B F8 0F 84 D3 FD FF FF')),
+    )
+    for data in (retail,gog):
+        for va, expected in signatures:
+            if pe_va(data,va,len(expected)) != expected:
+                raise ValueError(f'missing retry-control instruction 0x{va:08X}')
+    if pe_va(retail,0x44E0EB,5) != bytes.fromhex('E8 90 A3 FF FF'):
+        raise ValueError('expected retail generated-API retry code missing')
+    if pe_va(gog,0x44E0EB,2) != bytes.fromhex('EB 72'):
+        raise ValueError('expected GOG direct Win32 retry jump missing')
+    if pe_va(retail,0x44E178,2) != b'\xff\xd6':
+        raise ValueError('expected retail masked CreateFileA call missing')
+    if pe_va(gog,0x44E178,6) != bytes.fromhex('FF 15 58 C0 49 00'):
+        raise ValueError('expected GOG CreateFileA IAT call missing')
+    # The fixed stack messages are rebuilt from the machine-code stores,
+    # not searched as plaintext in the executable's data section.
+    message, caption = _recover_dat_retry_strings(
+        _va_span(retail,0x44DFD4,0x44E0DB))
+    if (message,caption) != ('Please, insert Rayman II CD in CDROM Drive',
+                             'Rayman 2 CD not found'):
+        raise ValueError('unexpected Rayman 2 DAT retry dialog contents')
+    # Two more data-file open failures use the game's UI dispatcher.
+    # All branch bytes and the 90-byte dispatcher are identical across
+    # the exact protected CD and GOG images, including Retry/Cancel.
+    other_ranges = ((0x44EC44,0x44EC6B), (0x44F184,0x44F1A7),
+                    (0x4028F0,0x40294A))
+    for low,high in other_ranges:
+        if _va_span(retail,low,high) != _va_span(gog,low,high):
+            raise ValueError('original/GOG DAT file-open dispatcher differs')
+    expected_prompt = bytes.fromhex('6A 05 68 70 22 4A 00 68 C0 06 4A 00')
+    for binary in (retail,gog):
+        for site in (0x44EC4D,0x44F189):
+            if pe_va(binary,site,len(expected_prompt)) != expected_prompt:
+                raise ValueError(f'wrong DAT error UI arguments at 0x{site:08X}')
+        if pe_va(binary,0x4A2270,17) != b'CDROM not found!\0':
+            raise ValueError('unexpected DAT error caption')
+        if pe_va(binary,0x4A06C0,21) != b'Please insert the CD\0':
+            raise ValueError('unexpected DAT error message')
+        # If global GUI handle at 0x4A6AC0 is zero, call MessageBoxA;
+        # otherwise the dispatcher uses SendMessageA on that handle.
+        if pe_va(binary,0x40293E,8) != bytes.fromhex('6A 00 FF 15 70 C2 49 00'):
+            raise ValueError('MessageBoxA dispatcher fallback mismatch')
+        if pe_va(binary,0x402921,6) != bytes.fromhex('FF 15 28 C2 49 00'):
+            raise ValueError('SendMessageA dispatcher path mismatch')
+    return {'missing_dat_retry_dialog_retained':True,
+            'identical_dialog_code_bytes':len(original),
+            'messageboxa_import_pointer':'0x0049C270',
+            'messagebox_buttons':'MB_RETRYCANCEL (style 5)',
+            'cancel_result':'IDCANCEL (2)',
+            'retry_dialog_text':message, 'retry_dialog_caption':caption,
+            'gog_retries_via_direct_CreateFileA':True,
+            'retail_retries_via_generated_CreateFileA':True,
+            'other_dat_errors':{'candidate_branches':['0x0044EC4D','0x0044F189'],
+                                 'caption':'CDROM not found!',
+                                 'message':'Please insert the CD',
+                                 'shared_error_code_lengths':[39,35,90],
+                                 'ui_dispatcher_va':'0x004028F0',
+                                 'fallback_when_no_gui_handle':'USER32.dll!MessageBoxA',
+                                 'otherwise':'USER32.dll!SendMessageA',
+                                 'runtime_path_observed':False},
+            'safedisc_authorization_proven':False}
+
+def verify_seek_selector(retail: bytes, gog: bytes) -> dict:
+    """Check retained x87 code/constants and exact CRT forwarding thunks.
+
+    Assumes the two samples have already passed analyze_executables' exact
+    SHA-256 gates. Do not use it by itself to authenticate unknown samples.
+    """
+    chunks = range(0, SELECTOR_LENGTH, 64)
+    original = b''.join(pe_va(retail, SELECTOR_VA+i, 64) for i in chunks)
+    reference = b''.join(pe_va(gog, SELECTOR_VA+i, 64) for i in chunks)
+    if original != reference:
+        raise ValueError('original/GOG x87 selector code mismatch')
+    for binary in (retail, gog):
+        if struct.unpack('<6d', pe_va(binary, 0x0049C940, 48)) != SELECTOR_CONSTANTS:
+            raise ValueError('unexpected six floating-point selector constants')
+        for va, bytecode in SELECTOR_ANCHORS.items():
+            expected = bytes.fromhex(bytecode)
+            if pe_va(binary, va, len(expected)) != expected:
+                raise ValueError(f'wrong selector instruction at VA 0x{va:08X}')
+        # These thunk locations correspond to imported CRT modf/floor/_ftol.
+        for va, iat in ((0x45ff52, 0x49c12c), (0x45ff4c, 0x49c13c),
+                        (0x45feb0, 0x49c1ac)):
+            if pe_va(binary, va, 6) != b'\xff\x25'+struct.pack('<I',iat):
+                raise ValueError('unexpected imported CRT forwarding thunk')
+    return {'x87_selector_retained_identical':True,
+            'x87_selector_verified_bytes':len(original),
+            'x87_instruction_anchors_verified':len(SELECTOR_ANCHORS),
+            'six_float_constants_verified':True,
+            'bit_exact_x87_runtime_reproduction':False}
+
+
+def approximate_dat_seek(state_byte:int, modulus:int, count:int,
+                         base:int, stride:int) -> dict:
+    """Binary64 mathematical approximation, NOT exact x87 FSIN/CRT behavior.
+
+    A normal (m>0) path calculates m=state_byte%modulus, accumulates the
+    sine terms, keeps the fractional part with modf, floors a 1e6 scale,
+    then multiplies by count and floors again. Large counts can overflow
+    the original signed 32-bit _ftol conversion, which is NOT emulated.
+    """
+    fields=(state_byte,modulus,count,base,stride)
+    if any(type(x) is not int for x in fields) or not (
+        0<=state_byte<=255 and 1<=modulus<=0xffffffff and
+        0<=count<=0x7fffffff and 0<=base<=0xffffffff and
+        0<=stride<=0xffffffff
+    ):
+        raise ValueError('invalid DAT selector parameters or unsupported _ftol width')
+    m=state_byte%modulus
+    if m == 0:
+        return {'read_occurs':False,'m':0,'j_approximate':None,
+                'position_approximate':None,'bit_exact_x87':False}
+    acc=1.06913
+    for i in range(m):
+        acc += 0.69314*abs(math.sin(1.69314*i*i))+0.52658
+    fraction=math.modf(acc)[0]
+    quantized=math.floor(fraction*1000000.0)*1e-6
+    j=math.floor(quantized*count)
+    return {'read_occurs':True,'m':m,'j_approximate':j,
+            'position_approximate':(base+j*stride)&0xffffffff,
+            'quantized_fraction_approximate':quantized,
+            'bit_exact_x87':False}
+
+def main(argv=None):
+    ap=argparse.ArgumentParser(description=__doc__)
+    ap.add_argument('--retail',type=Path,required=True)
+    ap.add_argument('--gog',type=Path,required=True)
+    args=ap.parse_args(argv)
+    try:
+        # Explicit bounded research inputs, not a generic untrusted PE parser.
+        if any(p.is_symlink() or not p.is_file() or p.stat().st_size>16*1024*1024
+               for p in (args.retail,args.gog)):
+            raise ValueError('refuse symlinks, nonregular or oversized inputs')
+        print(json.dumps(analyze_executables(args.retail.read_bytes(),
+                                            args.gog.read_bytes()),indent=2))
+    except (ValueError,OSError) as exc:
+        ap.exit(1,f'ERROR: {exc}\n')
+    return 0
+
+
+if __name__=='__main__':
+    raise SystemExit(main())
