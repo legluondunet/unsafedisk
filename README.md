@@ -182,6 +182,30 @@ hashes. See [the reconciliation report]
 
 **Extended five-file finding (13 Nov 2026):**
 
+**SafeDisc splash-file role and physical-CD caveat:**
+Historical SafeDisc sources identify `.016`/`.256`
+as **bitmap splash-screen images** (also possible
+on SafeDisc 1), and Redump reports physical
+C2-error sectors plus `.tmp` placeholder
+files in standard SafeDisc mastering.
+Yet the exact owner `.016`/`.256`
+are **pure PRNG states after two prefix bytes**,
+not files starting with BMP magic `BM`.
+The `.256` length **308,278 bytes** happens
+to equal the full uncompressed **640×480
+8-bit BMP** size (54 header + 1024 palette
++ 307200 pixels), without establishing
+picture content or intended dimensions.
+The owner's ISO9660 2048-byte-sector
+image log does not include physical C2
+error measurements; file-size matches
+to GOG cannot authenticate disc sectors.
+See the [eight-file report]
+(docs/rayman2-eight-safedisc-auxiliary-streams.md).
+Do **not** assume these bytes are working
+bitmap resources, a loaded SafeDisc DLL
+or the original encrypted ICD payload.
+
 **Eight auxiliary filename cross-references (14 Nov):**
 a direct scan of the owner SHA-pinned retail and GOG
 EXEs confirms **zero ASCII/UTF-16LE spelling
