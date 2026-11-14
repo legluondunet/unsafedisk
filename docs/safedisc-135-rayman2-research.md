@@ -165,6 +165,74 @@ The existing Python eight-file audit now
 exposes this source-locked classification,
 with a synthetic positive/negative test.
 
+## Novel inverse PRNG result: all five previously unexplained prefix bytes are generated (14 November 2026)
+
+New independent, **exact-SHA-256** reconstruction
+of all eight user-owned SafeDisc-era files
+shows that the ICD's first byte (`5B`)
+and the `.016`/`.256` files'
+first two bytes (`AB DE` and
+`4D C7`) are **not independent
+padding or arbitrary one/two-byte
+headers**. Each is exactly the
+low byte(s) of the **previous
+little-endian PRNG state**, recovered
+using the modular inverse of
+`16807` modulo `2147483647`:
+`0x53E77248`.
+
+| File | Observed prefix | Inverted preceding state | Predicted low bytes |
+|---|---|---|---|
+| `RAYMAN2.ICD` | `5B` | `0x5611AA5B` | `5B` |
+| `0000040C.016` | `AB DE` | `0x47EFDEAB` | `AB DE` |
+| `0000040C.256` | `4D C7` | `0x255AC74D` | `4D C7` |
+
+Given only the **first complete
+DWORD** of each file, these exact
+prefix bytes are predicted without
+reading them. Thereafter all the
+subsequent full words reproduce
+every octet of all eight files,
+and all **eight SHA-256 hashes**
+match exactly. An independent
+local implementation also passed
+**200,000 synthetic forward/reverse
+state comparisons**, rejecting
+ambiguous zero output.
+See [eight-file inverse audit]
+(rayman2-eight-safedisc-auxiliary-streams.md).
+
+**Implication:** with the exact
+file lengths and already-known
+recurrence, all 1,548,525
+bytes of these eight inputs
+are fully specified by just
+**eight 31-bit initial words**:
+**248 independent variable seed
+bits, not the earlier estimate
+of 288 bits**. This bound is
+conditional on the deterministic
+PRNG model, **not entropy measured
+in commercial binaries**, and
+it does not prove that the
+original physical CD used
+these exact payloads.
+The installed/running SafeDisc
+module's real source remains
+unverified.
+
+`scripts/rayman2_auxiliary_stream_audit.py`
+now calculates and checks the
+previous generator state for
+every exact owner file, and
+**refuses a nonaligned prefix
+that fails this prediction**.
+Synthetic tests check all
+three backtracked prefixes,
+a wrong prefix, zero-state
+rejection, and 10,000
+forward/inverse cases.
+
 ## Exact runtime PRNG bootstrap and vanished GOG references (14 November 2026)
 
 The [dedicated SHA-pinned bootstrap and
@@ -214,13 +282,16 @@ retains a byte-exact archive of
 the 196/73 original references;
 never count it as live GOG code.
 
-Across the **eight file PRNG streams**,
-their 1,548,525 bytes contain at
-most **288 bits** of varying
-description (eight 31-bit seeds
-and five prefix bytes) when
-recurrence and file lengths are
-fixed. This is *not a Shannon
+Across the **eight file PRNG streams**, the
+1,548,525 bytes contain at most
+**248 bits** of variable generator
+seed state (eight 31-bit words)
+when recurrence and file lengths
+are fixed. The five prefix bytes
+are also predicted by reversing
+one state; they are not independent.
+The earlier **288-bit** estimate
+is superseded by the 248-bit bound. This is *not a Shannon
 entropy measurement*, but a
 mathematical limitation: no
 independent unknown native
