@@ -18,11 +18,18 @@ class CallbackAuditTests(unittest.TestCase):
     def setUpClass(cls):
         cls.cd_path=HERE/'Rayman2(3).exe'
         cls.gog_path=HERE/'Rayman2.exe'
+        cls.private_ready=cls.cd_path.is_file() and cls.gog_path.is_file()
+        if not cls.private_ready:
+            return
         cls.cd=locked_read(cls.cd_path,'cd')
         cls.gog=locked_read(cls.gog_path,'gog')
         cls.cd_asm=disassemble_text(cls.cd_path)
         cls.gog_asm=disassemble_text(cls.gog_path)
         _,cls.cs=sections(cls.cd)
+
+    def setUp(self):
+        if not self.private_ready and not self._testMethodName.startswith(('test_parser_', 'test_relcall_')):
+            self.skipTest('private retail/GOG samples unavailable on CI')
 
     @staticmethod
     def changed(raw:bytes,sects,va:int,change:bytes)->bytes:
