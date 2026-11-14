@@ -83,6 +83,85 @@ SafeDisc discs generally; the actual
 Rayman 2 copy has not been measured
 for those properties in this study.
 
+## Breakthrough: all 5 partial-prefix bytes derive from previous generator states
+
+Earlier, the eight SHA-256-identified owner samples were fully reproduced
+using **eight initial 31-bit words plus five preserved prefix bytes**
+(one in `RAYMAN2.ICD`, two each in the `.016`/`.256` samples).
+Those prefix bytes were provisionally treated as independent data.
+
+**New independent falsifiable result:** each prefix is exactly the
+**low-order little-endian bytes of the immediately preceding 32-bit
+PRNG state**, recovered by a mathematical inverse of the same
+masked recurrence. The modular inverse of `16807`
+modulo `2147483647` is **`1407677000`**,
+or **`0x53E77248`**. For any
+nonzero valid state `current`, its predecessor is:
+
+```python
+M, A, SALT = 2147483647, 16807, 0x075BD924
+A_INV = pow(A, -1, M)                  # 0x53E77248
+previous = ((current * A_INV) % M) ^ SALT
+assert 0 <= previous < M
+assert (A * (previous ^ SALT)) % M == current
+```
+
+For the three non-word-aligned files:
+
+| Sample | Actual prefix | First full state | Inverted previous state | Predicted *low* byte(s) |
+|---|---|---|---|---|
+| `RAYMAN2.ICD` | `5B` | `0x6EE4C08A` | **`0x5611AA5B`** | `5B` |
+| `0000040C.016` | `AB DE` | `0x6B5C5E78` | **`0x47EFDEAB`** | `AB DE` |
+| `0000040C.256` | `4D C7` | `0x777390EF` | **`0x255AC74D`** | `4D C7` |
+
+For each input, reading the first full DWORD and **reversing one
+state** predicts the prefix *without using its bytes as input*.
+In particular, it is the **first one or two bytes**, not
+the high-order tail, of that predecessor's little-endian
+encoding. Then moving forward through all subsequent full words
+rebuilds the **entire file byte-for-byte and reproduces its
+whole SHA-256**. The two-byte prefixes had been exactly
+the part unexplained by a naïve four-byte-aligned reader;
+they are now explained by the same PRNG as the rest.
+
+**Independent full-data audit:** the eight exact owner
+files from the private library were read again. The
+stronger backtracked generator reproduced **8/8 full
+file byte sequences and 8/8 SHA-256 checks**.
+It successfully backtracked **200,000** successive
+synthetic states (the case `current == 0` must
+be handled as ambiguous and is rejected by the
+inversion API). No executable, runtime output or
+commercial contents were added to GitHub.
+
+### Consequence: a tighter description-length upper bound
+
+With file lengths, the known recurrence, and eight initial
+PRNG states held fixed as the model, **there are no remaining
+independent prefix bytes**. All eight files totalling
+**1,548,525 bytes** are now uniquely determined by **only
+eight 31-bit words** (an upper bound of **248 variable
+seed bits**). Previous notes estimating
+**8×31 + 5×8 = 288 bits** are superseded.
+This bound concerns a *known deterministic generator's
+description length*, not measured Shannon entropy.
+It does not prove the files were created by one
+common seed, nor does it recover their physical
+CD provenance or the historical genuine loaded
+SafeDisc PE stage.
+
+The existing
+`scripts/rayman2_auxiliary_stream_audit.py`
+now contains `reverse_masked_prng_state` and
+`verify_predecessor_prefix`, explicitly
+**rejecting unpredicted prefix bytes** on
+known exact-SHA reference samples. New unit
+tests exercise the three known reversals,
+a deliberately wrong prefix, zero-state
+rejection and 10,000 forward/inverse
+synthetic pairs. Original artifact bytes
+are never written by that tool.
+
 ## Eight filenames absent as literals from the original game EXE
 
 A separate direct byte scan used the exact original
