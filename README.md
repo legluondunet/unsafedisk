@@ -240,6 +240,42 @@ runtime execution evidence**.
 See [the runtime PRNG audit]
 (docs/rayman2-runtime-prng-bootstrap.md).
 
+**Complete eight-file inverse PRNG reconstruction (14 Nov):**
+the previously unexplained **one ICD prefix byte**
+(`5B`) and two bytes in each
+`0000040C.016`/`.256`
+(`AB DE`, `4D C7`)
+are **exactly the low little-endian
+bytes of the preceding PRNG state**.
+The unique preceding words for these
+three nonzero states are
+`0x5611AA5B`,
+`0x47EFDEAB`, and
+`0x255AC74D` respectively.
+They are recovered by applying the
+modular inverse `0x53E77248`
+of multiplier `16807`
+modulo `2^31-1`, then XOR
+`0x075BD924`.
+**All eight exact owner file
+SHA-256 hashes match the rebuilt
+byte streams** without any
+independent prefix bytes.
+Only **8×31 = 248 variable
+seed bits** are needed to specify
+the 1,548,525-byte eight-file set
+when file lengths and recurrence
+are known; the earlier **288-bit**
+upper bound is superseded.
+The audit now *enforces* the
+reverse-prefix check and rejects
+nonmatching partial words.
+[Mathematical proof and reproducible
+file-by-file tests]
+(docs/rayman2-eight-safedisc-auxiliary-streams.md).
+**No actual SafeDisc executable
+decryption is claimed.**
+
 **Runtime PRNG provenance breakthrough (14 Nov):**
 [QPC/bootstrap and 8-page GOG code-diff audit]
 (docs/rayman2-runtime-prng-bootstrap.md).
