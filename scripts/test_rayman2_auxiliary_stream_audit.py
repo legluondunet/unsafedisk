@@ -8,7 +8,9 @@ import unittest
 
 from rayman2_auxiliary_stream_audit import (
     KNOWN, MASKED_SALT, MULTIPLIER, MODULUS,
-    verify_stream, inspect_pinned, compare_gog_manifest, inspect, observed_stream_state_overlap, literal_name_hits,
+    verify_stream, inspect_pinned, compare_gog_manifest, inspect,
+    observed_stream_state_overlap, literal_name_hits,
+    count_prng_code_literals, original_vs_gog_rng_code,
 )
 
 
@@ -19,6 +21,39 @@ def synthetic_stream(seed: int, words: int, prefix: bytes = b"") -> bytes:
         output.extend(struct.pack("<I", state))
         state = ((state ^ MASKED_SALT) * MULTIPLIER) % MODULUS
     return bytes(output)
+
+
+def synthetic_prng_code(refs: int, salts: int, size: int) -> bytes:
+    """Create synthetic code bytes with exact literal-DWORD fingerprints."""
+    result = bytearray(b"\\x90" * size)
+    state = struct.pack("<I", 0x00510BF0)
+    salt = struct.pack("<I", MASKED_SALT)
+    for i in range(refs):
+        result[i*8:i*8+4] = state
+    for i in range(salts):
+        result[200000+i*8:200000+i*8+4] = salt
+    return bytes(result)
+
+
+def synthetic_pe(sections: list[tuple[str, bytes, bool]]) -> bytes:
+    """Minimal structurally valid PE32, no genuine program bytes."""
+    result = bytearray(b"\\x00" * 0x400)
+    result[:2] = b"MZ"
+    struct.pack_into("<I", result, 0x3c, 0x80)
+    result[0x80:0x84] = b"PE\\0\\0"
+    struct.pack_into("<H", result, 0x84, 0x14c)
+    struct.pack_into("<H", result, 0x86, len(sections))
+    struct.pack_into("<H", result, 0x94, 0xe0)
+    struct.pack_into("<H", result, 0x98, 0x10b)
+    for i, (name, data, executable) in enumerate(sections):
+        entry = 0x178 + 40*i
+        result[entry:entry+8] = name.encode("ascii").ljust(8, b"\\0")
+        struct.pack_into("<IIII", result, entry+8,
+                         len(data), 0x1000+i*0xB0000, len(data), len(result))
+        struct.pack_into("<I", result, entry+36,
+                         0x60000020 if executable else 0x40000040)
+        result.extend(data)
+    return bytes(result)
 
 
 class AuxiliaryStreamAuditTests(unittest.TestCase):
@@ -133,6 +168,45 @@ class AuxiliaryStreamAuditTests(unittest.TestCase):
         # A valid auxiliary file MUST NOT bypass the separate EXE SHA gate.
         with self.assertRaisesRegex(ValueError, "original retail EXE"):
             inspect({"DPLAYERX.DLL": raw}, retail=raw)
+
+    def test_independent_section_prng_fingerprints(self):
+        original = synthetic_prng_code(196, 73, 631296)
+        live = synthetic_prng_code(68, 29, 634880)
+        self.assertEqual(count_prng_code_literals(original),
+                         {"state_global_pointer_le": 196,
+                          "masked_prng_xor_salt_le": 73})
+        self.assertEqual(count_prng_code_literals(live),
+                         {"state_global_pointer_le": 68,
+                          "masked_prng_xor_salt_le": 29})
+        archive = b"\\x00"*4096 + original + b"\\x00"*3584
+        retail = synthetic_pe([(".text", original, True)])
+        gog = synthetic_pe([(".text", live, True),
+                            (".extra", archive, False)])
+        verified = original_vs_gog_rng_code(retail, gog)
+        self.assertTrue(verified["archived_original_text_identical"])
+        self.assertTrue(verified["gog_extra_is_non_executable"])
+        self.assertTrue(verified["all_eight_seed_literals_absent_from_retail"])
+        self.assertTrue(verified["all_eight_seed_literals_absent_from_gog"])
+        self.assertEqual(verified["per_section_raw_dword_occurrences"]
+                         ["gog_active_text"]["state_global_pointer_le"], 68)
+
+    def test_archived_copy_and_nonexecutability_are_required(self):
+        original = synthetic_prng_code(196, 73, 631296)
+        live = synthetic_prng_code(68, 29, 634880)
+        retail = synthetic_pe([(".text", original, True)])
+        archive = b"\\x00"*4096 + original + b"\\x00"*3584
+        corrupted = bytearray(archive)
+        corrupted[4096+51] ^= 1
+        for bad_gog in [
+            synthetic_pe([(".text", live, True),
+                          (".extra", bytes(corrupted), False)]),
+            synthetic_pe([(".text", live, True),
+                          (".extra", archive, True)]),
+            synthetic_pe([(".text", b"\\x90"*634880, True),
+                          (".extra", archive, False)]),
+        ]:
+            with self.assertRaises(ValueError):
+                original_vs_gog_rng_code(retail, bad_gog)
 
     def test_gog_checks_all_eight_selected_lengths_only(self):
         mocked = {name: {"size": info[0]} for name, info in KNOWN.items()}
