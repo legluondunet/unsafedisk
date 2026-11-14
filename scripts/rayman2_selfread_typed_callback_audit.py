@@ -21,6 +21,10 @@ ROW_LAST=0x17
 ROW_BYTES=12
 TRIPLE=(0x29,0x4815A0,0x4817B0)
 DESTINATION=0x481800
+# Generic parser / field converter / nested type handler and result dispatcher.
+# Counts were independently discovered in GNU objdump active .text and subsequently
+# verified against raw E8 rel32 bytes at every instruction boundary.
+GENERIC_HELPERS={0x480B90:757, 0x4815F0:7, 0x4817B0:2, 0x481800:16}
 EXPECTED_CALLS=(
     0x46790D,0x46BBAA,0x46BBFE,0x46F8D7,0x46F95A,0x46FD5C,
     0x4701ED,0x475AEF,0x475EB9,0x478F66,0x478F91,0x478FC7,
@@ -87,7 +91,17 @@ def inspect_one(raw:bytes, objdump_text:str, kind:str)->dict:
             raise ValueError(f'{kind}: bad raw rel32 at {va:#x}')
     if relcall(0x481822,read(0x481822,5))!=0x481860:
         raise ValueError('callback resolver changed')
-    return {'sample':kind,'row_type_range':'0x12..0x17',
+    helper_sites={}
+    for target,expected_count in GENERIC_HELPERS.items():
+        xs=parse_direct_xrefs(objdump_text,target)
+        if len(xs)!=expected_count:
+            raise ValueError(f'{kind}: wrong direct E8 count for helper {target:#x}: {len(xs)}')
+        for va in xs:
+            if relcall(va,read(va,5))!=target:
+                raise ValueError(f'{kind}: wrong raw E8 to helper {target:#x} at {va:#x}')
+        helper_sites[f'0x{target:08X}']=len(xs)
+    return {'sample':kind,'generic_helper_direct_call_counts':helper_sites,
+            'row_type_range':'0x12..0x17',
             'six_identical_row_fields':[hex(x) for x in TRIPLE],
             'neighbor_rows_distinct':True,
             'shared_opcodes_checked':len(SHARED_ANCHORS),
@@ -103,6 +117,10 @@ def inspect(cd:bytes,gog:bytes,cd_asm:str,gog_asm:str)->dict:
     b=inspect_one(gog,gog_asm,'gog')
     if a['direct_caller_sites']!=b['direct_caller_sites']:
         raise ValueError('caller inventory changed between CD and GOG')
+    # Check all generic helpers have the same instruction-site xrefs in both builds.
+    for target in GENERIC_HELPERS:
+        if parse_direct_xrefs(cd_asm,target)!=parse_direct_xrefs(gog_asm,target):
+            raise ValueError(f'helper {target:#x} call-site inventory changed in GOG')
     return {'read_only':True, 'verified_samples':[a,b],
             'typed_output_0x15_has_specialized_callback':False,
             'type_0x15_shares_conversion_callbacks_with_six_types':True,
