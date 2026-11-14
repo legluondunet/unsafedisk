@@ -97,7 +97,7 @@ def derived_probe_word(header: tuple[int,int,int,int], index: int, sample: int) 
         raise ValueError('DWORD out of range')
     w0,w1,w2,w3 = header
     modified_w0 = (w0 + w2*index) & 0xffffffff
-    modified_w1 = (w1 + w3*max(index-1, 0)) & 0xffffffff
+    modified_w1 = (w1 + w3*index) & 0xffffffff
     return (((sample - modified_w0) & 0xffffffff) ^ modified_w1) & 0xffffffff
 
 
@@ -193,7 +193,7 @@ def check(data_cd: bytes, data_gog: bytes, cd: dict, gog: dict) -> dict:
         'sampled_header_dword_count':4,
         'header_word_reads_from_stack':['[EBP-0x20]','[EBP-0x1C]','[EBP-0x18]','[EBP-0x14]'],
         'four_byte_sample_stack':'[EBP-0x8]',
-        'derived_word_formula':'(((sample - (w0 + w2*n)) mod 2^32) XOR ((w1 + w3*max(n-1,0)) mod 2^32))',
+        'derived_word_formula':'(((sample - (w0 + w2*n)) mod 2^32) XOR ((w1 + w3*n) mod 2^32))',
         'derived_word_written_to_output_arg':'0x44F0D8',
         'shared_derivation_on_gog': pe_slice(data_cd,0x44f0c8,0x3a)==pe_slice(data_gog,0x44f0c8,0x3a),
         'remaining_final_index_formula':'(PRNG % (derived_word // ((global_5117b0 // global_5117c0) << 11)))',
