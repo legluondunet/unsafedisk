@@ -42,9 +42,11 @@ L'inventaire de désassemblage complet montre trois autres appels directs **dans
 
 | Appel | Arguments `PUSH` avant l'appel | Destination |
 | --- | --- | --- |
-| `0x44818A` | flag=1, index=2 | `0x447A90` |
-| `0x448196` | flag=1, index=24 (`0x18`) | `0x447AF0` |
-| `0x4481A2` | flag=1, index=25 (`0x19`) | `0x447AF0` |
+| `0x44818A` | flag=1, index=2 (`GetCurrentProcess`) | `0x447A90` |
+| `0x448196` | flag=1, index=24 (`EnumProcesses`) | `0x447AF0` |
+| `0x4481A2` | flag=1, index=25 (`EnumProcessModules`) | `0x447AF0` |
+
+La table présente des noms d'exports décodés directement des enregistrements de 76 octets du **CD original** par la transformation soustraction puis XOR (les noms et les 36 enregistrements sont identiques dans GOG). Le duo `EnumProcesses` / `EnumProcessModules` situe ces trois réactualisations du côté de **l'énumération des processus/modules Windows**, et non d'un déchiffrement prouvé de fichier ICD. Il n'établit pas encore le rôle précis de l'énumération (intégrité, anti-debug, configuration ou autre).
 
 Les trois **instructions `CALL E8 rel32` et les six `PUSH`** sont vérifiés par octets et destinations sur le CD. Dans la `.text` GOG active, les trois plages `PUSH/PUSH/CALL` de 9 octets sont toutes `INT3`. C'est cohérent avec le remplacement antérieur du gestionnaire `0x447DE0`, mais ne prouve pas leur atteinte à l'exécution originale.
 
@@ -63,7 +65,7 @@ RAYMAN2_GOG_EXE=/prive/Rayman2_GOG.exe \
   -p 'test_rayman2_startup_resolver_loops_audit.py'
 ```
 
-Le programme refuse toute divergence de SHA-256, valide les opcodes des boucles complètes, toutes les destinations d'appels, les constantes de compteurs, les stubs GOG et les 36 descripteurs. Les tests locaux ont réussi : **10/10**, dont deux exercices contre les vrais exécutables et des mutations négatives de sept positions de code ou de données. La CI sans fichiers commerciaux exécute les huit tests synthétiques.
+Le programme refuse toute divergence de SHA-256, valide les opcodes des boucles complètes, toutes les destinations d'appels, les constantes de compteurs, les stubs GOG et les 36 descripteurs. Les tests locaux ont réussi : **11/11**, dont deux exercices contre les vrais exécutables et des mutations négatives de sept positions de code ou de données. La CI sans fichiers commerciaux exécute les neuf tests synthétiques.
 
 ## Prochaine étape
 
