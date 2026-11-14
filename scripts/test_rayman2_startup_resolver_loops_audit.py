@@ -54,6 +54,23 @@ class StartupResolverLoopsTest(unittest.TestCase):
             self.assertEqual(m.target(b'\xe8' + struct.pack('<i', dest-site-5), site), dest)
             self.assertTrue(index < 36)
 
+    def test_encoded_export_decoder_positive_and_bad_input(self):
+        def synth(name):
+            k, x, dk, dx = 5, 17, 3, 7
+            data = bytearray([k, x, dk, dx, len(name)])
+            for c in name.encode('ascii'):
+                data.append(((c ^ x) + k) & 255)
+                k = (k + dk) & 255
+                x = (x + dx) & 255
+            data.extend(b'\0' * (76-len(data)))
+            return bytes(data)
+        for expected in m.REFRESH_EXPORTS.values():
+            self.assertEqual(m.decode_export(synth(expected)), expected)
+        with self.assertRaises(ValueError):
+            m.decode_export(b'ab')
+        with self.assertRaises(ValueError):
+            m.decode_export(bytes(76))
+
     def test_descriptor_stride_x86_arithmetic(self):
         for idx in range(36):
             # 9*i -> 19*i -> 76*i mirrors verified LEA/SHL anchors.
@@ -85,6 +102,9 @@ class PrivateExactSampleTests(unittest.TestCase):
         self.assertTrue(report['descriptor_36_pointer_slots_zero_on_disk'])
         self.assertFalse(report['runtime_call_count_measured'])
         self.assertEqual(len(report['later_conditional_original_refresh_calls']), 3)
+        self.assertEqual(report['three_named_refresh_exports'], {
+            '2':'GetCurrentProcess', '24':'EnumProcesses',
+            '25':'EnumProcessModules'})
         self.assertTrue(all(x['gog_replaced_with_int3'] for x in report['later_conditional_original_refresh_calls']))
 
     def test_negative_mutations_with_hash_check_disabled_only_in_test(self):
