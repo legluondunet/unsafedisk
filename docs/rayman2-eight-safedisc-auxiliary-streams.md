@@ -1,0 +1,93 @@
+# Rayman 2 original CD — eight exact masked-PRNG auxiliary files
+
+**14 November 2026 | Private, read-only, full-byte verification.** Earlier research proved five owner-provided files were complete pseudo-random streams, not PE executables. Three additional original-CD-associated files were discovered in the owner's existing file library, and have now been inspected at the byte level: `00000001.tmp`, `0000040c.016`, and `0000040c.256`.
+
+## Complete eight-file audit
+
+The same recurrence works for **all eight**:
+
+```
+state_next = (16807 * (state XOR 0x075BD924)) mod 2147483647
+```
+
+Each word is 32-bit little-endian; the *exact listed prefix bytes*, if any, precede the first state. A raw filename extension, reported SafeDisc version or GOG catalog entry is not used to derive the recurrence. The seed is the first complete little-endian DWORD at the correct offset; deriving the XOR constant from the first two words and the modular inverse of 16807 gives the same `0x075BD924` for the new `.016` and `.256` files, and all their subsequent transitions are independently verified.
+
+| Owner-supplied name | Bytes | Prefix (hex) | First state | Total states | Valid adjacent transitions |
+|---|---:|---|---|---:|---:|
+| `RAYMAN2.ICD` | 683,565 | `5B` | `0x6EE4C08A` | 170,891 | 170,890 / 170,890 |
+| `DPLAYERX.DLL` | 165,888 | empty | `0x0030FBEC` | 41,472 | 41,471 / 41,471 |
+| `CLOKSPL.EXE` | 177,152 | empty | `0x67EC2AF6` | 44,288 | 44,287 / 44,287 |
+| `CLCD32.DLL` | 27,648 | empty | `0x4F2BFCA6` | 6,912 | 6,911 / 6,911 |
+| `DRVMGT.DLL` | 32,256 | empty | `0x2B38CA9A` | 8,064 | 8,063 / 8,063 |
+| `00000001.TMP` | 20 | empty | `0x2D1B9F61` | 5 | 4 / 4 |
+| `0000040C.016` | 153,718 | `AB DE` | `0x6B5C5E78` | 38,429 | 38,428 / 38,428 |
+| `0000040C.256` | 308,278 | `4D C7` | `0x777390EF` | 77,069 | 77,068 / 77,068 |
+| **Total** | **1,548,525** | | | **387,130** | **387,122 / 387,122** |
+
+**Full SHA-256 independently checked against the exact user's bytes after complete in-memory regeneration:**
+
+```
+RAYMAN2.ICD   4daeae51ded23687fccecd5046dd366b1c083d4931af0a381a0ad0b64bd3d1a6
+DPLAYERX.DLL  0d5160b1b123636e03a09ae00714f0ff66bbdd759a3f2b639734ecaa487018ee
+CLOKSPL.EXE   6efcb3f4ba8052ab8bbd58be703a1de0f9e6eacc8f47c0d6501b0981380edaeb
+CLCD32.DLL    432074cae948d0cee2704f66b47f72a4dee2f9bed288e23912fbc531b041f2a5
+DRVMGT.DLL    6111ab0664948e05171468835be20b00f6b69d366fab28d7cd1ca9d9b67af35b
+00000001.TMP  06ba601c966e6770747d84fe1c3fafaab9f48b07db6eae07a9250f7232415396
+0000040C.016 5c53568c900404bea863ef5ac6e87e49193d95a06674f3a49d70dcefd3f28608
+0000040C.256 5f25849ffa80abb15d3897ba5f4bc44ffa6f06819e370b873e9d172fc00f9933
+```
+
+The alternate owner-uploaded `0000040c(1).256` is **byte-for-byte identical** to `0000040c.256` (same exact SHA-256). No distinct 9th sample is implied.
+
+**All 387,130 observed PRNG states are distinct, with zero overlap across the eight finite file ranges.** This is not a demonstration that the eight global generator periods are independently seeded; it describes exactly these observed sequences. For the 20-byte TMP, only **four transitions** are available; they all match the *same independently derived constant* as the much longer streams, but the short file alone is not enough to validate a generic unknown-PRNG detector. The exact owner SHA-256 gate is essential for its identity.
+
+**Important prefix nuance:** for ICD, `.016`, and `.256`, the first 1 or 2 prefix bytes are **preserved from the observed file**, not generated from the PRNG seed; the *entire* file is still perfectly reproducible from this small fixed prefix, the initial DWORD, and the common recurrence. No unaccounted large payload remains in these eight byte streams. This does **not** prove the streams are disposable, nor does it establish their runtime role.
+
+## Two external provenance crosschecks
+
+The previously verified Rayman2Fix **original ISO inspection log** and the separately modified GOG EXE's **3,716-entry `.extra2` virtual-CD metadata** both show the following file-name / declared-length pairs:
+
+| Name | ISO log length | GOG catalog length |
+|---|---:|---:|
+| `00000001.TMP` | 20 | 20 |
+| `0000040C.016` | 153,718 | 153,718 |
+| `0000040C.256` | 308,278 | 308,278 |
+| `RAYMAN2.ICD` | 683,565 | 683,565 |
+
+The other four PRNG file names/lengths also appear in GOG's virtual catalog; the original ISO log omitted only installer-excluded paths and therefore does not independently list all of them. **A name/size match does not establish that the bytes in the owner's uploaded copies are sector-identical to the original physical ISO.** The physical ISO itself is not available in this investigation.
+
+`040C` in the two filenames corresponds to the Windows language ID `0x040C` for **French (France)** (Microsoft: https://learn.microsoft.com/fr-fr/windows-hardware/manufacture/desktop/available-language-packs-for-windows?view=windows-11). This is a useful **filename-level French-language clue**, not authenticated evidence of the exact game release or of the file format. Other vintage games also distribute paired `.016` and `.256` root files; their contents and SafeDisc roles are not assumed identical to Rayman 2.
+
+## Historical fixed-key TEA crosschecks extended to all eight files
+
+The earlier independently checked historical TEA known-plaintext test used the two candidate repeated-word keys `0xC15CF2E5` and `0xC1552FE5`, 32 rounds, and an all-alignment search for blocks from the 676,352-byte owner retail EXE. Repeating that exact method on the **three new samples** gives **zero matches for both keys**:
+
+| New file | All 8-byte sliding windows | Matches with key `C15CF2E5` | Matches with key `C1552FE5` |
+|---|---:|---:|---:|
+| `00000001.TMP` | 13 | 0 | 0 |
+| `0000040C.016` | 153,711 | 0 | 0 |
+| `0000040C.256` | 308,271 | 0 | 0 |
+| **Additional windows** | **461,995** | **0** | **0** |
+
+The earlier five-file scan had 1,086,474 candidate windows. Combined: **1,548,469 raw eight-byte windows over eight files**, with **zero direct historical-fixed-key TEA matches** for either candidate key. This strictly falsifies this naive direct-on-disk relationship; it does not disprove use of TEA with a different runtime delta, key, input staging or actual ICD loaded section.
+
+## Reproducibility and next experiment
+
+The existing exact-SHA-gated **read-only** audit tool `scripts/rayman2_auxiliary_stream_audit.py` is extended to eight named options (`--tmp`, `--file016`, `--file256` in addition to the five earlier ones), including an observed-range-overlap report. Its tests now cover all eight in-RAM golden SHA-256 streams, alignment, bit corruption, the five-state short TMP, and all eight optional GOG length references. The separate `scripts/rayman2_tea_known_plaintext.py` source inventory is likewise updated to accept the new samples. **Independent full-byte regeneration, all eight seed transitions, cross-file collision checks, the three new file TEA tests and the GOG/ISO name-size lookups were executed locally.** The newest GitHub test files have not been run under CI; do not overstate build confidence.
+
+Example, using only user-owned original files:
+
+```sh
+python scripts/rayman2_auxiliary_stream_audit.py \
+  --icd /private/RAYMAN2.ICD \
+  --dplayerx /private/DPLAYERX.DLL \
+  --clokspl /private/CLOKSPL.EXE \
+  --clcd32 /private/CLCD32.DLL \
+  --drvmgt /private/DRVMGT.DLL \
+  --tmp /private/00000001.TMP \
+  --file016 /private/0000040C.016 \
+  --file256 /private/0000040C.256 \
+  --gog /private/GOG-Rayman2.exe
+```
+
+**Remaining unknown:** source and role of the genuine SafeDisc *loaded* DPLAYERX and ICD executable sections. Eight exact PRNG files leave **no independently encoded PE payload in these bytes** unless another external source or a highly structured substitution exists. The original disc's `SECDRV.SYS` is named in the ISO inventory (14,368 bytes) but has **not** been supplied as analyzable bytes, and cannot be judged from its name/size alone. The owner-original CD image (including any non-file-addressable sectors) and a trusted runtime memory trace remain missing. Do not infer that these eight files can be deleted from a functional original installation or that the Rayman 2 game EXE is completely unprotected.
