@@ -2,6 +2,52 @@
 
 **14 November 2026 | Private, read-only, full-byte verification.** Earlier research proved five owner-provided files were complete pseudo-random streams, not PE executables. Three additional original-CD-associated files were discovered in the owner's existing file library, and have now been inspected at the byte level: `00000001.tmp`, `0000040c.016`, and `0000040c.256`.
 
+## Eight filenames absent as literals from the original game EXE
+
+A separate direct byte scan used the exact original
+`Rayman2.exe` (676,352 bytes, SHA-256
+`7927a106ac4f2244e304e57c196170f6cfb311af87ddf59eb6e6c48b9bb0d5e3`)
+and the exact separately modified GOG executable
+(1,468,928 bytes, SHA-256
+`9bae484bd84a4afad8d4e7b1bb30a85ce1ce2367f8451463696eabab28a72713`).
+
+For **each of the eight exact uppercase filename
+spellings**, a case-insensitive ASCII substring scan
+and an ASCII-case-insensitive UTF-16LE scan of the
+**entire raw on-disk executable** found:
+
+| Test | Original CD EXE | Edited GOG EXE |
+|---|---:|---:|
+| Eight case-insensitive ASCII filename literals | **0/8** | **8/8**, each once |
+| Eight UTF-16LE filename literals | **0/8** | **0/8** |
+
+All eight GOG ASCII matches correspond to the names
+in its separately verified virtual-CD `.extra2` catalog.
+The GOG result must not be misread as an original
+game code reference to each file; these matches
+can be explained entirely by the appended metadata table.
+The original EXE's known `.data` table of 24
+`DATA/WORLD/LEVELS/*.DAT` filenames is separate
+and does not include the eight protection-era
+auxiliary names.
+
+The existing SHA-256-gated
+`scripts/rayman2_auxiliary_stream_audit.py` now accepts
+`--retail ORIGINAL-EXE` to report the *ASCII/UTF-16LE*
+literal-search counts for the selected exact-identified
+auxiliary files. Additional synthetic tests check
+both encodings and that an unrelated EXE cannot
+pass the original retail hash gate. A separate
+independent local scan of the **two actual owner
+EXEs** confirmed the 8/8 absence/presence cases.
+
+**Scope limitation:** lack of plaintext filename
+literals is not proof that the original game or
+SafeDisc loader never opens these files. It could
+construct names at runtime, use another module,
+use an encoded string table, or access raw disc
+sectors without referencing filesystem filenames.
+
 ## Complete eight-file audit
 
 The same recurrence works for **all eight**:
