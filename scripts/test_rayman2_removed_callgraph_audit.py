@@ -55,6 +55,7 @@ class DeletedCallgraphTests(unittest.TestCase):
         self.assertEqual(report['gog_entrypoint_classes']['int3'],8)
         self.assertEqual(report['gog_function_pointer_stub_returns'],{'0x00448DE0':1,'0x00448AB0':0})
         self.assertFalse(report['indirect_call_to_this_specific_vector_proven'])
+        self.assertEqual(report['known_local_indirect_call_overwrites_plus30_before_call'],'0x0042E087')
         self.assertFalse(report['indirect_or_self_modified_calls_ruled_out'])
 
 if __name__=='__main__': unittest.main()
