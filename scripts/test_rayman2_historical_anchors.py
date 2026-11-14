@@ -1,6 +1,6 @@
 import struct
 import unittest
-from rayman2_historical_anchors import HISTORICAL, HISTORICAL_PATTERNS, audit_bytes, pe_code
+from rayman2_historical_anchors import HISTORICAL, HISTORICAL_PATTERNS, audit_bytes, pe_code, historical_stage_probe, HISTORICAL_CHECK_CALL_BYTES, HISTORICAL_DECRYPTED_OEP_22
 
 
 def synthetic_pe(overrides=None):
@@ -59,6 +59,33 @@ class HistoricalAnchorTests(unittest.TestCase):
         with self.assertRaises(ValueError):pe_code(synthetic_pe()[:200])
         a=bytearray(synthetic_pe());a[0x80:0x84]=b'NOPE'
         with self.assertRaises(ValueError):pe_code(bytes(a))
+
+
+    def test_historical_runtime_stage_mismatch_is_explicit(self):
+        image = synthetic_pe([
+            (0x45FCC0, HISTORICAL_DECRYPTED_OEP_22),
+            (0x410A93, bytes.fromhex('B9 01 00 00 00')),
+            (0x4052DF, bytes.fromhex('68 00 00 C0 3F')),
+        ])
+        stage = audit_bytes(image, image)['historical_runtime_stage_discriminator']
+        for edition in ('retail', 'gog'):
+            p = stage[edition]
+            self.assertTrue(p['historical_decrypted_oep_first_22_bytes_on_disk'])
+            self.assertTrue(p['0x410A94_in_mov_ecx_1_immediate'])
+            self.assertTrue(p['0x4052E0_in_push_float_immediate'])
+            self.assertEqual(p['published_call_pattern_occurrences_in_active_text'], 0)
+            self.assertFalse(p['published_0x410A94_call_to_0x4270AD_at_same_va'])
+            self.assertFalse(p['historic_file_offset_patch_transfer_supported'])
+
+    def test_historical_call_classified_only_if_bytes_actually_match(self):
+        image = synthetic_pe([(0x410A94, HISTORICAL_CHECK_CALL_BYTES)])
+        base, ep, code = pe_code(image)
+        p = historical_stage_probe(code, base)
+        self.assertTrue(p['published_0x410A94_call_to_0x4270AD_at_same_va'])
+        self.assertEqual(p['published_call_pattern_occurrences_in_active_text'], 1)
+        self.assertFalse(p['0x410A94_in_mov_ecx_1_immediate'])
+        self.assertFalse(p['historical_decrypted_oep_first_22_bytes_on_disk'])
+
 
 
 if __name__=='__main__':unittest.main()
