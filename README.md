@@ -221,6 +221,40 @@ accepts `--retail` and reports the counts
 after exact source hash verification. See the
 [eight-file research](docs/rayman2-eight-safedisc-auxiliary-streams.md).
 
+**Runtime PRNG provenance breakthrough (14 Nov):**
+[QPC/bootstrap and 8-page GOG code-diff audit]
+(docs/rayman2-runtime-prng-bootstrap.md).
+The exact **331-byte original and GOG initializer**
+is identical, seeded by
+`QueryPerformanceCounter`'s low DWORD
+(or `0x12345678` on failure), and writes
+**281 PRNG states** to `0x510EA0`
+before retaining the last value at
+`0x510BF0`. The first step requires
+**signed 32-bit x86 arithmetic** if the
+timer's bit 31 is set. The fallback
+ends at `0x7A833570` after 281 steps;
+the correct high-bit example
+`0x80000000 -> 0x1F0C8C9B`.
+An independent C11 arithmetic test passed
+**200,000 full-range inputs** and matches
+the exact source committed in this branch.
+
+GOG retains **68/196** original-code
+references to `0x510BF0`, and **29/73**
+XOR salt occurrences at unchanged RVAs,
+without adding any new. The **128**
+removed state references and **44**
+removed salt occurrences are confined
+to **8 specific RVA pages**,
+separate from GOG's non-executable
+archived retail-code copy. Neither
+executable contains any of the eight
+CD PRNG initial states as literal
+DWORDs. This is static code forensics,
+**not evidence of an active SafeDisc
+decoder or decrypted game payload**.
+
 **New eight-file SafeDisc evidence (14 Nov):** Three further
 owner-supplied original-CD-associated files — `00000001.TMP`
 (20 bytes), `0000040C.016` (153,718 bytes) and
