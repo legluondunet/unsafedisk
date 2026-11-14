@@ -44,6 +44,17 @@ ANCHORS = {
 }
 CALLS = {0x4701A6:0x480B90, 0x4701C3:0x4979D0, 0x4701ED:0x481800}
 
+# Adjacent registry type 0x171 is a useful counterexample to assuming every
+# GOG code edit removes a SafeDisc check: original ShellExecuteA call suppressed.
+NEIGHBOR_TYPE = 0x171
+NEIGHBOR_CALL_SITE = 0x470256
+NEIGHBOR_CD = bytes.fromhex('6a 00 6a 00 6a 00 50 6a 00 6a 00 ff 15 20 c2 49 00')
+NEIGHBOR_GOG = b'\x90' * len(NEIGHBOR_CD)
+NEIGHBOR_COMMON = {
+    0x470218:bytes.fromhex('81 7e f8 71 01 00 00'),
+    0x470267:bytes.fromhex('8b c6 5e 83 c4 10 c3'),
+}
+
 
 def squared_sum(low: int, high: int, value: int) -> tuple[int, int]:
     """Full unsigned x86 DWORD x DWORD, add/adc into original 64bit pair."""
@@ -89,6 +100,15 @@ def inspect(cd: bytes, gog: bytes) -> dict:
         h,flag=struct.unpack('<II',read(REGISTRY_OTHER+0x170*8,8))
         if (h,flag)!=(0x470000,1):
             raise ValueError(f'{kind}: wrong type 0x170 registry entry')
+        nfn,nflag=struct.unpack('<II',read(REGISTRY_OTHER+NEIGHBOR_TYPE*8,8))
+        if (nfn,nflag)!=(0x470210,0):
+            raise ValueError(f'{kind}: changed neighboring type 0x171 entry')
+        for va,opcode in NEIGHBOR_COMMON.items():
+            if read(va,len(opcode)) != opcode:
+                raise ValueError(f'{kind}: changed type 0x171 common opcode {va:#x}')
+        expected=NEIGHBOR_CD if kind=='cd' else NEIGHBOR_GOG
+        if read(NEIGHBOR_CALL_SITE,len(expected))!=expected:
+            raise ValueError(f'{kind}: unexpected type 0x171 ShellExecuteA instructions')
         # Type 0x11B is a distinct expression handler that returns a tagged DWORD.
         h2,flag2=struct.unpack('<II',read(0x4A5460+0x11B*8,8))
         if (h2,flag2)!=(0x47B170,0):
@@ -123,6 +143,12 @@ def inspect(cd: bytes, gog: bytes) -> dict:
             'operation':'A=(A+(x*x)) mod 2^64',
             'typed_output_tag':'0x15','downstream_callback_dispatch':'0x481800',
             'prior_conversion_check_va':'0x470187'},
+        'neighbor_type_0x171':{
+            'handler':'0x470210',
+            'original_iat_call':'ShellExecuteA via 0x49C220',
+            'gog_call_region_replaced_by_nops':len(NEIGHBOR_GOG),
+            'evidence_about_drm_intent':'none; code edits cannot all be assumed SafeDisc removals',
+        },
         'distinct_expression_type_0x11B':{'entry_va':'0x47B170',
             'module_dword_read_va':'0x47B2A9','output_type':7,
             'not_the_same_squared_accumulator':True},
