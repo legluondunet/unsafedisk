@@ -117,6 +117,10 @@ class ReaderModeTest(unittest.TestCase):
         gog_dat = result['gog_flag6_dat_setup']
         self.assertEqual(cd_dat['file_basename'], 'LEVELS0.DAT')
         self.assertEqual(gog_dat['file_basename'], 'LEVELS0.DAT')
+        self.assertTrue(cd_dat['retail_selected_via_24_entry_table'])
+        self.assertFalse(gog_dat['retail_selected_via_24_entry_table'])
+        self.assertIsNone(cd_dat['actual_stream_DAT_basename'])
+        self.assertEqual(gog_dat['actual_stream_DAT_basename'], 'LEVELS0.DAT')
         self.assertEqual(cd_dat['file_template_va'], '0x004A2264')
         self.assertEqual(gog_dat['file_template_va'], '0x004A2268')
         self.assertTrue(cd_dat['initial_seed_0x6AB5CC79_overwritten_before_read'])
