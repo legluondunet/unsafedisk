@@ -26,10 +26,10 @@ Formula: `n = 4 * (byte_0x5116F0) + (byte_0x5116F1 & 3)`, with an arithmetic ran
 
 ## New 2 — precise formula from the 16- and 4-byte reads
 
-The original `ReadFile` at `0x44EF5D` places 16 bytes in `[EBP-0x20]`, interpreted by subsequent instructions as four little-endian DWORDs `w0,w1,w2,w3`. The arithmetic at `0x44EF82..0x44EFA0` modifies two of them using the above selector `n`:
+The original `ReadFile` at `0x44EF5D` places 16 bytes in `[EBP-0x20]`, interpreted by subsequent instructions as four little-endian DWORDs `w0,w1,w2,w3`. The arithmetic at `0x44EF82..0x44EFA0` modifies two of them using the above selector `n`. The `ADD; DEC; JNE` loop at `0x44EF98` executes **exactly `n` times** (for positive `n`), not `n-1` times:
 
 - `w0' = (w0 + w2 * n) mod 2^32`.
-- `w1' = (w1 + w3 * max(n-1, 0)) mod 2^32`.
+- `w1' = (w1 + w3 * n) mod 2^32`.
 
 After a separate `ReadFile` of four bytes into `[EBP-0x8]` at `0x44F0AA`, the code at `0x44F0C8..0x44F0D8` computes:
 
