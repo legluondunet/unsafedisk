@@ -153,6 +153,49 @@ def assess(cd: bytes, gog: bytes) -> dict:
                           'continuation_va':hex(continuation),
                           'same_module_base_saved_in_both':True,
                           'following_indexed_read_va':hex(reader) if reader else None})
+    # The second, conditionally reached base+ESI read uses an offset returned by
+    # the unchanged, type-dispatched object reader at 0x480B90. This prevents us
+    # from assuming the index is statically known or a verified in-.text RVA.
+    origin_opcodes={
+        0x47b288:'8d 54 24 24', 0x47b28c:'52', 0x47b28d:'50',
+        0x47b28e:'57', 0x47b28f:'e8 fc 58 00 00',
+        0x47b294:'8b 74 24 30', 0x47b298:'83 c4 0c',
+        0x47b29b:'81 fd 1b 01 00 00', 0x47b2a3:'75 09',
+        0x47b2a5:'8b 54 24 10 8b 1c 32',
+        0x480b90:'8b 44 24 08', 0x480b94:'8b 54 24 0c',
+        0x480b9b:'8a 48 07', 0x480ba4:'ff 14 8d 80 41 4a 00',
+        0x47b305:'8b 44 24 40', 0x47b309:'5f',
+        0x47b30a:'5e', 0x47b30b:'5d',
+        0x47b30c:'89 18', 0x47b30e:'c7 40 0c 07 00 00 00',
+        0x47b315:'8b c1', 0x47b317:'5b', 0x47b318:'83 c4 24',
+        0x47b31b:'c3',
+    }
+    for data,table in ((cd,cs),(gog,gs)):
+        for va,opcode in origin_opcodes.items():
+            if by_rva(data,table,va-cb,len(bytes.fromhex(opcode)))!=bytes.fromhex(opcode):
+                raise ValueError(f'changed type-dispatch dataflow at 0x{va:X}')
+    table_va=0x4a4180
+    tab_cd=by_rva(cd,cs,table_va-cb,64)
+    tab_gog=by_rva(gog,gs,table_va-gb,64)
+    if tab_cd!=tab_gog:
+        raise ValueError('type dispatcher table changed across builds')
+    handlers=struct.unpack('<16I',tab_cd)
+    if any(not cb+t.rva <= va < cb+t.rva+t.raw_size for va in handlers):
+        raise ValueError('type-dispatch target outside original code')
+    offset_origin={
+        'branch_kind':'0x11B conditional after type dispatch',
+        'helper_va':'0x480B90',
+        'helper_source_pointer':'byte at [object+7]',
+        'handler_table_va':hex(table_va),
+        'first_16_handler_entries_sha256':hashlib.sha256(tab_cd).hexdigest(),
+        'first_16_handler_entries_identical_across_builds':True,
+        'first_16_entries_distinct_targets':len(set(handlers)),
+        'offset_written_via_helper_out_parameter':True,
+        'offset_runtime_range_proven':False,
+        'read_value_output_va':'0x47B30C',
+        'read_value_output_type_code':7,
+        'direct_checksum_comparison_in_this_tail':False,
+    }
     samples=[]
     for old_va in (0x470051, 0x47b1c3, 0x44e8a0):
         rva=old_va-cb
@@ -175,6 +218,7 @@ def assess(cd: bytes, gog: bytes) -> dict:
             'active_gog_code_differs_from_original_at_bytes':
                 sum(x!=y for x,y in zip(code, active[:len(code)])),
             'two_redirects':redirects,
+            'indexed_read_offset_origin':offset_origin,
             'source_rva_matches_archive_rva':samples,
             'runtime_execution_observed':False,
             'antitamper_purpose_proven':False,
