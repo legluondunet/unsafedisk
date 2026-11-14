@@ -125,6 +125,17 @@ def verify_known_sites(cd:bytes,gog:bytes,cp:dict,gp:dict)->dict:
     if rel32_target(get_bytes(cd,cp,0x402532,5),0x402532)!=0x401b50:
         raise ValueError('unexpected original message callback')
 
+    # The changed CALL is reached through one of sixteen unchanged
+    # dispatch-table slots. The changed branch serves selector VALUE 5.
+    selectors=(0x45002e,0x450063,0x450082,0x450097,0x4500af,
+               0x4500ed,0x4500d5,0x450100,0x4501c0,0x4501c0,
+               0x450122,0x45015e,0x45017d,0x4501a3,0x4500c2,0x450113)
+    table=struct.pack('<16I',*selectors)
+    if (get_bytes(cd,cp,0x4501f0,64)!=table or
+            get_bytes(gog,gp,0x4501f0,64)!=table):
+        raise ValueError('game opcode dispatch table was changed')
+    if selectors.count(0x4500af)!=1 or selectors.index(0x4500af)+1!=5:
+        raise ValueError('selector 5 no longer reaches changed CALL')
     exact(0x4500af,'e81cf8ffff','e8cc8fffff')
     if rel32_target(get_bytes(cd,cp,0x4500af,5),0x4500af)!=0x44f8d0:
         raise ValueError('original function pointer changed')
@@ -152,6 +163,9 @@ def verify_known_sites(cd:bytes,gog:bytes,cp:dict,gp:dict)->dict:
       'window_callback_original_va':'0x00401B50',
       'gog_noop_window_callback_va':'0x00402532',
       'gog_unconditional_message_skip_va':'0x00402594',
+      'dispatch_table_va':'0x004501F0',
+      'dispatch_table_entries':16,
+      'redirected_case_selector_value':5,
       'isolated_call_va':'0x004500AF',
       'isolated_original_target_va':'0x0044F8D0',
       'isolated_gog_target_va':'0x00449080',
