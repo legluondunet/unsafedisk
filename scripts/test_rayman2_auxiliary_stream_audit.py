@@ -25,7 +25,7 @@ def synthetic_stream(seed: int, words: int, prefix: bytes = b"") -> bytes:
 
 def synthetic_prng_code(refs: int, salts: int, size: int) -> bytes:
     """Create synthetic code bytes with exact literal-DWORD fingerprints."""
-    result = bytearray(b"\\x90" * size)
+    result = bytearray(b"\x90" * size)
     state = struct.pack("<I", 0x00510BF0)
     salt = struct.pack("<I", MASKED_SALT)
     for i in range(refs):
@@ -37,17 +37,17 @@ def synthetic_prng_code(refs: int, salts: int, size: int) -> bytes:
 
 def synthetic_pe(sections: list[tuple[str, bytes, bool]]) -> bytes:
     """Minimal structurally valid PE32, no genuine program bytes."""
-    result = bytearray(b"\\x00" * 0x400)
+    result = bytearray(b"\x00" * 0x400)
     result[:2] = b"MZ"
     struct.pack_into("<I", result, 0x3c, 0x80)
-    result[0x80:0x84] = b"PE\\0\\0"
+    result[0x80:0x84] = b"PE\0\0"
     struct.pack_into("<H", result, 0x84, 0x14c)
     struct.pack_into("<H", result, 0x86, len(sections))
     struct.pack_into("<H", result, 0x94, 0xe0)
     struct.pack_into("<H", result, 0x98, 0x10b)
     for i, (name, data, executable) in enumerate(sections):
         entry = 0x178 + 40*i
-        result[entry:entry+8] = name.encode("ascii").ljust(8, b"\\0")
+        result[entry:entry+8] = name.encode("ascii").ljust(8, b"\0")
         struct.pack_into("<IIII", result, entry+8,
                          len(data), 0x1000+i*0xB0000, len(data), len(result))
         struct.pack_into("<I", result, entry+36,
@@ -178,7 +178,7 @@ class AuxiliaryStreamAuditTests(unittest.TestCase):
         self.assertEqual(count_prng_code_literals(live),
                          {"state_global_pointer_le": 68,
                           "masked_prng_xor_salt_le": 29})
-        archive = b"\\x00"*4096 + original + b"\\x00"*3584
+        archive = b"\x00"*4096 + original + b"\x00"*3584
         retail = synthetic_pe([(".text", original, True)])
         gog = synthetic_pe([(".text", live, True),
                             (".extra", archive, False)])
@@ -194,7 +194,7 @@ class AuxiliaryStreamAuditTests(unittest.TestCase):
         original = synthetic_prng_code(196, 73, 631296)
         live = synthetic_prng_code(68, 29, 634880)
         retail = synthetic_pe([(".text", original, True)])
-        archive = b"\\x00"*4096 + original + b"\\x00"*3584
+        archive = b"\x00"*4096 + original + b"\x00"*3584
         corrupted = bytearray(archive)
         corrupted[4096+51] ^= 1
         for bad_gog in [
@@ -202,7 +202,7 @@ class AuxiliaryStreamAuditTests(unittest.TestCase):
                           (".extra", bytes(corrupted), False)]),
             synthetic_pe([(".text", live, True),
                           (".extra", archive, True)]),
-            synthetic_pe([(".text", b"\\x90"*634880, True),
+            synthetic_pe([(".text", b"\x90"*634880, True),
                           (".extra", archive, False)]),
         ]:
             with self.assertRaises(ValueError):
