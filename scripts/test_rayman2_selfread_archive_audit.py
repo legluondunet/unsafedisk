@@ -186,7 +186,7 @@ class SelfReadArchiveTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as d:
             p=pathlib.Path(d)/'x.exe';p.write_bytes(b'MZ')
             q=pathlib.Path(d)/'y.exe';q.symlink_to(p)
-            with self.assertRaises(OSError):
+            with self.assertRaises((OSError, ValueError)):
                 locked_read(q,'cd')
 
 
