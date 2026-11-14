@@ -75,6 +75,51 @@ with the committed Git blobs verified to be exactly the
 locally tested files. **No Windows/Wine runtime decryption,
 Rust compilation or CI was performed.**
 
+## Three further owner-provided CD file streams verified (14 November 2026)
+
+[Complete eight-file original SafeDisc-era PRNG
+research](rayman2-eight-safedisc-auxiliary-streams.md)
+extends the five earlier, already SHA-256-pinned,
+whole-file masked-Park–Miller streams by three
+**directly reexamined owner files**:
+
+| Exact file | Bytes | Unexplained-independent-code bytes | Prefix | Seed | Observed words |
+|---|---:|---:|---|---|---:|
+| `00000001.TMP` | 20 | 0 | none | `0x2D1B9F61` | 5 |
+| `0000040C.016` | 153,718 | 0 | `AB DE` | `0x6B5C5E78` | 38,429 |
+| `0000040C.256` | 308,278 | 0 | `4D C7` | `0x777390EF` | 77,069 |
+
+The total **eight** owner files comprise **1,548,525
+bytes**. All **387,122 adjacent state transitions**
+match the exact same `0x075BD924` masked recurrence;
+full byte regeneration, preserving 1/2-byte file
+prefixes, matches all eight SHA-256 values.
+The **387,130 observed states are all distinct**,
+including across files. The separate duplicate
+`.256` upload is byte-identical. The three
+new filenames/lengths are also explicitly present
+in both the original Rayman2Fix ISO inspection log
+and GOG's 3,716-entry catalog; **this is size
+corroboration, not a physical-sector hash**.
+
+An extended fixed historical-key TEA known-plaintext
+scan found **0 matches** among **461,995 additional
+overlapping eight-byte windows** of these files.
+The `.016` and `.256` suffixes share the
+`040C` designation associated with
+French (France) by Microsoft; this is
+a filename clue, not authentication.
+
+**Important:** the 20-byte `.TMP` file has
+only four transitions, too few for a generic
+unknown-file classifier; its exact owner SHA-256
+gate and consistency with the other seven files
+are essential. Without the original runtime
+DPLAYERX loaded image and disc authentication
+trace, the exact SafeDisc 1.35 stage remains
+unresolved. Do not equate these PRNG sequences
+with ordinary PE executable sections.
+
 ## Historical Rayman 2 paper vs the exact owner EXE (14 November 2026)
 
 A separate [read-only binary-anchor audit]
