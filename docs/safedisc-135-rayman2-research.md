@@ -148,6 +148,77 @@ to this analysis. There is **no
 recovered executable payload or
 loaded DPLAYERX PE memory image**.
 
+## Exact runtime PRNG bootstrap and vanished GOG references (14 November 2026)
+
+The [dedicated SHA-pinned bootstrap and
+code-RVA audit](rayman2-runtime-prng-bootstrap.md)
+isolates the original and GOG **identical
+331-byte** function at
+`0x449360..0x4494AA`. It calls
+`KERNEL32!QueryPerformanceCounter`
+(IAT `0x49C060`), uses the low
+DWORD as the initial PRNG input and
+falls back to `0x12345678` on
+failure. It generates **281**
+masked-Park–Miller words into an
+array beginning `0x510EA0`
+and retains the last at
+global VA `0x510BF0`.
+
+**Sign extension matters on the first
+iteration:** `0x80000000` yields
+`0x1F0C8C9B` using the signed
+x86 operation, not `0x1F0D0FE9`
+from an incorrect unsigned recurrence.
+With the fallback `0x12345678`,
+the 281st output is `0x7A833570`.
+The exact 331-byte region and ten
+instruction anchors match both owner
+EXEs. Two independent implementations,
+including a locally compiled **C11
+test with 200,000 full 32-bit inputs**,
+corroborate the signed formula.
+
+The original `.text` has **196**
+literal global-state VA references
+and **73** XOR-salt immediates.
+GOG active `.text` retains **68**
+and **29**, respectively, at
+precisely their former offsets;
+GOG **introduces zero** new
+occurrences. All **128 state-VA
+references** and **44 XOR-salt
+literals** absent from active GOG
+code lie in the eight RVA pages
+`0x47000,0x48000,0x49000,0x4D000,
+0x4E000,0x4F000,0x50000,0x51000`.
+Its non-executable `.extra`
+retains a byte-exact archive of
+the 196/73 original references;
+never count it as live GOG code.
+
+Across the **eight file PRNG streams**,
+their 1,548,525 bytes contain at
+most **288 bits** of varying
+description (eight 31-bit seeds
+and five prefix bytes) when
+recurrence and file lengths are
+fixed. This is *not a Shannon
+entropy measurement*, but a
+mathematical limitation: no
+independent unknown native
+executable payload can be recovered
+from these deterministic file bytes
+alone without other data. The
+eight seed DWORDs are absent
+as literals from both complete EXEs;
+the game runtime PRNG uses an
+entirely separate observable
+QPC/fallback seeding path.
+None of these static facts
+proves SafeDisc 1.35 has been
+successfully decrypted.
+
 ## Three further owner-provided CD file streams verified (14 November 2026)
 
 [Complete eight-file original SafeDisc-era PRNG
