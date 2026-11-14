@@ -17,11 +17,13 @@ For other type codes, the evaluator subtracts `0x113` from the type and branches
 | `0x113` | `0x47B2D1` | XOR |
 | `0x114` | `0x47B2D7` | AND |
 | `0x115` | `0x47B2DD` | OR |
-| `0x116` | `0x47B305` | Retain the previously zero-initialized result |
+| `0x116` | `0x47B305` | Retain the previously zero-initialized result **in this local eight-way switch only**; ordinary registry dispatch uses another handler (see note below) |
 | `0x117` | `0x47B2E3` | Unsigned division, faults on zero divisor |
 | `0x118` | `0x47B2EF` | 32-bit multiplication |
 | `0x119` | `0x47B2F6` | Addition modulo `2^32` |
 | `0x11A` | `0x47B2FF` | Subtraction modulo `2^32` |
+
+**Clarification (new independent registry audit):** this is a switch *inside* the shared handler `0x47B170`, not a complete enumeration of the normal engine handlers. The actual type registry at `0x4A5460` selects the **separate unary NOT handler `0x47B340` for type `0x116`**, while type `0x11B` selects `0x47B170` and the self-read branch. The earlier wording could incorrectly imply that a normally dispatched `0x116` expression returns zero. The corresponding original/GOG dispatch and five redirects are now verified in [the full registry audit](rayman2-expression-registry-and-typed-selfread.md); see also the second registry base `0x4A43E0` for `0x170 → 0x470000`.
 
 An unsigned bounds check at `0x47B2C5..0x47B2C8` ensures the jump table covers only values 0..7 after subtraction. The common tail writes a 32-bit result at `0x47B30C` and a value-type tag `7` at `0x47B30E`; **no checksum-equality verdict is visible in that tail**. The original section outside this immediate tail, indirect callers, object provenance, or eventual consumers may impose additional meaning.
 
