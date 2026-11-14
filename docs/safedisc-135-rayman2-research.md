@@ -75,6 +75,79 @@ with the committed Git blobs verified to be exactly the
 locally tested files. **No Windows/Wine runtime decryption,
 Rust compilation or CI was performed.**
 
+## Source-level SafeDisc V1 caution: logo placeholders, disc C2 errors, remnant files (14 November 2026)
+
+Three independent background sources were checked against
+the **eight exact user-supplied byte streams**:
+
+- [CD Media World — SafeDisc 1](https://www.cdmediaworld.com/hardware/cdrom/cd_protections_safedisc.shtml)
+  describes the classic V1 **game.EXE loader +
+  encrypted game.ICD payload** model, with helper
+  `00000001.TMP`, `CLOKSPL.EXE`,
+  `CLCD32.DLL`, `DPLAYERX.DLL`;
+  its historical revision/size table maps the
+  **165,888-byte** DPLAYERX to *r2*, not *r3*.
+- [Gravure-News, 2004](https://www.gravure-news.com/article/identification-manuelle-des-protections-2-2.php)
+  and a [2011 SafeDisc splash-file discussion]
+  (https://www.fileforums.com/showthread.php?goto=nextoldest&t=104458)
+  identify the `.016` and `.256`
+  language-suffixed files as **splash-screen
+  bitmaps**; the same file types may occur on
+  **SafeDisc 1** as well as 2/3. Yet the
+  owner's `0000040C.016` and `.256`
+  both have **non-BMP prefixes**, are entirely
+  masked PRNG streams, and cannot be used as
+  plain image data. Interestingly, the
+  `.256` byte count **308,278** exactly
+  equals a standard uncompressed **640×480
+  8-bit BMP with a full palette**; size alone
+  does not authenticate the intended bitmap
+  or reveal its missing pixel data.
+- [Redump's SafeDisc preservation notes]
+  (https://wiki.redump.info/SafeDisc) state that
+  standard SafeDisc disc mastering often relies
+  on **physical C2 errors near the beginning
+  of the disc**, correlating with `.tmp`
+  dummy-file entries, and explain that
+  **SafeDisc-era remnant files may remain
+  even when active protection was removed**.
+  The user's historic 2048-byte-sector ISO
+  inspection provides *file metadata* but
+  **no physical C2 error log or raw-sector
+  authentication record**.
+
+Thus the usual V1 narrative
+"encrypted ICD + small loader EXE"
+**conflicts with the observed stage**:
+our SHA-pinned 676,352-byte `Rayman2.exe`
+already contains clear full game-engine code,
+and our SHA-pinned 683,565-byte
+`RAYMAN2.ICD` is 100% reproducible
+pseudo-random data without an independent
+PE payload. There are several **unresolved
+possibilities**, including an originally
+different disc revision, an already modified
+or partly unwrapped image, preserved
+protection filename placeholders, or an
+installation/runtime transformation.
+None has been proven from the available
+data, and neither the historical study's
+TEA key nor the presence of `.ICD`
+authenticates a working V1 encrypted
+payload in these exact bytes.
+
+**Prioritize original media/source provenance
+and true loader input identification
+before investing more in blind TEA
+searches.** At present the original
+`SECDRV.SYS` has only a known nominal
+size of **14,368 bytes** in the
+original-ISO logs and virtual GOG catalog;
+its real bytes have not been available
+to this analysis. There is **no
+recovered executable payload or
+loaded DPLAYERX PE memory image**.
+
 ## Three further owner-provided CD file streams verified (14 November 2026)
 
 [Complete eight-file original SafeDisc-era PRNG
