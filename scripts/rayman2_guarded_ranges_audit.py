@@ -108,6 +108,7 @@ def inspect(retail:bytes,gog:bytes)->dict:
             original[lo:hi], modified[lo:hi]))
         row['gog_changed_fraction']=round(
             row['gog_changed_bytes']/row['length'],6)
+        row['gog_fully_int3_filled']=(modified[lo:hi]==b'\xCC'*(hi-lo))
         covered[lo:hi]=b'\x01'*(hi-lo)
     changed=inside=0
     for i,(a,b) in enumerate(zip(original,modified)):
@@ -160,6 +161,9 @@ def inspect(retail:bytes,gog:bytes)->dict:
         'fraction_of_changed_code_inside':round(inside/changed,8),
         'fraction_of_text_covered':round(total_span/len(original),8),
         'gog_preserved_guard_sites':active,
+        'gog_int3_filled_region_count':sum(r['gog_fully_int3_filled'] for r in rows),
+        'gog_int3_filled_region_bytes':sum(r['length'] for r in rows if r['gog_fully_int3_filled']),
+        'gog_unchanged_region_count':sum(r['gog_changed_bytes']==0 for r in rows),
         'paired_slot_addresses':len(slot_addresses),
         'other_embedded_pointer_literals':extra_literals,
         'ranges':rows,
