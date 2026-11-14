@@ -72,6 +72,46 @@ def pe_code(data: bytes) -> tuple[int, int, bytes]:
     raise ValueError('missing .text')
 
 
+
+# This second historical discriminator is deliberately independent of the
+# short signatures above. It is metadata-only: zero-match means DIFFERENT
+# BYTES AT THIS STAGE, not proof of a different retail edition.
+HISTORICAL_DECRYPTED_OEP_22 = bytes.fromhex(
+    '55 8B EC 6A FF 68 D0 C9 49 00 68 90 FF 45 00 64 A1 00 00 00 00 50'
+)
+HISTORICAL_CHECK_CALL_VA = 0x410A94
+HISTORICAL_CHECK_TARGET_VA = 0x4270AD
+HISTORICAL_CHECK_CALL_BYTES = b'\xe8' + struct.pack(
+    '<i', HISTORICAL_CHECK_TARGET_VA - HISTORICAL_CHECK_CALL_VA - 5
+)
+
+
+def historical_stage_probe(text: bytes, base: int) -> dict:
+    """Compare historical *runtime* addresses with file-backed active code."""
+    def match(va: int, pattern: bytes) -> bool:
+        delta = va - base
+        if delta < 0 or delta + len(pattern) > len(text):
+            raise ValueError('historical stage probe outside active .text')
+        return text[delta:delta + len(pattern)] == pattern
+
+    if HISTORICAL_CHECK_CALL_BYTES != bytes.fromhex('E8 14 66 01 00'):
+        raise ValueError('historic rel32 target unexpectedly changed')
+    return {
+        'historical_decrypted_oep_first_22_bytes_on_disk':
+            match(0x45FCC0, HISTORICAL_DECRYPTED_OEP_22),
+        'published_0x410A94_call_to_0x4270AD_at_same_va':
+            match(HISTORICAL_CHECK_CALL_VA, HISTORICAL_CHECK_CALL_BYTES),
+        'published_call_pattern_occurrences_in_active_text':
+            text.count(HISTORICAL_CHECK_CALL_BYTES),
+        '0x410A94_in_mov_ecx_1_immediate':
+            match(0x410A93, bytes.fromhex('B9 01 00 00 00')),
+        '0x4052E0_in_push_float_immediate':
+            match(0x4052DF, bytes.fromhex('68 00 00 C0 3F')),
+        'historic_file_offset_patch_transfer_supported': False,
+        'runtime_staging_identified': False,
+    }
+
+
 def audit_bytes(retail: bytes, gog: bytes) -> dict:
     base_r, ep_r, code_r = pe_code(retail)
     base_g, ep_g, code_g = pe_code(gog)
@@ -98,6 +138,10 @@ def audit_bytes(retail: bytes, gog: bytes) -> dict:
         'retail_entry_va': f'0x{ep_r:08X}', 'gog_entry_va': f'0x{ep_g:08X}',
         'retail_text_raw_size': len(code_r), 'gog_text_raw_size': len(code_g),
         'anchors': anchors, 'historical_signature_occurrences': signatures,
+        'historical_runtime_stage_discriminator': {
+            'retail': historical_stage_probe(code_r, base_r),
+            'gog': historical_stage_probe(code_g, base_g),
+        },
         'matched_entry_prologue_is_not_unwrapping_proof': True,
         'mismatches_do_not_prove_version_difference': True,
         'runtime_bytes_observed': False,
