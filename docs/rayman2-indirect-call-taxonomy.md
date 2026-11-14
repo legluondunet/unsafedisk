@@ -30,6 +30,7 @@ The two previously unnamed transfers use the pair `0x4A1400 / 0x4A13D0`. The lat
 - Original `0x447ACE`: masked `CALL ECX` with `EDX=[0x4A1400]`, `ECX=[0x4A13D0]`, `XOR ECX,EDX`. Its caller passes an EAX argument (consistent with a module name).
 - Original `0x448B8E`: a constructed 13-byte `MOV EAX,[0x4A1400]; XOR EAX,[0x4A13D0]; JMP EAX` trampoline, with `EDI` loaded with `0x4A13D0` at `0x448ABE`. The call passes `NULL` (consistent with `GetModuleHandleA(NULL)`).
 - In original routine `0x4478A0`, a direct `MOV [0x4A1400],EAX` at `0x4478FB` writes the masked pointer, and `0x447A76` overwrites or clears it on a later path. This establishes a specific bootstrap initialisation and validation mechanism, **not observed success at runtime**.
+- **Independent PE-import cross-check:** both exact EXEs import `GetModuleHandleA` through the unchanged IAT slot `0x49C064`, and the original initializer itself contains `CALL DWORD PTR [0x49C064]` at `0x447944`. The new descriptor name is therefore supported both by its encoded bytes and by a native imported function used in the same initializer. This does not establish runtime success on every path.
 
 Hence we have **36 named records**: a bootstrap record index zero at `0x4A13D0` and the already-known 35 numbered records 1–35 at `0x4A141C` onward; the previously documented all-zero sentinel after record 35 is a separate slot.
 
