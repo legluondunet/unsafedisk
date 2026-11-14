@@ -161,6 +161,89 @@ def _compare_literal_code_offsets(original: bytes, active: bytes, value: int) ->
     }
 
 
+def signed_x86_masked_prng_step(value: int) -> int:
+    """x86 PRNG step, including signed 32-bit QPC first-word behavior.
+
+    The normal file-stream generator uses only 0..0x7ffffffe states.
+    Runtime QueryPerformanceCounter supplies an arbitrary low 32-bit word:
+    its high bit alters the *first* 32-bit signed multiplication. Once
+    reduced to a nonnegative 31-bit state, subsequent steps coincide.
+    """
+    if type(value) is not int or not 0 <= value <= 0xffffffff:
+        raise ValueError("seed must be an unsigned 32-bit integer")
+    masked = value ^ MASKED_SALT
+    signed = masked if masked < 0x80000000 else masked - 0x100000000
+    return (signed * MULTIPLIER) % MODULUS
+
+
+def inspect_runtime_rng_initializer(retail: bytes, gog: bytes) -> dict:
+    """Only call with *both* SHA-256-verified owner executables.
+
+    A historical, static x86 opcode fingerprint, not a live timer reading
+    or a claim about original physical CD payloads.
+    """
+    rs = pe_sections(retail)
+    gs = pe_sections(gog)
+    if ".text" not in rs or ".text" not in gs:
+        raise ValueError("missing PE code for RNG initializer")
+    base = 0x401000
+    start = 0x449360
+    length = 0x4494AB - start  # 331 bytes, covering initializer and calls
+    offset = start - base
+    a = rs[".text"][offset:offset+length]
+    b = gs[".text"][offset:offset+length]
+    expected_sha = "508fb5bc006002d4a7efb27d30747ef453b843219f7fadd1f67b471e7ac30448"
+    if len(a) != length or a != b or hashlib.sha256(a).hexdigest() != expected_sha:
+        raise ValueError("unexpected retail/GOG RNG initializer bytes")
+    anchors = {
+        0x401EF8: "6A 01 E8 61 74 04 00",  # push 1; call initializer
+        0x449391: "FF 15 60 C0 49 00",     # QueryPerformanceCounter import thunk
+        0x449397: "8B 4D F8",              # low DWORD from 64-bit counter
+        0x44939E: "B9 78 56 34 12",        # fallback when QPC failed
+        0x4493A3: "BE A0 0E 51 00",        # output table base
+        0x4493A8: "BF 19 01 00 00",        # 281 words
+        0x4493AD: "81 F1 24 D9 5B 07",     # masked XOR
+        0x4493BC: "69 C9 A7 41 00 00",     # multiplier 16807
+        0x4493DF: "89 0E",                 # write one table word
+        0x4493EA: "89 0D F0 0B 51 00",     # final state at 0x510BF0
+    }
+    for va, hexpattern in anchors.items():
+        section_at = va - base
+        signature = bytes.fromhex(hexpattern)
+        if (rs[".text"][section_at:section_at+len(signature)] != signature or
+                gs[".text"][section_at:section_at+len(signature)] != signature):
+            raise ValueError(f"RNG bootstrap opcode fingerprint differs at 0x{va:08X}")
+    fallback = 0x12345678
+    x = fallback
+    for _ in range(281):
+        x = signed_x86_masked_prng_step(x)
+    if (signed_x86_masked_prng_step(fallback) != 0x4F2CEC02 or
+            signed_x86_masked_prng_step(0x80000000) != 0x1F0C8C9B or
+            x != 0x7A833570):
+        raise ValueError("synthetic signed x86 PRNG model differs from known vector")
+    return {
+        "same_original_gog_331_bytes": True,
+        "shared_sha256": expected_sha,
+        "bootstrap_entry_va": "0x00449360",
+        "startup_call_va": "0x00401EFA",
+        "qpc_iat_va": "0x0049C060",
+        "initial_seed_source": "low 32 bits of QueryPerformanceCounter; 0x12345678 if call fails",
+        "loop_iterations": 281,
+        "table_base_va": "0x00510EA0",
+        "final_prng_state_va": "0x00510BF0",
+        "fallback_seed": "0x12345678",
+        "fallback_first_output": "0x4F2CEC02",
+        "fallback_281st_output": "0x7A833570",
+        "high_bit_seed_example": {
+            "input": "0x80000000",
+            "x86_signed_first_output": "0x1F0C8C9B",
+            "incorrect_unsigned_first_output": "0x1F0D0FE9",
+        },
+        "static_code_only_no_runtime_timer_observed": True,
+        "not_proven_source_of_eight_disc_file_seeds": True,
+    }
+
+
 def original_vs_gog_rng_code(retail: bytes, gog: bytes) -> dict:
     """SHA-gated caller must supply the exact owner CD and GOG executables.
 
@@ -317,6 +400,7 @@ def inspect(samples: dict[str, bytes], gog: bytes | None = None,
             raise ValueError("reference metadata lengths differ from owner samples")
     if retail is not None and gog is not None:
         result["original_vs_gog_rng_code"] = original_vs_gog_rng_code(retail, gog)
+        result["runtime_rng_initializer"] = inspect_runtime_rng_initializer(retail, gog)
     return result
 
 
