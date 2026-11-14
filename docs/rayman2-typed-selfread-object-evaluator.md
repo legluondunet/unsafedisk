@@ -31,6 +31,13 @@ The read of the image's own bytes is a concrete potential mechanism by which GOG
 
 In particular, **do not patch or suppress** `0x480B90`, the eight-way switch or the `0x11B` case on the basis of this static observation alone. Such changes could break ordinary engine expression evaluation.
 
+
+## Scope of the archived image and limitation on offsets
+
+The non-executable GOG `.extra` copy is exactly `0x9C000` bytes long. Its first `0x1000` bytes are **zero** (unlike the original CD image, whose first two bytes are `MZ`). Original CD `.text` occupies RVA `0x1000..0x9B1FF` in raw file-backed bytes and is identically mirrored at those same offsets from GOG's substitute base `0x517000`. The trailing `0xE00` bytes of `.extra` are zero. The original PE `.rdata` begins at RVA `0x9C000` and `.data` at RVA `0x9F000`, **outside the archive's extent**. Thus `.extra` is **not a complete PE module view**: it cannot generally substitute for real module-base reads of headers, imports, `.rdata` or `.data`.
+
+The conditional typed `0x11B` read becomes equivalent to reading original code only if the dynamically computed offset falls within the mirrored `.text` interval (and the read does not cross its boundary). **No actual runtime offset has been measured**, so do not infer that every module-base read is satisfied by this mapping, let alone that a self-integrity check passed.
+
 ## Reproduction
 
 ```
