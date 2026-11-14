@@ -123,6 +123,12 @@ class OptionalRealInputTests(unittest.TestCase):
         self.assertEqual(r['generic_direct_calls']['0x00481C10'],15)
         self.assertEqual(r['generic_direct_calls']['0x00480B90'],757)
 
+    def test_real_registry_flag_lookup_is_generic(self):
+        r=one(self.cd,self.cd_asm,'cd')
+        self.assertEqual(r['generic_direct_calls']['0x00482680'],68)
+        self.assertEqual(r['generic_direct_calls']['0x00482690'],1)
+        self.assertEqual(r['registry']['flag_one_count'],299)
+
     def test_real_changed_registry_fails(self):
         with self.assertRaises(ValueError):
             one(self.mutated(REGISTRY_VA+0x170*ROW_SIZE,0x42),self.cd_asm,'mutated')
