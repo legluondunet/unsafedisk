@@ -54,6 +54,10 @@ The type-`0x170` handler creates a 16-byte temporary typed result and calls `0x4
 
 **Caution:** The temporary value's *output tag* `0x15` should not be automatically equated to the dynamically selected destination field type in `0x481800`. Identifying the actual destination and callback requires a concrete runtime object and its field index.
 
+## Adjacent type `0x171` shows why GOG patch differences are not automatically SafeDisc
+
+The immediately adjacent registry record **type `0x171`** dispatches to `0x470210` in both programs. That handler processes an expression through `0x480B90` then calls the ordinary imported **`SHELL32.dll!ShellExecuteA`** at `0x470261` in the original CD code (IAT slot `0x49C220`, confirmed with GNU `objdump -p`). The GOG build replaces the entire **17-byte argument-setup and call interval `0x470256..0x470266` with NOPs**, while keeping the entry, argument conversion, and return at `0x470267` unchanged. This is an independent example of an edited game scripting action *beside* the likely integrity-related `0x170`. It is **not** proof of why GOG disabled external process launching, but it is a clear warning not to adopt every GOG patch as a SafeDisc fix.
+
 ## Static availability of expression objects and GOG archive bounds
 
 A complete overlapping little-endian DWORD scan of the file-backed `.rdata` and `.data` sections of **both** exact PE files finds **zero `0x00000170` and zero `0x0000011B` DWORD literals**. This means these ordinary non-code sections do not contain an uncompressed literal of either exact type, **not** that the game has no such objects. Objects may be read from external `*.DAT`, compressed/encoded, constructed dynamically or represented differently. The two exact executables do not provide the needed runtime object data.
@@ -68,8 +72,8 @@ python scripts/rayman2_selfread_square_accumulator_audit.py \
 python -m unittest discover -s scripts -p 'test_rayman2_*.py'
 ```
 
-New script imports only standard Python modules plus the existing `rayman2_selfread_archive_audit.py` helper. It checks **23 opcode anchors** and **3 rel32 destinations in each executable**, registry type `0x170`, distinct type `0x11B`, the `0x15` callback row, literal-type absence in ordinary file-backed non-code sections, and the entire GOG `.extra` archive mirror. The new **18 tests** include 10,000 independent modulo-`2**64` numerical comparisons, deliberately corrupted instruction, registry and archive inputs, and exact original-file integration.
+New script imports only standard Python modules plus the existing `rayman2_selfread_archive_audit.py` helper. It checks **23 opcode anchors** and **3 rel32 destinations in each executable**, registry type `0x170`, distinct type `0x11B`, the `0x15` callback row, literal-type absence in ordinary file-backed non-code sections, and the entire GOG `.extra` archive mirror. It additionally checks the exact 17-byte CD versus GOG `ShellExecuteA` change in neighboring type `0x171`. The new **21 tests** include 10,000 independent modulo-`2**64` numerical comparisons, deliberately corrupted instruction, registry and archive inputs, and exact original-file integration.
 
-**Actual local results: 18/18 new tests and 193/193 total tests pass.** These are read-only tests performed on the owner's exact binaries; no game was executed, no SafeDisc driver was inspected in memory, no physical-CD C2 authentication was measured, and no Windows executable was patched, rebuilt, or distributed.
+**Actual local results: 21/21 new tests and 196/196 total tests pass.** These are read-only tests performed on the owner's exact binaries; no game was executed, no SafeDisc driver was inspected in memory, no physical-CD C2 authentication was measured, and no Windows executable was patched, rebuilt, or distributed.
 
 **Highest-value next experiment:** with the same edition's `*.DAT` game data, locate objects using opcode `0x170` and the typed parser-generated offsets, then observe whether the 64-bit accumulated result is compared to an expected constant. An alternative is narrowly scoped, read-only debugger tracing of `0x4701BC`, `0x4701C3`, and `0x4701ED`, including the runtime callback and field-type metadata. A changing 64-bit accumulator alone is **not** proof of anti-piracy verification.
