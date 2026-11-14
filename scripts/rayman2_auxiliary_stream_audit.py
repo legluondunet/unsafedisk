@@ -22,6 +22,7 @@ MASKED_SALT = 0x075BD924
 MULTIPLIER = 16807
 MODULUS = 2147483647
 GOG_SHA256 = "9bae484bd84a4afad8d4e7b1bb30a85ce1ce2367f8451463696eabab28a72713"
+RETAIL_SHA256 = "7927a106ac4f2244e304e57c196170f6cfb311af87ddf59eb6e6c48b9bb0d5e3"
 
 # name: (exact input bytes, seed, retained prefix, owner-supplied SHA-256).
 KNOWN: dict[str, tuple[int, int, bytes, str]] = {
@@ -91,6 +92,26 @@ def inspect_pinned(name: str, data: bytes) -> dict:
     }
 
 
+def literal_name_hits(raw: bytes, names: list[str]) -> dict[str, dict]:
+    """Check plain ASCII and UTF-16LE spellings anywhere in on-disk bytes.
+
+    This is deliberately an exact literal scan: it cannot rule out encoded
+    names, dynamic construction, indirect references, or runtime loader I/O.
+    """
+    normalized = raw.lower()
+    hits = {}
+    for name in names:
+        if not name or not name.isascii():
+            raise ValueError("expected nonempty ASCII filename")
+        ascii_name = name.lower().encode("ascii")
+        utf16_name = name.lower().encode("utf-16le")
+        hits[name] = {
+            "ascii_case_insensitive_occurrences": normalized.count(ascii_name),
+            "utf16le_ascii_case_insensitive_occurrences": normalized.count(utf16_name),
+        }
+    return hits
+
+
 def observed_stream_state_overlap(inspected: dict[str, dict]) -> dict:
     """Pairwise overlap of finite, independently verified PRNG windows only.
 
@@ -132,7 +153,8 @@ def compare_gog_manifest(manifest: dict[str, int], inspected: dict[str, dict]) -
     }
 
 
-def inspect(samples: dict[str, bytes], gog: bytes | None = None) -> dict:
+def inspect(samples: dict[str, bytes], gog: bytes | None = None,
+            retail: bytes | None = None) -> dict:
     if not samples:
         raise ValueError("at least one sample is required")
     checked = {name: inspect_pinned(name, blob)
@@ -141,6 +163,15 @@ def inspect(samples: dict[str, bytes], gog: bytes | None = None) -> dict:
               "finite_stream_overlap": observed_stream_state_overlap(checked),
               "decrypted_pe_recovered": False,
               "physical_cd_source_authenticated": False}
+    if retail is not None:
+        if hashlib.sha256(retail).hexdigest() != RETAIL_SHA256 or len(retail) != 676352:
+            raise ValueError("original retail EXE differs from owner SHA-256-pinned input")
+        result["original_retail_literal_names"] = {
+            "checked_sha256": RETAIL_SHA256,
+            "file_name_matches": literal_name_hits(retail, list(checked)),
+            "absence_does_not_rule_out_dynamic_or_obfuscated_file_open": True,
+            "only_on_disk_bytes_searched": True,
+        }
     if gog is not None:
         if hashlib.sha256(gog).hexdigest() != GOG_SHA256:
             raise ValueError("GOG reference SHA-256 mismatch")
@@ -162,6 +193,8 @@ def main(argv: list[str] | None = None) -> int:
         parser.add_argument("--" + arg, type=Path, metavar="FILE")
     parser.add_argument("--gog", type=Path,
                         help="Optional exact-hash GOG executable for size-only metadata check")
+    parser.add_argument("--retail", type=Path,
+                        help="Optional SHA-256-pinned original EXE: literal ASCII/UTF-16LE name scan")
     args = parser.parse_args(argv)
     paths = {
         "RAYMAN2.ICD": args.icd,
@@ -179,7 +212,8 @@ def main(argv: list[str] | None = None) -> int:
         samples = {name: read_bounded(path) for name, path in paths.items()
                    if path is not None}
         gog = read_bounded(args.gog) if args.gog else None
-        result = inspect(samples, gog)
+        retail = read_bounded(args.retail) if args.retail else None
+        result = inspect(samples, gog, retail)
     except (OSError, ValueError) as exc:
         parser.error(str(exc))
     print(json.dumps(result, indent=2, sort_keys=True))
