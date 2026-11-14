@@ -11,6 +11,7 @@ from rayman2_auxiliary_stream_audit import (
     verify_stream, inspect_pinned, compare_gog_manifest, inspect,
     observed_stream_state_overlap, literal_name_hits,
     count_prng_code_literals, original_vs_gog_rng_code,
+    signed_x86_masked_prng_step, inspect_runtime_rng_initializer,
 )
 
 
@@ -246,6 +247,42 @@ class AuxiliaryStreamAuditTests(unittest.TestCase):
         ]:
             with self.assertRaises(ValueError):
                 original_vs_gog_rng_code(retail, bad_gog)
+
+    def test_signed_runtime_qpc_seed_vs_unsigned_disc_prng(self):
+        golden = {
+            0: 0x1F0CCE42,
+            0x12345678: 0x4F2CEC02,
+            0x80000000: 0x1F0C8C9B,
+            0xFFFFFFFF: 0x60F2F016,
+        }
+        for seed, known in golden.items():
+            self.assertEqual(signed_x86_masked_prng_step(seed), known)
+        # Only the first step from a full 32-bit timer word can differ.
+        for seed in (0, 1, 0x12345678, 0x7FFFFFFF,
+                     0x80000000, 0x80000001, 0xFFFFFFFF):
+            value = signed_x86_masked_prng_step(seed)
+            self.assertLess(value, MODULUS)
+            self.assertGreaterEqual(value, 0)
+            unsigned = ((seed ^ MASKED_SALT) * MULTIPLIER) % MODULUS
+            if seed < 0x80000000:
+                self.assertEqual(value, unsigned)
+            else:
+                self.assertEqual((unsigned-value) % MODULUS, 2*MULTIPLIER)
+
+    def test_signed_runtime_fallback_281_seed_words_and_rejections(self):
+        word = 0x12345678
+        for _ in range(281):
+            word = signed_x86_masked_prng_step(word)
+        self.assertEqual(word, 0x7A833570)
+        for invalid in (-1, 0x100000000, True, 1.5, "0x12345678", None):
+            with self.assertRaises(ValueError):
+                signed_x86_masked_prng_step(invalid)
+
+    def test_runtime_initializer_rejects_wrong_binary(self):
+        # No proprietary executable fixtures are present in test suite.
+        fake = synthetic_pe([(".text", b"\x90"*631296, True)])
+        with self.assertRaises(ValueError):
+            inspect_runtime_rng_initializer(fake, fake)
 
     def test_gog_checks_all_eight_selected_lengths_only(self):
         mocked = {name: {"size": info[0]} for name, info in KNOWN.items()}
