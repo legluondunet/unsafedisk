@@ -8,7 +8,7 @@ import unittest
 
 from rayman2_auxiliary_stream_audit import (
     KNOWN, MASKED_SALT, MULTIPLIER, MODULUS,
-    verify_stream, inspect_pinned, compare_gog_manifest, inspect, observed_stream_state_overlap,
+    verify_stream, inspect_pinned, compare_gog_manifest, inspect, observed_stream_state_overlap, literal_name_hits,
 )
 
 
@@ -113,6 +113,24 @@ class AuxiliaryStreamAuditTests(unittest.TestCase):
         corrupt = data[:15] + bytes([data[15] ^ 1]) + data[16:]
         with self.assertRaises(ValueError):
             verify_stream(corrupt, seed=seed)
+
+    def test_literal_ascii_and_utf16le_filename_match_are_only_static_evidence(self):
+        raw = (b"prefix-rayman2.icd--" + "DPLAYERX.DLL".encode("utf-16le") +
+               b"-suffix-rayman2.icd")
+        got = literal_name_hits(raw, ["RAYMAN2.ICD", "DPLAYERX.DLL", "CLCD32.DLL"])
+        self.assertEqual(got["RAYMAN2.ICD"]["ascii_case_insensitive_occurrences"], 2)
+        self.assertEqual(got["RAYMAN2.ICD"]["utf16le_ascii_case_insensitive_occurrences"], 0)
+        self.assertEqual(got["DPLAYERX.DLL"]["utf16le_ascii_case_insensitive_occurrences"], 1)
+        self.assertEqual(got["DPLAYERX.DLL"]["ascii_case_insensitive_occurrences"], 0)
+        self.assertEqual(got["CLCD32.DLL"]["ascii_case_insensitive_occurrences"], 0)
+        with self.assertRaises(ValueError):
+            literal_name_hits(b"test", [""])
+
+    def test_retail_original_hash_gate_rejects_fake_binary(self):
+        raw = synthetic_stream(0x0030FBEC, 6)
+        # Check no valid user sample is accidentally produced here:
+        with self.assertRaises(ValueError):
+            inspect({"DPLAYERX.DLL": raw}, retail=raw)
 
     def test_gog_checks_all_eight_selected_lengths_only(self):
         mocked = {name: {"size": info[0]} for name, info in KNOWN.items()}
