@@ -124,6 +124,53 @@ def check_calls(at):
         raise ValueError('direct flags=6 constructor call not verified')
 
 
+
+def verify_dat_resource_setup(at, modified: bool) -> dict:
+    """Verify flag-6 stream is set up for LEVELS0.DAT and a 4-byte read.
+
+    Intermediate directory comes from a runtime pointer; only the filename
+    and the formatting template are verified from on-disk instructions.
+    """
+    expected = {
+        0x44E8CF: '8d 45 fc 50 e8 68 02 00 00',  # CALL 0x44EB40
+        0x44EB6C: 'a1 90 20 4a 00',
+        0x44EB74: '50 e8 f6 3b 04 00',  # CALL 0x492770
+        0x44EB8F: 'e8 dc 12 01 00',  # sprintf-like path formatter
+        0x44EA18: '8b 75 08 56 6a 06 e8 dd 1f 00 00',
+        0x450A2D: 'c7 46 14 79 cc b5 6a',  # initial seed
+        0x44EA40: '56',  # stream pointer
+        0x44EA43: '6a 01',  # element count
+        0x44EA4A: '6a 04',  # element size
+        0x44EA7A: '8b 45 f4 89 7e 14',  # dynamic seed overwrites initial one
+        0x44EA93: '8d 4d f8 51 89 06 c7 46 04 01 00 00 00',
+        0x44EAA0: 'e8 eb 22 00 00',  # CALL reader dispatch 0x450D90
+        0x44EAAA: '8b 55 f8',  # consume 4-byte output
+        0x44EAB6: '89 14 85 00 17 51 00',  # store output DWORD
+        0x450DD5: 'ff 53 24',  # indirect reader call
+    }
+    for va, hex_string in expected.items():
+        raw = bytes.fromhex(hex_string)
+        if at(va, len(raw)) != raw:
+            raise ValueError(f'wrong DAT path/read instruction 0x{va:X}')
+    filename_va = struct.unpack('<I', at(0x4A2090, 4))[0]
+    if filename_va != 0x4A221C or at(filename_va, 12) != b'LEVELS0.DAT\0':
+        raise ValueError('LEVELS0.DAT filename pointer not verified')
+    template_va = struct.unpack('<I', at(0x44EB8A, 4))[0]
+    expected_va = 0x4A2268 if modified else 0x4A2264
+    template = b'%s\\%s\0' if modified else b'%c:\\%s\\%s\0'
+    if template_va != expected_va or at(template_va, len(template)) != template:
+        raise ValueError('DAT path format mismatch')
+    return {
+        'file_basename': 'LEVELS0.DAT',
+        'file_basename_pointer_va': '0x004A2090',
+        'file_template_va': f'0x{template_va:08X}',
+        'initial_seed_0x6AB5CC79_overwritten_before_read': True,
+        'subsequent_read_elements': 1,
+        'subsequent_read_element_bytes': 4,
+        'reader_dispatch': '0x00450D90 -> [stream+0x24]',
+        'runtime_directory_known': False,
+    }
+
 def analyze(retail: bytes, gog: bytes) -> dict:
     for name, data, digest in (
         ('retail', retail, RETAIL_SHA),
@@ -142,6 +189,8 @@ def analyze(retail: bytes, gog: bytes) -> dict:
     if gf(0x450A46, 2) != bytes.fromhex('75 00') or gf(0x450A69, 2) != bytes.fromhex('75 00'):
         raise ValueError('GOG direct-reader branches changed')
 
+    cd_dat = verify_dat_resource_setup(cd, False)
+    gog_dat = verify_dat_resource_setup(gf, True)
     sites = []
     for va, (kind, flag, _) in CALL_SITES.items():
         values = (flag,) if kind == 'constant' else (1, 2)
@@ -179,6 +228,8 @@ def analyze(retail: bytes, gog: bytes) -> dict:
         'retail_flag6_reader': READER_NAMES[reader_for_flags(6, False)],
         'gog_flag6_reader': READER_NAMES[reader_for_flags(6, True)],
         'gog_preserves_payload_xor': True,
+        'retail_flag6_dat_setup': cd_dat,
+        'gog_flag6_dat_setup': gog_dat,
         'input_filename_or_file_role_runtime_confirmed': False,
         'safedisc_135_executable_decrypted': False,
         'sites': sites,
