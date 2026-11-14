@@ -16,7 +16,7 @@ import json
 import struct
 from pathlib import Path
 
-from rayman2_sample_provenance import read_bounded, pe_sections, manifest_entries
+from rayman2_sample_provenance import read_bounded, pe_sections, pe_section_flags, manifest_entries
 
 MASKED_SALT = 0x075BD924
 MULTIPLIER = 16807
@@ -112,6 +112,69 @@ def literal_name_hits(raw: bytes, names: list[str]) -> dict[str, dict]:
     return hits
 
 
+
+def count_prng_code_literals(blob: bytes) -> dict[str, int]:
+    """Count raw DWORD patterns, NOT reached instructions or runtime calls."""
+    return {
+        "state_global_pointer_le": blob.count(struct.pack("<I", 0x00510BF0)),
+        "masked_prng_xor_salt_le": blob.count(struct.pack("<I", MASKED_SALT)),
+    }
+
+
+def original_vs_gog_rng_code(retail: bytes, gog: bytes) -> dict:
+    """SHA-gated caller must supply the exact owner CD and GOG executables.
+
+    Distinguish active GOG .text and its archived *non-executable* retail
+    copy to avoid mistaking copied original code for live code. Also check
+    the eight PRNG seed literals on disk; lack of a literal does not
+    refute dynamically derived seeds.
+    """
+    rs = pe_sections(retail)
+    gs = pe_sections(gog)
+    original = rs.get(".text", b"")
+    active = gs.get(".text", b"")
+    archival = gs.get(".extra", b"")
+    if len(original) != 631296 or len(active) != 634880:
+        raise ValueError("unexpected retail/GOG code section sizes")
+    if archival[4096:4096 + len(original)] != original:
+        raise ValueError("GOG archived retail .text no longer matches")
+    if pe_section_flags(gog, ".extra") & 0x20000000:
+        raise ValueError("GOG archived retail code unexpectedly executable")
+    counts = {
+        "original_retail_text": count_prng_code_literals(original),
+        "gog_active_text": count_prng_code_literals(active),
+        "gog_archived_retail_text": count_prng_code_literals(
+            archival[4096:4096 + len(original)]),
+    }
+    expected = {
+        "original_retail_text": {
+            "state_global_pointer_le": 196, "masked_prng_xor_salt_le": 73},
+        "gog_active_text": {
+            "state_global_pointer_le": 68, "masked_prng_xor_salt_le": 29},
+        "gog_archived_retail_text": {
+            "state_global_pointer_le": 196, "masked_prng_xor_salt_le": 73},
+    }
+    if counts != expected:
+        raise ValueError("unexpected PRNG code literal fingerprint")
+    seeds_in_retail = {}
+    seeds_in_gog = {}
+    for name, (_, seed, _, _) in KNOWN.items():
+        word = struct.pack("<I", seed)
+        seeds_in_retail[name] = retail.count(word)
+        seeds_in_gog[name] = gog.count(word)
+    return {
+        "per_section_raw_dword_occurrences": counts,
+        "all_eight_seed_literals_absent_from_retail": not any(seeds_in_retail.values()),
+        "all_eight_seed_literals_absent_from_gog": not any(seeds_in_gog.values()),
+        "per_file_seed_literal_occurrences_retail": seeds_in_retail,
+        "per_file_seed_literal_occurrences_gog": seeds_in_gog,
+        "gog_extra_is_non_executable": True,
+        "archived_original_text_identical": True,
+        "raw_literal_counts_are_not_runtime_call_counts": True,
+        "seed_absence_does_not_exclude_runtime_derivation": True,
+    }
+
+
 def observed_stream_state_overlap(inspected: dict[str, dict]) -> dict:
     """Pairwise overlap of finite, independently verified PRNG windows only.
 
@@ -184,6 +247,8 @@ def inspect(samples: dict[str, bytes], gog: bytes | None = None,
         result["gog_virtual_metadata"] = compare_gog_manifest(manifest, result["samples"])
         if not result["gog_virtual_metadata"]["all_checked_sizes_match"]:
             raise ValueError("reference metadata lengths differ from owner samples")
+    if retail is not None and gog is not None:
+        result["original_vs_gog_rng_code"] = original_vs_gog_rng_code(retail, gog)
     return result
 
 
