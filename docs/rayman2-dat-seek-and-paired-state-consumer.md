@@ -136,3 +136,25 @@ might be involved.
 **Not demonstrated:** an authentic physical SafeDisc 1.35 sector
 read, a live stream initial state on retail, an integrity-failure
 branch, or a decrypted `Rayman2.exe`.
+
+## Additional executable-entrypoint discriminator
+
+An independent binary check now verifies that **both PE32 headers
+advertise the same AddressOfEntryPoint RVA `0x5FCC0`** (VA
+`0x45FCC0`, ImageBase `0x400000`). The first 4,096 file-backed
+bytes at that entrypoint are **byte-identical** between the original
+CD-sourced and separately modified GOG executables. Their common
+SHA-256 is
+`68ea9caa2a7619bdabf84556710cbd7a3a5541cd540e508e0bdf7bd6184021c8`.
+
+Those bytes disassemble as ordinary x86 startup/initialization code,
+including calls through normal PE imports and eventually into the
+game setup. This directly supports the conclusion that the owner
+original is already a *structurally intact and substantially
+machine-code-readable PE32 program* — not an opaque, wholly encrypted
+executable requiring one bulk decrypt over all code. It does **not**
+prove that every code path is unprotected, that its original physical
+CD protection has been satisfied or that patched GOG is a pristine
+retail original. An honest unSafeDisc 1.35 deliverable would need
+to classify and address discrete protected calls and media checks,
+while preserving legitimate DAT/resource processing.
