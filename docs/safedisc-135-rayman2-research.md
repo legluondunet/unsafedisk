@@ -1,5 +1,8 @@
 # Rayman 2 retail CD — SafeDisc 1.35 research
 
+**14 November — Complete static classification of 106 changed register-indirect calls.** See [Rayman 2 indirect-call taxonomy](rayman2-indirect-call-taxonomy.md): all 106 original CD `CALL register` sites changed in GOG have been classified by their original x86 source-code patterns and matched to 36 encoded Win32 API name records. A **bootstrap record index 0 at VA `0x4A13D0`** (one 0x4C-byte stride before the previously inventoried 35 records) decodes to **`GetModuleHandleA`**; its pointer field at `0x4A1400` is zero on disk and written by the original code at `0x4478FB` and `0x447A76`. This resolves the two previously unassigned target-name sites `0x447ACE` and `0x448B8E`. The 104 other sites use descriptors 1–35: 69 direct XOR-masked register calls and 35 generated trampolines (including `CloseHandle` `PUSH imm32; RET` and `Module32First/Next` `JMP rel32`). **The named API destinations are statically decoded, not proof of runtime execution, decryption or intact original physical-media authentication.** Local audit: 21/21 synthetic tests, exact original/GOG SHA-256, zero unclassified sites; no Actions or Rust compilation.
+
+
 Status: **read-only classification implemented; native unwrapping not implemented.**
 **Latest read-only crosscheck:** [Rayman 2 historical TEA known-plaintext analysis](rayman2-tea-known-plaintext-crosscheck.md) independently excludes direct fixed-key TEA encoding of the on-disk retail EXE into any of the five owner-supplied PRNG streams (all overlapping 8-byte offsets, two historical key readings); it does **not** reconstruct a decrypted runtime section.
 
