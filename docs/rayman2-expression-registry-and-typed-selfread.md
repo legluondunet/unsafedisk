@@ -51,6 +51,12 @@ The `0x470000` handler checks the opcode `0x170` at **`0x47010E`**, and has a la
 
 Both `0x170` and `0x11B` are recognised *registry opcodes*, but **in different registries**, associated with different functions. The fact that they can read a DWORD relative to an archived module base does not show that they run in the same session, read identical offsets or implement one specific checksum. The source of the 32-bit offset, its bounds, and downstream use still need real object data or runtime observation.
 
+## Downstream callback trace from opcode `0x170`
+
+The `0x470000` handler's success gate is a **`CMP AL,1; JNE` at `0x470187`**, after the indirect callback machinery at `0x4815F0`. If that gate is satisfied, the handler continues via an indexed DWORD read at `0x4701BC` and invokes **`0x481800` at `0x4701ED`**. Following `0x481800` shows another **generic table-driven callback dispatch**: its helper `0x481860` resolves a function pointer through the table at **`0x4A4280`**, which is finally called indirectly through `CALL EAX` at `0x481847`. The adjacent helper `0x481850` reads a parallel table at `0x4A427C`. The x86 instructions at all **nine** checked secondary sites are **byte-identical** in CD and GOG.
+
+This establishes a concrete code path and a *nontrivial success gate*, but **does not establish that the gate is a SafeDisc checksum, that the indexed read validates executable integrity, or which callback is selected by real game data**. Further analysis would need both runtime object identity and the concrete selected callback.
+
 ## Important correction to the previous eight-way table
 
 The shared handler `0x47B170` contains a local eight-way jump table for `0x113..0x11A`. Its local case for `0x116` yields the initialized zero value. **This does not mean the normal engine dispatch for registry type `0x116` yields zero.** The actual registry routes that type to a *different* handler, `0x47B340`, whose final operation at `0x47B460` is **`NOT EDX`** and which produces a type-7 result. The eight-way table previously reported must therefore be labelled *local to `0x47B170`*, not a canonical mapping of all registered expression types. Whether that local zero case is reachable through a nonstandard route is not established.
@@ -61,7 +67,7 @@ The shared handler `0x47B170` contains a local eight-way jump table for `0x113..
 2. The CD's `0x47B170` handler builds an obfuscated `GetModuleHandleA(NULL)` trampoline. GOG replaces the code at `0x47B1C3` with `MOV EAX,0x517000; JMP 0x47B225`, thus passing the archived retail `.text` image base as data rather than dynamically obtaining the active module. **GOG also changes `0x47B229` to a short jump to `0x47B280`, bypassing the original trampoline's PRNG-based 15-byte overwrite loop**. The actual conditional read at `0x47B2A9` is unchanged.
 3. In the CD's **separate** unary `0x116` handler at `0x47B340`, the code also builds and invokes an obfuscated module-handle trampoline. GOG changes `0x47B388` to a direct relative jump to `0x47B441`, bypassing that preparation. The final unary `NOT EDX` and type-7 result store at `0x47B460` onward are **unchanged**. This is a second, separately verified PRNG-generation bypass, **not** evidence that the NOT operation itself is part of SafeDisc.
 
-These are **five exact branch/opcode differences verified independently in the original and GOG active `.text`**. The unchanged parser/registry instructions were also anchored at **21 sites** in both files. The existing archival `.extra` audit separately checks byte-identical original `.text` and non-executable section properties; this new audit builds on that evidence.
+These are **five exact branch/opcode differences verified independently in the original and GOG active `.text`**. The unchanged parser/registry instructions were also anchored at **30 sites** in both files. The existing archival `.extra` audit separately checks byte-identical original `.text` and non-executable section properties; this new audit builds on that evidence.
 
 ## Reproduce and limitations
 
@@ -72,6 +78,6 @@ python scripts/rayman2_expression_registry_audit.py \
 python -m unittest discover -s scripts -p 'test_rayman2_*.py'
 ```
 
-In the local research directory, **12/12 new tests passed**, including full integration with the two exact binaries and deliberate corruption of a GOG registry pointer, GOG trampoline branch and a shared dispatch instruction; the complete suite passed **174/174 tests**. Synthetic registry-format tests and real-sample checks are both present. No GitHub Actions workflow or Windows/Wine gameplay was executed, no physical-CD authentication captured, and no modified game executable was produced.
+In the local research directory, **13/13 new tests passed**, including full integration with the two exact binaries and deliberate corruption of a GOG registry pointer, GOG trampoline branch and a shared dispatch instruction; the complete suite passed **175/175 tests**. Synthetic registry-format tests and real-sample checks are both present. No GitHub Actions workflow or Windows/Wine gameplay was executed, no physical-CD authentication captured, and no modified game executable was produced.
 
 **Next discriminator:** identify real game objects carrying registry type `0x11B` and the parser-derived RVA, then follow the downstream type-7 value to an actual compare/failure branch. Read-only gameplay tracing or access to actual original game data is required before treating the byte read as an integrity check. It would be unsafe to disable the generic interpreter or unary NOT handler.
