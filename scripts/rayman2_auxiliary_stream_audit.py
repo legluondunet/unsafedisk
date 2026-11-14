@@ -21,6 +21,7 @@ from rayman2_sample_provenance import read_bounded, pe_sections, pe_section_flag
 MASKED_SALT = 0x075BD924
 MULTIPLIER = 16807
 MODULUS = 2147483647
+MODULAR_INVERSE_MULTIPLIER = pow(MULTIPLIER, -1, MODULUS)  # 0x53E77248
 GOG_SHA256 = "9bae484bd84a4afad8d4e7b1bb30a85ce1ce2367f8451463696eabab28a72713"
 RETAIL_SHA256 = "7927a106ac4f2244e304e57c196170f6cfb311af87ddf59eb6e6c48b9bb0d5e3"
 
@@ -53,6 +54,45 @@ KNOWN: dict[str, tuple[int, int, bytes, str]] = {
 }
 
 
+
+def reverse_masked_prng_state(next_state: int) -> int:
+    """Unique predecessor for a nonzero 31-bit masked Park-Miller state.
+
+    The transition is not globally injective at zero, so fail closed
+    instead of inventing a unique predecessor for that case.
+    """
+    if type(next_state) is not int or not 0 < next_state < MODULUS:
+        raise ValueError("only nonzero PRNG states below modulus have a unique inverse")
+    predecessor = ((next_state * MODULAR_INVERSE_MULTIPLIER) % MODULUS) ^ MASKED_SALT
+    if predecessor >= MODULUS or ((predecessor ^ MASKED_SALT) * MULTIPLIER) % MODULUS != next_state:
+        raise ValueError("state has no valid predecessor in 0..modulus-1")
+    return predecessor
+
+
+def verify_predecessor_prefix(data: bytes, *, prefix: bytes) -> dict:
+    """A non-4-byte-aligned file begins with low bytes of prior PRNG word.
+
+    This stronger check is applied after the complete forward recurrence
+    check on an exact-SHA sample, and never derives game code.
+    """
+    if not 0 <= len(prefix) <= 3 or len(data) < len(prefix) + 4:
+        raise ValueError("invalid prefix length or short data")
+    first = struct.unpack_from("<I", data, len(prefix))[0]
+    previous = reverse_masked_prng_state(first)
+    predicted = previous.to_bytes(4, "little")[:len(prefix)]
+    if data[:len(prefix)] != prefix or predicted != prefix:
+        raise ValueError("partial first PRNG word does not match predecessor")
+    return {
+        "first_complete_state": f"0x{first:08X}",
+        "preceding_state": f"0x{previous:08X}",
+        "partial_first_word_bytes": len(prefix),
+        "prefix_is_low_little_endian_bytes_of_preceding_state":
+            True if prefix else None,
+        "prefix_independent_source_bytes": 0,
+        "no_separate_partial_word_seed_needed": True,
+    }
+
+
 def verify_stream(data: bytes, *, seed: int, prefix: bytes = b"") -> int:
     """Verify *every* 32-bit state against a fixed recurrence, without output."""
     if not (0 <= seed < 2**31) or len(prefix) > 3:
@@ -78,7 +118,9 @@ def inspect_pinned(name: str, data: bytes) -> dict:
     if len(data) != size or hashlib.sha256(data).hexdigest() != expected_hash:
         raise ValueError(f"{name} size or SHA-256 differs from owner's verified sample")
     n = verify_stream(data, seed=seed, prefix=prefix)
+    backward = verify_predecessor_prefix(data, prefix=prefix)
     return {
+        "backtracked_partial_first_word": backward,
         "name": name,
         "size": size,
         "sha256": expected_hash,
