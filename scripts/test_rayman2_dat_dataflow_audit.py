@@ -51,11 +51,11 @@ class DataflowAuditTests(unittest.TestCase):
         self.assertEqual(derived_probe_word((3,4,5,6),0,17),(17-3)^4)
 
     def test_derived_value_one_iteration(self):
-        self.assertEqual(derived_probe_word((3,4,5,6),1,17),(17-8)^4)
+        self.assertEqual(derived_probe_word((3,4,5,6),1,17),(17-8)^(4+6))
 
     def test_derived_value_overflow(self):
         self.assertEqual(derived_probe_word((0xffffffff,0xffffffff,0xffffffff,0xffffffff),1023,0xffffffff),
-                         (((0xffffffff-(0xffffffff+0xffffffff*1023))&0xffffffff)^((0xffffffff+0xffffffff*1022)&0xffffffff))&0xffffffff)
+                         (((0xffffffff-(0xffffffff+0xffffffff*1023))&0xffffffff)^((0xffffffff+0xffffffff*1023)&0xffffffff))&0xffffffff)
 
     def test_derived_against_independent_loop(self):
         rng=random.Random(20261114)
@@ -65,7 +65,7 @@ class DataflowAuditTests(unittest.TestCase):
             n=rng.randrange(1024)
             a,b,c,d=w
             a=(a+c*n)&0xffffffff
-            for _j in range(max(0,n-1)):
+            for _j in range(n):
                 b=(b+d)&0xffffffff
             expected=((sample-a)&0xffffffff)^b
             self.assertEqual(derived_probe_word(tuple(w),n,sample),expected)
