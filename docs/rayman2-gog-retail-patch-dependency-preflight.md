@@ -87,3 +87,7 @@ L'outil vérifie les **deux SHA-256 complets**, l'alignement PE32, les **dix zon
 **Étape suivante réellement discriminante :** capturer la valeur renvoyée par \`0x44F8D0\` dans le cas **sélecteur 5** de \`0x4500AF\`, et enregistrer les objets de type \`0x170\` / \`0x11B\` effectivement interprétés. En parallèle, déterminer les exigences de chargement SafeDisc distinctes du disque logiquement présent. Une reconstruction ne pourra être considérée fonctionnelle qu'après exécution et validation en jeu sur la version CD d'origine.
 
 **Aucun binaire du jeu décrypté, compilé ou diffusé ; aucune release ; aucune fusion dans \`main\`.**
+
+## Complément — messages Windows
+
+Les six octets modifiés autour de 0x402532 et 0x402594 ont désormais leur propre [audit des branches Windows et des messages `WM_USER`](rayman2-windows-message-delta-audit.md). Il confirme les sites d'appel et les sauts sur les deux PE d'origine sans les attribuer à une authentification SafeDisc. La provenance runtime du champ utilisé par le second helper demeure inconnue.
