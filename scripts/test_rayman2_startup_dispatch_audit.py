@@ -25,6 +25,9 @@ class StartupTests(unittest.TestCase):
         self.assertEqual(len(m.GOG_NOOP),16)
         self.assertEqual(m.GOG_NOOP,bytes.fromhex('c3')+bytes([0xcc]*15))
         self.assertEqual(m.GOG_VOLUME[:2],b'\xb0\x2e')
+    def test_checksum_named_strings_anchors(self):
+        self.assertEqual(m.CHECKSUM_LITERALS[0x4a1f30],b'CheckSum.lst\x00')
+        self.assertTrue(m.CHECKSUM_LITERALS[0x4a1efc].startswith(b'%i - Begin:'))
     def test_strict_sha_gate(self):
         with self.assertRaises(ValueError):m.inspect(b'',b'')
     @unittest.skipUnless(os.getenv('RAYMAN2_RETAIL_EXE') and os.getenv('RAYMAN2_GOG_EXE'),'private samples absent')
@@ -36,5 +39,7 @@ class StartupTests(unittest.TestCase):
         self.assertEqual(len(report['unchanged_direct_calls']),5)
         self.assertEqual(len(report['gog_ret_only_targets']),4)
         self.assertFalse(report['physical_safedisc_authentication_proven'])
+        self.assertEqual(len(report['checksum_string_direct_text_pointer_counts']),2)
+        self.assertFalse(report['checksum_string_indirect_access_ruled_out'])
 
 if __name__=='__main__':unittest.main()
