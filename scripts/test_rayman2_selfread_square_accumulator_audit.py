@@ -46,6 +46,8 @@ class MathChecks(unittest.TestCase):
 class PeAnchors(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
+        if not (ROOT/'Rayman2(3).exe').is_file() or not (ROOT/'Rayman2.exe').is_file():
+            raise unittest.SkipTest('private retail/GOG samples unavailable on CI')
         cls.cd=(ROOT/'Rayman2(3).exe').read_bytes()
         cls.gog=(ROOT/'Rayman2.exe').read_bytes()
 
