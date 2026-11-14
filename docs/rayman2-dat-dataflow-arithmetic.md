@@ -22,7 +22,7 @@ At VA `0x44ED6C..0x44ED8B`, the original computes an **internal** unsigned selec
 | 2 | `0x44ED83` | +2 |
 | 3 | `0x44ED88` | +3 |
 
-Formula: `n = 4 * (byte_0x5116F0) + (byte_0x5116F1 & 3)`, with an arithmetic range **0..1023**. This is **not** the later `EBX` used to index the 24 filename pointers at `0x4A2090`; `EBX` is subsequently overwritten by a different quotient/remainder calculation. The four jump targets were verified directly in both exact PE files, not inferred from printed disassembly alone.
+Formula at this stage: `n = 4 * reduced_byte_0x5116F0 + (byte_0x5116F1 & 3)`, with range **0..1023**. **Important refinement (14 Nov):** `0x44ED38` first divides the original low byte by the data-derived `global_0x511750` and `0x44ED45` writes the remainder back to the low byte. Thus the complete preselector is `n = 4*(original_byte_0x5116F0 % global_0x511750) + (original_byte_0x5116F1 & 3)` when the divisor is nonzero. See [the verified preselector audit](rayman2-dat-preselector-normalization.md). This is **not** the later `EBX` used to index the 24 filename pointers at `0x4A2090`; `EBX` is subsequently overwritten by a different quotient/remainder calculation. The four jump targets were verified directly in both exact PE files, not inferred from printed disassembly alone.
 
 ## New 2 — precise formula from the 16- and 4-byte reads
 
