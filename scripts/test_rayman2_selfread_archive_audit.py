@@ -13,6 +13,9 @@ TEXT_RVA=0x1000
 TEXT_SIZE=0x9A200
 EXTRA_RVA=0x117000
 EXTRA_SIZE=0x9C000
+HANDLERS=(0x480800,0x480830,0x4808b0,0x480880,0x480900,0x480a50,
+          0x4806f0,0x4806f0,0x4806d0,0x4803d0,0x480400,0x480400,
+          0x480430,0x4804f0,0x480450,0x4805a0)
 
 
 def pe32(secs):
@@ -48,9 +51,31 @@ def make_pair():
     for va in (0x470051,0x47b1c3):
         i=va-(BASE+TEXT_RVA)
         g[i:i+7]=b'\xb8'+struct.pack('<I',BASE+EXTRA_RVA)+b'\xeb\x5b'
+    for va,opcode in {
+        0x47b288:'8d 54 24 24',0x47b28c:'52',0x47b28d:'50',
+        0x47b28e:'57',0x47b28f:'e8 fc 58 00 00',
+        0x47b294:'8b 74 24 30',0x47b298:'83 c4 0c',
+        0x47b29b:'81 fd 1b 01 00 00',0x47b2a3:'75 09',
+        0x47b2a5:'8b 54 24 10 8b 1c 32',
+        0x480b90:'8b 44 24 08',0x480b94:'8b 54 24 0c',
+        0x480b9b:'8a 48 07',0x480ba4:'ff 14 8d 80 41 4a 00',
+        0x47b305:'8b 44 24 40',0x47b309:'5f',
+        0x47b30a:'5e',0x47b30b:'5d',
+        0x47b30c:'89 18',0x47b30e:'c7 40 0c 07 00 00 00',
+        0x47b315:'8b c1',0x47b317:'5b',0x47b318:'83 c4 24',
+        0x47b31b:'c3',
+    }.items():
+        i=va-(BASE+TEXT_RVA)
+        o=bytes.fromhex(opcode)
+        code[i:i+len(o)]=o
+        g[i:i+len(o)]=o
+    db=bytearray(b'\x00'*0x7c00)
+    db[0x4a4180-0x49f000:0x4a4180-0x49f000+64]=struct.pack('<16I',*HANDLERS)
     archive=b'\0'*TEXT_RVA+code+b'\0'*(EXTRA_SIZE-TEXT_RVA-len(code))
-    cd=pe32([('.text',TEXT_RVA,code,0x400,0x60000020)])
+    cd=pe32([('.text',TEXT_RVA,code,0x400,0x60000020),
+             ('.data',0x9f000,db,0xa0000,0xc0000040)])
     gog=pe32([('.text',TEXT_RVA,g,0x1000,0x60000020),
+              ('.data',0x9f000,db,0xa0000,0xc0000040),
               ('.extra',EXTRA_RVA,archive,0xc0000,0x40000040)])
     return cd,gog
 
@@ -75,8 +100,8 @@ class SelfReadArchiveTests(unittest.TestCase):
 
     def test_nonexec_required(self):
         b=bytearray(self.gog)
-        # The second section flags are at 0x178 + 40 + 36.
-        struct.pack_into('<I',b,0x178+40+36,0x60000040)
+        # Third section has the .extra flags.
+        struct.pack_into('<I',b,0x178+80+36,0x60000040)
         with self.assertRaisesRegex(ValueError,'nonexecutable'):
             assess(self.cd,b)
 
@@ -116,6 +141,28 @@ class SelfReadArchiveTests(unittest.TestCase):
             by_rva(self.cd,s,0x1000-20,2)
         with self.assertRaisesRegex(ValueError,'invalid'):
             by_rva(self.cd,s,0x1000,0)
+
+    def test_type_dispatch_origin_verified(self):
+        r=assess(self.cd,self.gog)['indexed_read_offset_origin']
+        self.assertEqual(r['first_16_entries_distinct_targets'],14)
+        self.assertFalse(r['offset_runtime_range_proven'])
+
+    def test_read_output_is_typed_value(self):
+        r=assess(self.cd,self.gog)['indexed_read_offset_origin']
+        self.assertEqual(r['read_value_output_type_code'],7)
+        self.assertFalse(r['direct_checksum_comparison_in_this_tail'])
+
+    def test_type_dispatch_change_rejected(self):
+        b=bytearray(self.gog)
+        b[0x1000+0x480ba4-(BASE+TEXT_RVA)] ^= 1
+        with self.assertRaisesRegex(ValueError,'type-dispatch'):
+            assess(self.cd,b)
+
+    def test_changed_dispatch_table_rejected(self):
+        b=bytearray(self.gog)
+        b[0xa0000+(0x4a4180-0x49f000)] ^= 1
+        with self.assertRaisesRegex(ValueError,'dispatcher table'):
+            assess(self.cd,b)
 
     def test_short_section_table(self):
         with self.assertRaisesRegex(ValueError,'invalid'):
