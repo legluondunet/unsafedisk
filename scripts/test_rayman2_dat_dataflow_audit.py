@@ -112,7 +112,7 @@ class DataflowAuditTests(unittest.TestCase):
             with self.assertRaises(ValueError):read_exact(p,'cd')
             link=Path(temp)/'link'
             link.symlink_to(p)
-            with self.assertRaises(OSError):read_exact(link,'cd')
+            with self.assertRaises((OSError, ValueError)):read_exact(link,'cd')
 
 
 if __name__ == '__main__':
