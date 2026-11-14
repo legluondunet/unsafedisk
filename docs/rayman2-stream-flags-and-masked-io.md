@@ -53,3 +53,50 @@ The local integration run verified both exact SHA-256 inputs, PE image mapping, 
 Static call-site coverage does **not** establish runtime execution, file contents, a complete dynamic call graph, availability of a physical C2-protected disc, or success in decrypting a SafeDisc 1.35 executable. No executable bytes are exported and no protected program is run or patched.
 
 **Next discriminant:** resolve the origin of the stream pointer and file path passed into `0x44EA1E`, follow the selected `[stream+0x24]` callback to its actual `ReadFile` calls, and observe the first input bytes/state under a legitimate runtime or bounded read-only trace before attempting an executable fix.
+
+## Further discrimination: flag-6 stream reads LEVELS0.DAT
+
+A new exact-PE anchor chain connects the previously identified flag-6
+direct constructor call to a **concrete resource filename** (rather than the
+opaque RAYMAN2.ICD):
+
+1. \`0x44E8D3 CALL 0x44EB40\`: opens an initial DAT file.
+2. \`0x44EB6C MOV EAX,[0x4A2090]\`: the pointer table's **first slot**
+   contains \`0x4A221C\`, pointing to the literal \`LEVELS0.DAT\`.
+3. \`0x44EB89\`: the CD code pushes format address \`0x4A2264\`
+   containing \`%c:\\%s\\%s\` (drive letter plus two path components);
+   GOG pushes \`0x4A2268\`, format \`%s\\%s\` (no drive letter).
+   The intermediate directory string is runtime-owned; its exact
+   contents were not observed. These on-disk formats, pointers and
+   strings were checked in both PE images.
+4. \`0x44E8D3\`'s caller saves the opened file handle in
+   \`[EBP-0xC]\`, then \`0x44EA1C PUSH 6\` and \`0x44EA1E CALL
+   0x450A00\` install a reader callback.
+5. **Important seed distinction**: the constructor writes immediate
+   \`0x6AB5CC79\` to \`[stream+0x14]\` at \`0x450A2D\`.
+   Before the read, \`0x44EA7D MOV [ESI+0x14],EDI\` **overwrites that
+   seed with a dynamically calculated value** derived in the preceding
+   instructions from a global masked PRNG state. Thus the immediate
+   constructor seed is *not* demonstrated to be the effective
+   state used for the following file read.
+6. The reader's \`0x44EAA0 CALL 0x450D90\` receives a destination
+   buffer \`[EBP-8]\`, element size \`4\`, count \`1\`, and the
+   stream pointer. The dispatcher multiplies size and count and calls
+   \`[stream+0x24]\` at \`0x450DD5\`. The resulting DWORD is read at
+   \`0x44EAAA\` and stored into a global table at \`0x44EAB6\`.
+
+**Result:** the masked/XOR read at this exact CD call site is part
+of a static chain processing a \`LEVELS0.DAT\` resource. The XOR
+transform must not be broadly classified as *exclusively* SafeDisc
+decryption. This is consistent with the previously documented DAT
+loader/dataflow chain, and explains why simply XOR-transforming the
+supplied \`RAYMAN2.ICD\` from file offset zero with the constructor
+immediate seed is not a validated decryption procedure.
+
+**Limits:** static code alone does not prove this branch executes on
+the owner's retail CD, the actual runtime folder, the computed XOR
+state, the four plaintext bytes, or whether media-authentication
+side effects are mixed into the resource-loading path. No valid
+retail post-decryption EXE was created. The same script now checks
+the filename pointer, original/GOG format selection, seed
+replacement and four-byte dispatch in its exact-SHA integration.
