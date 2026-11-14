@@ -32,6 +32,53 @@ Three longer literal hexadecimal signatures explicitly suggested in the original
 
 These are **literal byte scans, not exhaustive decompilation**, and the study's various code snippets may describe **memory after decoding** rather than the CD-sourced bytes. Differences could be a variant version, installed-stage transformations, runtime modifications, or historical transcription errors; *this result alone does not settle which*.
 
+## Exact PE32 file layout: no extra on-disk payload overlay
+
+An additional independent, read-only section-header
+and raw-range scan of **both exact SHA-256-pinned
+original/GOG binaries** found:
+
+| Property | Original CD EXE | Edited GOG EXE |
+|---|---|---|
+| Complete file bytes | **676,352** | **1,468,928** |
+| x86 PE32 sections | **3** | **6** |
+| `.text` raw size | `0x9A200` | `0x9B000` |
+| `.text` Shannon entropy | **6.625 bits/byte** | **6.594 bits/byte** |
+| `.text` raw end | **`0x9A600`** | **`0x9C000`** |
+| `.rdata` raw size | `0x3000` | `0x3000` |
+| `.data` raw size | `0x7C00` | `0x7C00` |
+| Last PE section raw end | **676,352** | **1,468,928** |
+| Bytes after last section (overlay) | **0** | **0** |
+
+The retail sections are precisely the conventional
+`.text`, `.rdata`, `.data` sections,
+with normal executable/read-only/writable flags.
+There is **no extra section** named
+`.txt` or `.txt2` and **no separate appended
+overlay bytes** after the last raw section.
+GOG has three added sections
+`.extra`, `.extra2`, `.rsrc`;
+its formerly documented non-executable
+`.extra` archival copy of retail `.text`
+should not be mistaken for active code.
+The full section sizes and raw offsets are
+measurable directly with `objdump -x`
+or the existing `pe_reference_diff.py` script.
+
+The retail `.text` entropy of ~6.625
+bits per byte is consistent with an ordinary
+mixed x86 code+data section, not an
+obvious high-entropy opaque mass. **Entropy
+alone cannot exclude selectively encrypted
+routines**, nor does the lack of an overlay
+exclude external SafeDisc data or runtime
+protection. But it reinforces the need
+to distinguish *already-readable game
+code on disk* from the historical
+*decoded ICD runtime section*, rather
+than attempting to decrypt arbitrary
+whole-file PRNG streams into a PE.
+
 ## Independent original game-program identity evidence
 
 Both exact SHA-256-pinned owner files have an identical PE32 export
