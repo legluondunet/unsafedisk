@@ -44,6 +44,16 @@ class StartupResolverLoopsTest(unittest.TestCase):
             self.assertEqual(body[-1], 0xC3)
             self.assertEqual(body[i], 0xE8)
 
+    def test_three_conditional_refresh_calls_not_in_startup_loop_count(self):
+        self.assertEqual(m.REFRESH_CALLS, {
+            0x44818A: (0x447A90, 2),
+            0x448196: (0x447AF0, 24),
+            0x4481A2: (0x447AF0, 25),
+        })
+        for site, (dest, index) in m.REFRESH_CALLS.items():
+            self.assertEqual(m.target(b'\xe8' + struct.pack('<i', dest-site-5), site), dest)
+            self.assertTrue(index < 36)
+
     def test_descriptor_stride_x86_arithmetic(self):
         for idx in range(36):
             # 9*i -> 19*i -> 76*i mirrors verified LEA/SHL anchors.
@@ -74,12 +84,15 @@ class PrivateExactSampleTests(unittest.TestCase):
         self.assertEqual(report['loops']['descriptors']['last_index'], 35)
         self.assertTrue(report['descriptor_36_pointer_slots_zero_on_disk'])
         self.assertFalse(report['runtime_call_count_measured'])
+        self.assertEqual(len(report['later_conditional_original_refresh_calls']), 3)
+        self.assertTrue(all(x['gog_replaced_with_int3'] for x in report['later_conditional_original_refresh_calls']))
 
     def test_negative_mutations_with_hash_check_disabled_only_in_test(self):
         cpe, gpe = m.pe_sections(self.cd), m.pe_sections(self.gog)
         for edition, site in [('retail', 0x448D80), ('retail', 0x447B24),
                               ('gog', 0x448DB0), ('gog', 0x449485),
-                              ('gog', 0x4A1400)]:
+                              ('gog', 0x4A1400), ('retail', 0x448194),
+                              ('gog', 0x44818A)]:
             with self.subTest(edition=edition, site=hex(site)):
                 cd, gog = bytearray(self.cd), bytearray(self.gog)
                 b, pe = (cd, cpe) if edition == 'retail' else (gog, gpe)
