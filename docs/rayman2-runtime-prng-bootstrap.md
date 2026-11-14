@@ -75,6 +75,48 @@ Scan **only PE sections**, not whole files. The original executable has 196 raw 
 
 The edited GOG's non-executable `.extra` contains a **byte-exact copy of the original `.text`** at `.extra+0x1000`, including those 196 and 73 old references. **Never count this archival copy as active GOG code.** None of these static counts is a runtime call counter or by itself sufficient to assign particular changes to SafeDisc rather than GOG's other modifications.
 
+## Which old masked-pointer instruction beginnings did GOG remove?
+
+An independent, read-only search looked for the **actual
+x86 instruction prefix** `8B 0D F0 0B 51 00`,
+meaning `MOV ECX,[0x510BF0]`, in both active
+`.text` sections at the *same virtual addresses*.
+This is a narrower probe than simply searching the
+four-byte pointer operand anywhere.
+
+| Instruction-site classification | Count |
+|---|---:|
+| Original sites starting with this MOV instruction | **64** |
+| Preserved at exactly the same site in active GOG | **22** |
+| Changed sites in GOG | **42** |
+| — replaced with `INT3` (`CC`) at old start | **31** |
+| — replaced with `NOP` (`90`) at old start | **3** |
+| — replaced with ordinary `PUSH EBP; MOV EBP,ESP` prologue | **4** |
+| — other replacement at old start | **4** |
+
+The **four new ordinary function prologues** occur
+at `0x00448500`, `0x0044E750`,
+`0x0044F220` and `0x0044F380`.
+The existing independent
+`scripts/rayman2_win32_forwarders.py`
+research verifies these as normal
+**CloseHandle / ReadFile / CreateFileA /
+SetFilePointer** Win32 forwarders in
+GOG, respectively. This new categorisation
+must not be used to infer that the
+remaining 38 changed instruction starts
+were all separate function entries or
+exclusively SafeDisc protection routines.
+A separate synthetic unit test now covers
+all four replacement categories.
+
+The counts complement the **128 removed raw
+pointer DWORD occurrences** (which include
+references to the shared global in more
+forms than this one six-byte MOV opcode).
+Neither count proves live execution
+or a specific original-CD authentication step.
+
 ## Formal limitation of the eight on-disc PRNG files
 
 The eight previously verified SHA-256-pinned auxiliary files contain **1,548,525 total bytes**, yet all are generated from eight 31-bit initial states plus **5 retained prefix bytes** with a fully known recurrence and known file lengths. Conditioned on the recurrence and lengths, that is an **upper bound of 8×31+5×8 = 288 bits of variable source data**, for over **12 million output bits**. This is a deterministic description-length bound, **not a measured Shannon entropy estimate**.
