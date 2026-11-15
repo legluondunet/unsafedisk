@@ -132,3 +132,21 @@ The tracer includes thousands of low-level Wine calls; `WINEDEBUG=-all,trace+fil
 On a Bourne-like Bash shell, the command should be run from the same game working directory; the exit status needs to be saved immediately after the pipeline. Test only to the same visible level transition and then exit manually if possible; record if the pirate-head still shows. Compare to an ordinary `WINEDEBUG=-all` invocation if the extra exception logging itself is disruptive. Do not alter the EXE or SNA files while distinguishing the diagnostic overhead from a genuine crash.
 
 The filetrace **does** show resource open attempts to both sources: installed `Data\\World\\Levels\\learn_10\\learn_10.sna` and `learn_10.gpt`, and `R\\Data\\World\\Levels\\LEVELS0.DAT`, `TEXTURES0.DAT`, `MAP0.DAT`, `ANIMS0.DAT`, `MUSIC0.DAT`, `SOUNDS1.DAT`. It records 306 resource path API records, 160 classified under installed level paths and 146 under R/CD tree. These are **attempts**, often duplicated across CreateFileW and NtCreateFile. The tracing helper does NOT correlate NtReadFile handles with files and cannot certify successful reads, so do not assume 88,701 reads succeeded or that the protected DAT payload is intact. The existing provenance report previously established that installed and R SNA content differ, but this trace documents that the installed learn_10.sna is indeed one of the requested paths. The historic SNA edit therefore was not automatically irrelevant; its lack of effect may have another cause.
+
+## Correction after owner's confirmation: no crash, timer caused termination
+
+The owner clarified unambiguously that neither Rayman 2 nor Wine nor Gamescope crashed. The preceding 150-second run was terminated by the diagnostic script before the first gameplay level. The earlier crash hypothesis is retracted; this event does not support another DRM protection theory.
+
+The updated interactive local-R filetrace defaults to fullscreen Gamescope at 1920x1080 (virtual game image 2048x1536, 4:3); --no-gamescope allows an explicit opt-out.
+
+The --seconds option defaults to 0: no automatic timer. Explicit positive durations from 10 through 3600 seconds remain available. The local-R script also disables its separate total-trace-input limit; it retains bounded path/error samples in memory.
+
+The user can play until the first level appears and exit the game normally, which triggers JSON creation. Ctrl+C in the terminal terminates the diagnostic's private game process group, retains a stop_reason=user_interrupt, and saves JSON; it is not a game crash.
+
+Regressions are tested synthetically: Gamescope defaults, opt-out, no time limit, normal child exit, simulated Ctrl+C.
+
+From game directory (the two Python scripts must already be refreshed from this branch):
+
+    python3 rayman2_local_r_filetrace.py --exe ./Rayman2-local-R-test.exe --out rayman2-local-r-filetrace-no-timer.json
+
+No change to SafeDisc, any game executable, original CD, or SNA resources: test harness only.
