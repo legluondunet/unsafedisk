@@ -26,14 +26,15 @@ The owner-provided exact-SHA retail CD and GOG modified executables were disasse
 
 The trace **does not expose the actual file offset** used for the final read: `NtSetInformationFile` lines include pointers to structures, not their dereferenced positions. Do not infer the contents of `LEVELS0.DAT` from the register alone.
 
-## Next discriminator: one read-only A/B with the confirmed working PE32-only build
+## Next discriminator: controlled CD-mounted A/B between the known PE32 and V2 builds
 
 1. Mount the same original Rayman 2 CD used for the prior successful launch.
 2. Run the **known, already working** `Rayman2-PE32-test.exe` with the same Wine prefix and game folder, enabling the bounded `+file` tracer. **Do not apply a new patch**.
-3. Compare the asset paths and read sizes against the **existing failing V2 trace**, preserving the distinction between (a) media/resource paths, (b) reads from `LEVELS0.DAT`, and (c) actual parsed content/offsets not visible to Wine's `+file` channel.
+3. Run the exact V2 `Rayman2-portable-v2-test.exe` in the **same folder with the same CD still mounted**, recording the same bounded trace. This explicitly controls the disc-mount variable between the two new runs.
+4. Compare both CD-mounted runs and the **existing failing V2 trace without CD**, preserving the distinction between (a) media/resource paths, (b) reads from `LEVELS0.DAT`, and (c) actual parsed content/offsets not visible to Wine's `+file` channel.
 
 The helper `scripts/rayman2_cd_reference_trace.py` checks the precise PE32-only SHA-256 `f32133d9add18b37adf47ce4b3e475b641b697e2b7db77cfe7b47063da468703`, validates the known V2 JSON against SHA-256, and uses the previous read-only tracer `scripts/rayman2_v2_filetrace.py`. It records first/tail excerpt summaries and a comparison JSON, caps observation duration and trace bytes, and modifies **no game file**. The script does **not** independently verify the CD is mounted; its flag is only an acknowledgement by the tester.
 
-A successful real-game CD trace compared with V2 may identify **which files** the two paths use, and whether one path invokes a different read sequence. It will **not by itself** identify the four bytes at the actual offset or prove a SafeDisc verdict. A subsequent file-offset probe, if needed, must be justified by these results.
+A successful real-game CD trace compared with V2 **under the same mounted-CD conditions** may identify **which files** the two binaries use, and whether one path invokes a different read sequence. The old V2 no-CD trace provides a third historical condition; cross-condition differences are not exclusively attributable to the EXE patch. It will **not by itself** identify the four bytes at the actual offset or prove a SafeDisc verdict. A subsequent file-offset probe, if needed, must be justified by these results.
 
-Local verification before GitHub publication: **24/24 tests passed** (14 original V2 observer tests + 10 new pure/synthetic and one private JSON integration test, excluded from public CI when the input trace is absent). Windows runner execution is not supported, but Python syntax/tests do not require Wine.
+Local verification before GitHub publication: **26/26 tests passed** (14 original V2 observer tests + 12 new tests including the owner-only JSON integration test, excluded from public CI when the input trace is absent). Windows runner execution is not supported, but Python syntax/tests do not require Wine.
