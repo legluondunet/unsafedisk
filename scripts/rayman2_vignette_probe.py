@@ -44,17 +44,31 @@ def inspect(game: Path, disc: Path, copy_if_missing: bool) -> dict:
     upper = game / 'Data'
     if not lower.is_dir() or lower.is_symlink():
         raise ValueError('Existing lowercase game/data directory required (will not create new data tree)')
+    # On some retail CD images both Data/ and data/ are exposed as separate
+    # directory entries. Paths (and even inodes) can differ while the bytes
+    # are identical. Check *every* candidate before selecting a source.
     source_roots = [disc / 'Data', disc / 'data']
     source_candidates = []
     for d in source_roots:
-        if d.is_dir() and not d.is_symlink() and d not in source_roots[:source_roots.index(d)]:
-            source_candidates.extend(matching_regular_files(d, 'Vignette.cnt'))
-    # Case-insensitive filesystem: do not double-count the same file.
-    unique_sources = {str(p.resolve()): p for p in source_candidates}
-    if len(unique_sources) != 1:
-        raise ValueError(f'Expected exactly one CD Data/Vignette.cnt; found {len(unique_sources)}. Is the CD mounted?')
-    src = next(iter(unique_sources.values()))
-    src_size, src_hash = digest(src)
+        if d.is_symlink():
+            raise ValueError(f'Symlinked CD data directory: {d}')
+        source_candidates.extend(matching_regular_files(d, 'Vignette.cnt'))
+    if not source_candidates:
+        raise ValueError('CD Data/Vignette.cnt not found. Is the CD mounted?')
+
+    fingerprints = [(p, *digest(p)) for p in source_candidates]
+    unique_fingerprints = {(n, h) for _, n, h in fingerprints}
+    if len(unique_fingerprints) != 1:
+        details = '; '.join(
+            f'{p.relative_to(disc)}: {n} bytes, SHA256={h}'
+            for p, n, h in fingerprints
+        )
+        raise ValueError('Different CD Data/Vignette.cnt candidates; refusing to copy. ' + details)
+    # Prefer the retail canonical spelling where available, then stable order.
+    def candidate_rank(record):
+        relative = record[0].relative_to(disc)
+        return (relative.parts[0] != 'Data', relative.name != 'Vignette.cnt', str(relative))
+    src, src_size, src_hash = min(fingerprints, key=candidate_rank)
     existing = matching_regular_files(lower, 'vignette.cnt')
     if upper.is_dir() and not upper.is_symlink() and not os.path.samefile(lower, upper):
         existing.extend(matching_regular_files(upper, 'vignette.cnt'))
@@ -96,7 +110,9 @@ def inspect(game: Path, disc: Path, copy_if_missing: bool) -> dict:
         dest_size = dest_hash = None
         status = 'missing'
     return {
-        'version': 1,
+        'version': 2,
+        'cd_candidate_count': len(fingerprints),
+        'cd_candidate_names': [str(p.relative_to(disc)) for p, _, _ in fingerprints],
         'game_folder': '.',
         'disc_label_expected': 'RAYMAN2',
         'disc_mount_checked': False,
@@ -124,6 +140,7 @@ def main(argv=None) -> int:
             out.write('\n')
     except (OSError,ValueError) as error:
         p.error(str(error))
+    print('CD source candidates:',result['cd_candidate_names'])
     print('Source Vignette.cnt:',result['source']['bytes'],'bytes')
     print('Local status:',result['installed']['status'],'| action:',result['action'])
     print('Report:',args.out)
