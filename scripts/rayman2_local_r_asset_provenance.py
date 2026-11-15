@@ -30,7 +30,7 @@ def find_component(parent: Path, name: str) -> Path | None:
     if not parent.is_dir():
         return None
     matches = [entry for entry in parent.iterdir() if entry.name.casefold() == name.casefold()
-               and entry.is_dir()]
+               and entry.is_dir() and not entry.is_symlink()]
     if len(matches) > 1:
         raise ValueError(f"ambiguous case-variant directory {name} under {parent}")
     return matches[0] if matches else None
