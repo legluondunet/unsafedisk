@@ -106,10 +106,17 @@ def inspect(exe: Path, raw: Path, report: Path, seconds: int=45) -> tuple[int,bo
                 timed_out = isinstance(failure, subprocess.TimeoutExpired)
                 interrupted = isinstance(failure, KeyboardInterrupt)
                 if proc.poll() is None:
-                    os.killpg(proc.pid,signal.SIGTERM)
-                    try:proc.wait(timeout=5)
+                    if os.name == 'nt':
+                        proc.terminate()
+                    else:
+                        os.killpg(proc.pid, signal.SIGTERM)
+                    try:
+                        proc.wait(timeout=5)
                     except subprocess.TimeoutExpired:
-                        os.killpg(proc.pid,signal.SIGKILL)
+                        if os.name == 'nt':
+                            proc.kill()
+                        else:
+                            os.killpg(proc.pid, signal.SIGKILL)
                         proc.wait(timeout=5)
     finally:
         if wrote:
