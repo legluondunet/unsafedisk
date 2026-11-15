@@ -19,6 +19,7 @@ import signal
 import subprocess
 import sys
 import time
+from typing import Sequence
 
 V2_SHA256 = '35427161a5f9e109564aa00457640f4552497a6a40e28ede7a99a18f444eeb5d'
 V2_BYTES = 676352
@@ -159,11 +160,16 @@ class TraceSummary:
 
 def run_wine(exe: Path, seconds: float, trace: TraceSummary,
              max_bytes: int = 120 * 1024 * 1024,
-             wine_command: str = 'wine') -> dict:
+             wine_command: str = 'wine',
+             launch_prefix: Sequence[str] = ()) -> dict:
     env = dict(os.environ)
     env['WINEDEBUG'] = '-all,trace+file,err+all'
     # Explicit absolute path, working directory is the game's folder.
-    cmd = [wine_command, str(exe)]
+    # An optional wrapper such as gamescope must end in '--'. The Wine process
+    # remains inside the same process group for bounded diagnostic cleanup.
+    if launch_prefix and launch_prefix[-1] != '--':
+        raise ValueError("launcher prefix must end in '--'")
+    cmd = [*launch_prefix, wine_command, str(exe)]
     try:
         child = subprocess.Popen(cmd, cwd=str(exe.parent), env=env,
                                  stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
