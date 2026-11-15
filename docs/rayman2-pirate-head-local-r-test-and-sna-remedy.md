@@ -109,3 +109,13 @@ From the known game directory, where `Rayman2-local-R-test.exe` resides, downloa
 The user may end playback after the pirate head and let the bounded observer stop/terminate the temporary session. The report distinguishes *attempted opens whose path text contains `R/Data` or `CD/Data`* from installed `Data/World/Levels` requests, and lists DAT/SNA path examples. This classification is **heuristic and text-derived**; multiple Wine API records can reflect one logical request, and ReadFile successes are **not matched to a particular path** without a handle-aware trace. Do not infer a SafeDisc verdict or a working no-CD game from these path records.
 
 This is the **first diagnostic to ask the owner to run** after the no-effect SNA patch and provenance comparison; no new binary or asset modification is justified before its results. Keep the PR draft, and do not repeat the installed-only SNA patch.
+
+## Gamescope support for bounded local-R file trace
+
+The optional `--gamescope` mode of `scripts/rayman2_local_r_filetrace.py` launches the *same* Wine process via the native Gamescope binary while keeping the existing bounded trace collector and process-group timeout. The launch wrapper is `gamescope -f -W 1920 -H 1080 -w 2048 -h 1536 -- wine <verified-local-R-exe>` by default. Gamescope output is 1920×1080 fullscreen; the game virtual mode is 2048×1536 (matching GameFrame's observed 2x window for a 1024×768 Glide mode). This preserves the original 4:3 aspect ratio through letter/pillarboxing rather than stretching the picture to 16:9. The script checks that Gamescope is installed; it fails explicitly if requested but missing and has no implicit fallback that would unexpectedly launch without the requested compositor. Width/height can be changed using `--screen-width`, `--screen-height`; internal virtual mode via `--game-width`, `--game-height`.
+
+The exact tracked source still requires both scripts in one directory, and the same CD-derived local-R executable. No original CD copy is attempted:
+
+    python3 rayman2_local_r_filetrace.py --gamescope --exe ./Rayman2-local-R-test.exe --seconds 150 --out rayman2-local-r-filetrace-gamescope.json
+
+Gamescope's display wrapper is independent of game-data provenance, SafeDisc checks, and the pirate-head trigger. It only makes this diagnostic test easier to view on the monitor. The output JSON records its requested output and virtual resolutions. The synthetic unit tests verify generated Gamescope arguments and reject invalid resolution input; actual Gamescope runtime and display mode must be verified on the owner's Manjaro computer.
