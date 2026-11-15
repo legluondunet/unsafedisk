@@ -8,6 +8,7 @@ on:
     paths:
       - 'src/bin/unsafedisc-linux.rs'
       - 'src/bin/rayman2-inspect.rs'
+      - 'src/bin/rayman2-local-disc-probe.rs'
       - 'src/unsafedisc_*.rs'
       - 'docs/unsafedisc-linux.md'
       - 'docs/dll-state-references.md'
@@ -33,17 +34,22 @@ jobs:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
       - name: Unit tests (synthetic fixtures only)
-        run: cargo test --bin unsafedisc-linux --bin rayman2-inspect
+        run: cargo test --bin unsafedisc-linux --bin rayman2-inspect --bin rayman2-local-disc-probe
       - name: Python SafeDisc research syntax and synthetic tests
         run: |
           python -m compileall -q python scripts
           python -m unittest discover -s scripts -p 'test_*.py'
       - name: Build native Linux executable
-        run: cargo build --release --bin unsafedisc-linux --bin rayman2-inspect
+        run: cargo build --release --bin unsafedisc-linux --bin rayman2-inspect --bin rayman2-local-disc-probe
       - name: Smoke test CLI
         run: |
           ./target/release/unsafedisc-linux --help
           ./target/release/rayman2-inspect --help
+          ./target/release/rayman2-local-disc-probe --help
+          if ./target/release/rayman2-local-disc-probe --source ./missing-Rayman2.exe --output ./test-output.exe --mode relative-folder; then
+            echo "ERROR: absent input unexpectedly accepted"
+            exit 1
+          fi
           if ./target/release/rayman2-inspect --retail ./nonexistent-Rayman2.exe; then
             echo "ERROR: missing Rayman 2 original was unexpectedly accepted"
             exit 1
@@ -71,6 +77,12 @@ jobs:
           name: rayman2-inspect-linux-x86_64
           path: target/release/rayman2-inspect
           if-no-files-found: error
+      - name: Upload Rayman 2 Linux local-disc prototype
+        uses: actions/upload-artifact@v4
+        with:
+          name: rayman2-local-disc-probe-linux-x86_64
+          path: target/release/rayman2-local-disc-probe
+          if-no-files-found: error
 
   windows-x86_64:
     name: Windows x86_64 - native unwrap and inspect
@@ -82,13 +94,13 @@ jobs:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
       - name: Unit tests (synthetic fixtures only)
-        run: cargo test --bin unsafedisc-linux
+        run: cargo test --bin unsafedisc-linux --bin rayman2-inspect --bin rayman2-local-disc-probe
       - name: Python SafeDisc research syntax and synthetic tests
         run: |
           python -m compileall -q python scripts
           python -m unittest discover -s scripts -p 'test_*.py'
       - name: Build native Windows executable
-        run: cargo build --release --bin unsafedisc-linux --bin rayman2-inspect
+        run: cargo build --release --bin unsafedisc-linux --bin rayman2-inspect --bin rayman2-local-disc-probe
       - name: Smoke test CLI
         shell: pwsh
         run: |
@@ -97,6 +109,8 @@ jobs:
             throw "Windows CLI --help failed"
           }
           & .\target\release\rayman2-inspect.exe --help
+          & .\target\release\rayman2-local-disc-probe.exe --help
+          if ($LASTEXITCODE -ne 0) { throw "Windows Rayman 2 prototype --help failed" }
           if ($LASTEXITCODE -ne 0) {
             throw "Windows Rayman 2 inspector --help failed"
           }
@@ -130,5 +144,11 @@ jobs:
         with:
           name: rayman2-inspect-windows-x86_64
           path: target/release/rayman2-inspect.exe
+          if-no-files-found: error
+      - name: Upload Rayman 2 Windows local-disc prototype
+        uses: actions/upload-artifact@v4
+        with:
+          name: rayman2-local-disc-probe-windows-x86_64
+          path: target/release/rayman2-local-disc-probe.exe
           if-no-files-found: error
 
