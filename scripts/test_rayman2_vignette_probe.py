@@ -69,6 +69,49 @@ class TestVignette(unittest.TestCase):
    game,disc=self.setup(d)
    r=m.inspect(game,disc,True)
    self.assertEqual(r['source']['sha256'],hashlib.sha256(b'good data').hexdigest())
+ def test_two_cd_variants_identical_can_copy(self):
+  with TemporaryDirectory() as d:
+   game,disc=self.setup(d)
+   (disc/'data').mkdir()
+   (disc/'data'/'vignette.cnt').write_bytes(b'good data')
+   r=m.inspect(game,disc,True)
+   self.assertEqual(r['version'],2)
+   self.assertEqual(r['cd_candidate_count'],2)
+   self.assertEqual(r['action'],'copied_and_verified')
+   self.assertEqual((game/'data'/'vignette.cnt').read_bytes(),b'good data')
+ def test_two_cd_variants_different_refuse_all_writes(self):
+  with TemporaryDirectory() as d:
+   game,disc=self.setup(d)
+   (disc/'data').mkdir()
+   (disc/'data'/'vignette.cnt').write_bytes(b'other data')
+   with self.assertRaisesRegex(ValueError,'Different CD Data/Vignette.cnt'):
+    m.inspect(game,disc,True)
+   self.assertFalse((game/'data'/'vignette.cnt').exists())
+ def test_duplicate_cd_files_same_inode(self):
+  with TemporaryDirectory() as d:
+   game,disc=self.setup(d)
+   (disc/'data').mkdir()
+   (disc/'data'/'vignette.cnt').hardlink_to(disc/'Data'/'Vignette.cnt')
+   r=m.inspect(game,disc,False)
+   self.assertEqual(r['cd_candidate_count'],2)
+   self.assertEqual(r['installed']['status'],'missing')
+ def test_symlinked_cd_data_refused(self):
+  with TemporaryDirectory() as d:
+   game,disc=self.setup(d)
+   (disc/'data').symlink_to(disc/'Data',target_is_directory=True)
+   with self.assertRaisesRegex(ValueError,'Symlinked CD data directory'):
+    m.inspect(game,disc,True)
+   self.assertFalse((game/'data'/'vignette.cnt').exists())
+ def test_two_variants_same_bytes_existing_local_untouched(self):
+  with TemporaryDirectory() as d:
+   game,disc=self.setup(d)
+   (disc/'data').mkdir()
+   (disc/'data'/'vignette.cnt').write_bytes(b'good data')
+   (game/'data'/'vignette.cnt').write_bytes(b'local')
+   r=m.inspect(game,disc,True)
+   self.assertEqual(r['action'],'unchanged')
+   self.assertEqual(r['installed']['status'],'different')
+   self.assertEqual((game/'data'/'vignette.cnt').read_bytes(),b'local')
  def test_file_max_size(self):
   with TemporaryDirectory() as d:
    game,disc=self.setup(d)
