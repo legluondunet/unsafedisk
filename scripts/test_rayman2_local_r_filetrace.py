@@ -168,7 +168,7 @@ class LocalRSynthetic(unittest.TestCase):
             self.skipTest("Unix private process group cleanup test")
         with tempfile.TemporaryDirectory() as folder:
             child=Path(folder)/"child.py"
-            child.write_text("print('starting',flush=True)\\nimport time\\ntime.sleep(30)\\n",
+            child.write_text("print('starting',flush=True)\nimport time\ntime.sleep(30)\n",
                              encoding="utf-8")
             class KeyboardInterruptTrace(TraceSummary):
                 def push(self,line):
