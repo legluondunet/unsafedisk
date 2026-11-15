@@ -252,7 +252,9 @@ def main(argv=None)->int:
                   flush=True)
         else:
             print(f"Automatic timeout enabled: {args.seconds:g} seconds.",flush=True)
-        session=run_wine(exe,args.seconds,trace,max_bytes=256*1024*1024,
+        # This interactive local-R test does not stop on output volume either;
+        # TraceSummary keeps only bounded in-memory excerpts.
+        session=run_wine(exe,args.seconds,trace,max_bytes=None,
                          launch_prefix=prefix)
         result={
             "version":1,
