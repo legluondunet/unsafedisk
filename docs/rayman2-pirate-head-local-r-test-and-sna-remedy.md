@@ -64,3 +64,16 @@ A new read-only helper `scripts/rayman2_local_r_asset_provenance.py` compares ac
       --installed-levels ./data/world/levels > rayman2-local-r-provenance.json
 
 Inspect the report *before* any further SNA edits. If installed and R trees differ, the previous experiment changed the wrong physical copy for that potential resource path. Even if equal, use a bounded Wine file trace next to determine which DAT/SNA source is actually read. **Do not patch the original CD, mounted ISO, or the R symlink target.** Do not merge PR #3 or claim a SafeDisc bypass based on this test.
+
+## Critical owner clarification: original CD cannot be fully copied
+
+The owner confirms that several nominal original-CD files are multiple gigabytes and **cannot be copied**. Other Rayman 2 installation work already encountered ISO directory extents outside the actual roughly 662 MB disc volume. These entries are likely malformed/decoy entries related to the disc's copy protection, but their exact purpose is not independently established here. **Retract the full-CD-extraction prerequisite** from the initial local-R proposal. Never instruct the owner to copy them, turn them into placeholder/zero-filled files, or assume that a failed bulk copy demonstrates missing valid game content.
+
+Protocol adjustment:
+
+1. Preserve the original mounted disc/ISO and the already working CD-required control as the **CD-present reference**. A mount is not a local copy and does not validate no-CD functionality.
+2. The installer's established extraction can still retrieve *valid and needed* small/normal files, following known setup file lists and rejecting out-of-volume extents. Never attempt to expand bogus multi-gigabyte entries.
+3. The current **read-only local-R provenance helper** can inventory already available real assets, but cannot establish that the inaccessible oversized entries are mandatory or that a resource was opened by the game. Run it only if `R` actually exists and compare only file-backed known SNA/DAT files. Its results are descriptive and cannot justify further game patches on their own.
+4. Before another no-CD launch or another SNA rewrite, capture a **bounded runtime file trace of actual requested resource paths, successful opens/read sizes, and errors** while the original is running with the disc. Then compare candidate behavior with those requests to identify the minimal genuine asset set and distinguish missing resources from another protection check. Do not patch mounted CD content.
+
+The pirate head persisted after the installed SNA patch. This is a negative outcome of that precise experiment, not evidence that full-CD copying is required, and not proof that SafeDisc cryptography caused the visual symptom.
