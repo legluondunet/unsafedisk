@@ -124,7 +124,7 @@ class LocalRSynthetic(unittest.TestCase):
                                "--out",str(report)])
             self.assertEqual(result,0)
             self.assertEqual(runner.call_args.args[1],0.0)
-            self.assertEqual(runner.call_args.kwargs["max_bytes"],256*1024*1024)
+            self.assertIsNone(runner.call_args.kwargs["max_bytes"])
             self.assertEqual(runner.call_args.kwargs["launch_prefix"],
                              m.gamescope_prefix(1920,1080))
             import json
@@ -160,6 +160,22 @@ class LocalRSynthetic(unittest.TestCase):
             status=run_wine(child,0,trace,max_bytes=1024*1024,wine_command=sys.executable)
         self.assertEqual(status["stop_reason"],"exited")
         self.assertEqual(status["wine_launcher_exit_code"],0)
+        self.assertIsNone(status["time_limit_seconds"])
+    def test_ctrl_c_stops_private_process_group_but_keeps_summary(self):
+        import os
+        from rayman2_v2_filetrace import TraceSummary,run_wine
+        if os.name=="nt":
+            self.skipTest("Unix private process group cleanup test")
+        with tempfile.TemporaryDirectory() as folder:
+            child=Path(folder)/"child.py"
+            child.write_text("print('starting',flush=True)\\nimport time\\ntime.sleep(30)\\n",
+                             encoding="utf-8")
+            class KeyboardInterruptTrace(TraceSummary):
+                def push(self,line):
+                    raise KeyboardInterrupt
+            status=run_wine(child,0,KeyboardInterruptTrace(Path.home()),
+                            max_bytes=None,wine_command=sys.executable)
+        self.assertEqual(status["stop_reason"],"user_interrupt")
         self.assertIsNone(status["time_limit_seconds"])
     def test_missing_source_refused_without_running_game(self):
         with tempfile.TemporaryDirectory() as t:
