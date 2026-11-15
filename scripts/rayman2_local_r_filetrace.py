@@ -207,11 +207,14 @@ def gamescope_prefix(width:int,height:int,game_width:int=2048,game_height:int=15
 def main(argv=None)->int:
     ap=argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--exe",type=Path,default=Path("Rayman2-local-R-test.exe"))
-    ap.add_argument("--seconds",type=float,default=90.,
-                    help="bounded runtime observation, 10..180 s")
+    ap.add_argument("--seconds",type=float,default=0.,
+                    help="observation seconds: 0 (default) = no timer; otherwise 10..3600 s")
     ap.add_argument("--out",type=Path,default=Path("rayman2-local-r-filetrace.json"))
-    ap.add_argument("--gamescope",action="store_true",
-                    help="run Wine under fullscreen Gamescope without changing trace collection")
+    display_group=ap.add_mutually_exclusive_group()
+    display_group.add_argument("--gamescope",dest="gamescope",action="store_true",default=True,
+                               help="use Gamescope fullscreen (default)")
+    display_group.add_argument("--no-gamescope",dest="gamescope",action="store_false",
+                               help="run Wine directly, without Gamescope")
     ap.add_argument("--screen-width",type=int,default=1920,
                     help="Gamescope output width, default 1920 (desktop)")
     ap.add_argument("--screen-height",type=int,default=1080,
@@ -221,8 +224,8 @@ def main(argv=None)->int:
     ap.add_argument("--game-height",type=int,default=1536,
                     help="virtual game height, default 1536 (2x GameFrame 768)")
     args=ap.parse_args(argv)
-    if not 10<=args.seconds<=180:
-        ap.error("--seconds must be between 10 and 180")
+    if args.seconds != 0 and not 10<=args.seconds<=3600:
+        ap.error("--seconds must be 0 (no timer) or between 10 and 3600")
     exe=args.exe.absolute()
     if args.out.exists() or args.out.is_symlink():
         ap.error("report output already exists or is a symlink; refusing overwrite")
@@ -243,7 +246,13 @@ def main(argv=None)->int:
                   f"{args.screen_width}x{args.screen_height} fullscreen (aspect preserved)",
                   flush=True)
         trace=SourceTrace(Path.home())
-        session=run_wine(exe,args.seconds,trace,max_bytes=64*1024*1024,
+        if args.seconds == 0:
+            print("No timer: play through the first level, then exit the game normally. "
+                  "Ctrl+C in the terminal stops the session and still saves the report.",
+                  flush=True)
+        else:
+            print(f"Automatic timeout enabled: {args.seconds:g} seconds.",flush=True)
+        session=run_wine(exe,args.seconds,trace,max_bytes=256*1024*1024,
                          launch_prefix=prefix)
         result={
             "version":1,
@@ -259,7 +268,8 @@ def main(argv=None)->int:
         print(f"Report created: {args.out} ({args.out.stat().st_size} bytes)")
         print(f"Resource API path records: {trace.recognized_open_attempts}")
         print("Path classes:",json.dumps(dict(trace.class_counter),sort_keys=True))
-        print("Runtime ends automatically at timeout / trace input cap.")
+        print("Stop reason:",session["stop_reason"],
+              "(no automatic timer)" if args.seconds == 0 else "(timer configured)")
         print("File paths are *attempts* only; no full CD copy, no game file writes.")
         return 0
     except (OSError,ValueError) as e:
