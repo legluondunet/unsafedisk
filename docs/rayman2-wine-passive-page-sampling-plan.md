@@ -12,7 +12,7 @@
 
 ## Outil de diagnostic développé localement
 
-Un script Python/Linux, `rayman2_wine_passive_pages.py`, a été préparé dans cette session et fourni avec son patch Git autonome en pièce jointe de la conversation. **Son intégration au dépôt n'est pas encore incluse dans ce commit documentaire.** Il se limite aux processus dont `/proc/PID/comm` correspond à `Rayman2.exe` ; il lit, sans breakpoint ni changement de page, les protections réelles `r/w/x` depuis `/proc/PID/maps`. Option `--sample-state` : lecture facultative de cinq DWORDs déterminés à l'avance via `process_vm_readv` ou `/proc/PID/mem` en lecture seule, sous réserve des permissions Linux. Les valeurs refusées sont marquées *inconnues*, jamais forcées à zéro.
+L'observateur Python/Linux [`scripts/rayman2_wine_passive_pages.py`](../scripts/rayman2_wine_passive_pages.py), son test de régression et le simulateur C sont désormais **intégrés à la branche expérimentale de la PR #3**. L'archive et le patch restent utiles pour les essais hors dépôt ; la version de référence est le code versionné et détaillé dans [`rayman2-wine-passive-page-and-guard-observer.md`](rayman2-wine-passive-page-and-guard-observer.md). Il se limite aux processus dont `/proc/PID/comm` correspond à `Rayman2.exe` ; il lit, sans breakpoint ni changement de page, les protections réelles `r/w/x` depuis `/proc/PID/maps`. Option `--sample-state` : lecture facultative de cinq DWORDs déterminés à l'avance via `process_vm_readv` ou `/proc/PID/mem` en lecture seule, sous réserve des permissions Linux. Les valeurs refusées sont marquées *inconnues*, jamais forcées à zéro.
 
 Commande prévue depuis un terminal Linux lorsque l'utilisateur exécute lui-même son jeu original :
 
@@ -26,10 +26,10 @@ Le processus de test ne doit pas être confondu avec un launcher Lutris ou Rayma
 
 ## Validation réellement réalisée
 
-- **26 tests Python réussis localement**, uniquement bibliothèque standard et tests synthétiques.
+- **30 tests Python réussis localement**, uniquement bibliothèque standard et tests synthétiques.
 - Un programme C *de simulation non commerciale*, compilé en PIE, réserve **sans écraser d'autres mappings** (`MAP_FIXED_NOREPLACE`) les adresses ci-dessus ; il porte le nom de processus `Rayman2.exe` uniquement pour l'essai.
 - L'observateur y a vu deux pages `rw-p` et lu le garde simulé `0x1234`, le flag `1` et les trois pointeurs factices. Une transition volontaire de la **seconde page seulement** par `mprotect` a ensuite été relevée comme `rw-p / r-xp`, le garde restant lisible. Aucun code injecté ou déchiffreur SafeDisc n'a été exécuté.
-- Le patch Git local a été appliqué à un dépôt temporaire ; ses quatre fichiers ont été comparés octet pour octet avec les originaux.
+- Le patch Git v2 a été vérifié avec `git apply --check`; l'archive a été reconditionnée pour conserver le chemin `scripts/test_data/` nécessaire à l'essai natif. La version intégrée au dépôt relit `/proc/PID/stat` avant et après chaque instantané pour rejeter une réutilisation du même PID.
 
 **Ce qui n'a pas été observé :** un démarrage réel du jeu sous Wine/Windows, le premier écrivain de `0x5113EC`, un appel indirect au trampoline, une transaction avec le pilote SafeDisc ou une authentification échouée. L'observation passive périodique peut manquer des transitions courtes et ne révèle pas l'instruction qui écrit la garde.
 
