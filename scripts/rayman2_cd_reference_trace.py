@@ -14,7 +14,7 @@ import re
 import sys
 
 from rayman2_v2_filetrace import (TraceSummary, run_wine, inventory_assets,
-                                  file_hash)
+                                  file_hash, validate_exe as verify_v2)
 
 PE32_SHA = 'f32133d9add18b37adf47ce4b3e475b641b697e2b7db77cfe7b47063da468703'
 V2_SHA = '35427161a5f9e109564aa00457640f4552497a6a40e28ede7a99a18f444eeb5d'
@@ -73,20 +73,31 @@ def load_v2(path:Path)->dict:
     return x
 
 
-def perform(exe:Path, previous:Path,seconds:float,*,wine_command='wine')->dict:
+def perform(exe:Path, previous:Path,seconds:float,*,wine_command='wine',v2_exe:Path|None=None)->dict:
     ident=verify_reference(exe)
     old=load_v2(previous)
     inventory=inventory_assets(exe.parent)
     trace=TraceSummary(Path.home())
     info=run_wine(exe,seconds,trace,wine_command=wine_command)
     t=trace.report()
-    return {'version':1,'timestamp_utc':datetime.now(timezone.utc).isoformat(),
+    extra = {}
+    if v2_exe is not None:
+        v2_exe = v2_exe.absolute()
+        if v2_exe.parent != exe.parent:
+            raise ValueError('Both EXEs must be in the same installed game directory')
+        second_identity = verify_v2(v2_exe)
+        second_trace = TraceSummary(Path.home())
+        second_run = run_wine(v2_exe, seconds, second_trace, wine_command=wine_command)
+        second_raw = second_trace.report()
+        extra = {'v2_cd_run':second_run,'v2_cd_identity':second_identity,
+                 'v2_cd_summary':summarize_trace(second_raw),'v2_cd_trace':second_raw}
+    return {'version':2,'timestamp_utc':datetime.now(timezone.utc).isoformat(),
             'reference':ident,'working_cd_mounted_confirmed':False,
             'reference_game_assets':inventory,
             'comparison_v2_sha256':V2_SHA,'v2_asset_inventory':old['asset_inventory'],
             'v2_summary':summarize_trace(old['trace']),
             'pe32_summary':summarize_trace(t),
-            'reference_run':info,'reference_trace':t,
+            'reference_run':info,'reference_trace':t,**extra,
             'limitations':[
                 'The script does not verify that the CD is actually mounted; user must mount it.',
                 'Wine file traces report successful byte counts, not the actual bytes or file offsets.',
@@ -100,13 +111,14 @@ def main(argv=None)->int:
     ap.add_argument('--compare',type=Path,required=True,help='Existing V2 resource trace JSON')
     ap.add_argument('--out',type=Path,default=Path('rayman2-working-cd-comparison.json'))
     ap.add_argument('--seconds',type=float,default=25.0)
+    ap.add_argument('--also-v2',type=Path,help='Optional verified V2 EXE to compare under the SAME mounted CD')
     ap.add_argument('--cd-mounted',action='store_true',help='Acknowledge the original CD is mounted before launch')
     args=ap.parse_args(argv)
     if not args.cd_mounted:ap.error('Please mount your original CD and pass --cd-mounted')
     if not 5<=args.seconds<=60:ap.error('--seconds must be in 5..60')
     if args.out.is_symlink() or args.out.exists():ap.error('Output already exists; refusing overwrite')
     try:
-        result=perform(args.exe.absolute(),args.compare,args.seconds)
+        result=perform(args.exe.absolute(),args.compare,args.seconds,v2_exe=args.also_v2)
         with args.out.open('x',encoding='utf-8') as f:
             json.dump(result,f,indent=2,ensure_ascii=False);f.write('\n')
     except (ValueError,OSError,KeyError,json.JSONDecodeError) as ex:
@@ -114,6 +126,8 @@ def main(argv=None)->int:
     print(f'File: {args.out} ({args.out.stat().st_size} bytes)')
     print('Reference run:',result['reference_run']['stop_reason'])
     print('Opening paths observed:',result['pe32_summary']['observed_asset_open_paths_sample'][:15])
+    if 'v2_cd_summary' in result:
+        print('V2 under mounted CD:',result['v2_cd_run']['stop_reason'])
     print('Send the JSON report. No game executable or asset content was copied.')
     return 0
 
