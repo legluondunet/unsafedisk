@@ -53,7 +53,7 @@ impl Image {
     fn file_offset(&self, data: &[u8], va: u32, len: usize, name: &[u8]) -> Result<usize> {
         if len==0 { return Err("empty PE read request".into()); }
         let section=self.sections.iter().find(|s|s.name.split(|&b|b==0).next()==Some(name))
-            .ok_or("missing PE section")?;
+            .ok_or_else(||"missing PE section".to_owned())?;
         if name==b".text" && (section.flags & 0x2000_0000)==0 {
             return Err("expected executable .text section".into());
         }
@@ -78,7 +78,7 @@ impl Image {
     }
     fn section(&self,name:&[u8])->Result<&Section>{
         self.sections.iter().find(|s|s.name.split(|&b|b==0).next()==Some(name))
-            .ok_or("missing PE section")
+            .ok_or_else(||"missing PE section".to_owned())
     }
 }
 fn parse_image(data:&[u8])->Result<Image>{
