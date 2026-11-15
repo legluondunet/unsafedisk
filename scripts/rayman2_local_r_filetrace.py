@@ -18,6 +18,7 @@ import hashlib
 import json
 from pathlib import Path
 import re
+import shutil
 import struct
 import sys
 
@@ -190,12 +191,35 @@ class SourceTrace(TraceSummary):
             ],
         }
 
+def gamescope_prefix(width:int,height:int,game_width:int=2048,game_height:int=1536)->list[str]:
+    """Output at desktop resolution; leave original GameFrame 4:3 image un-stretched.
+
+    2048x1536 virtual space matches the 2x GameFrame 1024x768 window observed
+    in the owner's two real local-R Glide logs. The user can override it.
+    """
+    sizes=(width,height,game_width,game_height)
+    if any(type(value) is not int or value < 320 or value > 8192 for value in sizes):
+        raise ValueError("gamescope dimensions must be integers between 320 and 8192")
+    return ["gamescope","-f","-W",str(width),"-H",str(height),
+            "-w",str(game_width),"-h",str(game_height),"--"]
+
+
 def main(argv=None)->int:
     ap=argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--exe",type=Path,default=Path("Rayman2-local-R-test.exe"))
     ap.add_argument("--seconds",type=float,default=90.,
                     help="bounded runtime observation, 10..180 s")
     ap.add_argument("--out",type=Path,default=Path("rayman2-local-r-filetrace.json"))
+    ap.add_argument("--gamescope",action="store_true",
+                    help="run Wine under fullscreen Gamescope without changing trace collection")
+    ap.add_argument("--screen-width",type=int,default=1920,
+                    help="Gamescope output width, default 1920 (desktop)")
+    ap.add_argument("--screen-height",type=int,default=1080,
+                    help="Gamescope output height, default 1080 (desktop)")
+    ap.add_argument("--game-width",type=int,default=2048,
+                    help="virtual game width, default 2048 (2x GameFrame 1024)")
+    ap.add_argument("--game-height",type=int,default=1536,
+                    help="virtual game height, default 1536 (2x GameFrame 768)")
     args=ap.parse_args(argv)
     if not 10<=args.seconds<=180:
         ap.error("--seconds must be between 10 and 180")
@@ -204,13 +228,29 @@ def main(argv=None)->int:
         ap.error("report output already exists or is a symlink; refusing overwrite")
     try:
         ident=verify_executable(exe)
+        prefix=()
+        display={"gamescope":False}
+        if args.gamescope:
+            if shutil.which("gamescope") is None:
+                raise ValueError("gamescope not found in PATH; install it or omit --gamescope")
+            prefix=gamescope_prefix(args.screen_width,args.screen_height,
+                                    args.game_width,args.game_height)
+            display={"gamescope":True,"fullscreen":True,
+                     "output":[args.screen_width,args.screen_height],
+                     "virtual_game":[args.game_width,args.game_height],
+                     "aspect_ratio_stretch":False}
+            print(f"Gamescope: {args.game_width}x{args.game_height} game -> "
+                  f"{args.screen_width}x{args.screen_height} fullscreen (aspect preserved)",
+                  flush=True)
         trace=SourceTrace(Path.home())
-        session=run_wine(exe,args.seconds,trace,max_bytes=64*1024*1024)
+        session=run_wine(exe,args.seconds,trace,max_bytes=64*1024*1024,
+                         launch_prefix=prefix)
         result={
             "version":1,
             "timestamp_utc":datetime.now(timezone.utc).isoformat(),
             "input":ident,
             "wine_session":session,
+            "display":display,
             "evidence":trace.compact(),
         }
         with args.out.open("x",encoding="utf-8") as f:
