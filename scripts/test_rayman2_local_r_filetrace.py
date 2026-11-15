@@ -12,7 +12,14 @@ sys.path.insert(0,str(SCRIPT.parent))
 spec=importlib.util.spec_from_file_location("ray2_local_r_trace",SCRIPT)
 m=importlib.util.module_from_spec(spec)
 spec.loader.exec_module(m)
-from test_rayman2_portable_cd_probe import make_fixture
+from test_rayman2_portable_cd_probe import make_fixture as fixture_without_entrypoint
+
+def make_fixture():
+    # The historical generic PE synthetic fixture omits AddressOfEntryPoint.
+    # The strict local-R verifier intentionally requires the real retail RVA.
+    d=bytearray(fixture_without_entrypoint())
+    d[0xF8+16:0xF8+20]=(0x5FCC0).to_bytes(4,"little")
+    return bytes(d)
 
 def candidate_from_synthetic_original(original:bytes)->bytes:
     x=bytearray(original)
