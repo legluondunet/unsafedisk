@@ -35,7 +35,7 @@ VOLUME_R=bytes.fromhex("B0 52 A2 D8 6A 4A 00 8B E5 5D C3")
 FORMATS=(0x49F394,0x49F3A4,0x4A06D8,0x4A2264,0x4A2688)
 # Only actual file API path arguments (not arbitrary strings in the DLL trace).
 PATH_RE=re.compile(r'\b(?:CreateFile[AW]|NtCreateFile)\b[^\r\n]{0,500}?\bL?"([^"\r\n]{1,400})"',re.I)
-RESOURCE_RE=re.compile(r'(?i)(?:\.sna|\.gpt|\.dsc|(?:levels|map|anims|textures|sounds|music|graphics|menu)[012]\.dat)(?:\b|$)')
+RESOURCE_RE=re.compile(r'(?i)(?:\.sna|\.gpt|\.dsc|\.cnt|(?:levels|map|anims|textures|sounds|music|graphics|menu)[012]\.dat)(?:\b|$)')
 READ_RE=re.compile(r'\b(?:NtReadFile|ReadFile)\b',re.I)
 
 def sha256(b:bytes)->str:
