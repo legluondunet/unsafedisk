@@ -93,4 +93,39 @@ class TestRelay(TestCase):
                 with self.assertRaises(OSError):m.inspect(exe,root/'raw',root/'report')
             self.assertEqual(runner.call_count,4)
 
+    def test_keyboard_interrupt_generates_report_and_removes_filter(self):
+        with TemporaryDirectory() as d:
+            root=Path(d);exe=root/'a.exe';exe.write_bytes(b'test')
+            values=[subprocess.CompletedProcess([],0,'RAYMAN2'),
+                    subprocess.CompletedProcess([],1,'not found'),
+                    subprocess.CompletedProcess([],0,'Added'),
+                    subprocess.CompletedProcess([],0,'Deleted')]
+            class MockProc:
+                pid=777
+                calls=0
+                def poll(self):return None
+                def wait(self,timeout=45):
+                    self.calls+=1
+                    if self.calls==1:raise KeyboardInterrupt()
+                    return -15
+            def fake_popen(*a,**kw):
+                kw['stdout'].write('0124:Ret KERNEL32.GetVolumeInformationA() retval=00000001\n')
+                return MockProc()
+            with patch.object(m,'EXPECTED_EXE_SHA',hashlib.sha256(b'test').hexdigest()),patch.object(m,'runner',side_effect=values) as runner,patch.object(m.subprocess,'Popen',side_effect=fake_popen),patch.object(m.os,'killpg') as killpg:
+                count,timed_out,cleaned=m.inspect(exe,root/'raw.log',root/'report.txt')
+            self.assertEqual(count,1)
+            self.assertFalse(timed_out)
+            self.assertTrue(cleaned)
+            self.assertEqual(runner.call_count,4)
+            killpg.assert_called_once()
+            self.assertIn('Interrupted by user: True',(root/'report.txt').read_text())
+
+    def test_report_marks_interrupt(self):
+        with TemporaryDirectory() as d:
+            root=Path(d);raw=root/'raw.log';out=root/'report.txt'
+            raw.write_text('0124:Ret KERNEL32.GetVolumeInformationA() retval=00000001\n')
+            n=m.generate_report(raw,out,'RAYMAN2','sha',False,True,True)
+            self.assertEqual(n,1)
+            self.assertIn('Interrupted by user: True',out.read_text())
+
 if __name__ == '__main__': main()
