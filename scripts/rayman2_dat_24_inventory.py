@@ -110,6 +110,15 @@ def audit(game: Path, r_root: Path) -> dict:
                                 "R_size":right["logical_size_bytes"]})
     oversized=[name for name,row in rt["entries"].items()
                if row.get("oversized_gt_1gib")]
+    def totals(entries: dict) -> dict:
+        regular=[row for row in entries.values() if row.get("status")=="regular"]
+        sizes=[row["logical_size_bytes"] for row in regular]
+        blocks=[row.get("allocated_bytes_reported") for row in regular]
+        return {"regular_count":len(regular),
+                "logical_size_sum_bytes":sum(sizes),
+                "allocated_size_sum_reported_bytes":
+                    sum(blocks) if all(x is not None for x in blocks) else None,
+                "largest_nominal_file_bytes":max(sizes,default=0)}
     return {
         "version":1, "read_only":True, "content_read":False, "cd_copy_attempted":False,
         "game_root":str(game.resolve()),
@@ -117,6 +126,8 @@ def audit(game: Path, r_root: Path) -> dict:
         "r_resolved":str(cd_root), "r_root_symlink":r_root.is_symlink(),
         "name_table":list(NAMES),
         "installed":lt,"R":rt,
+        "aggregate_sizes":{"installed":totals(lt["entries"]),
+                           "R":totals(rt["entries"])},
         "case_ambiguous_directory_components":{"installed":local_alias,"R":remote_alias},
         "different_presence_or_size":differences,
         "r_nominal_files_over_1gib":oversized,
