@@ -74,7 +74,10 @@ class Synthetic(unittest.TestCase):
         self.assertFalse(r["R"]["found"])
         self.assertIsNone(r["local_R"]["resolved"])
     def test_rejects_ambiguous_directory_case_variants(self):
-        (self.game/"Data").mkdir()
+        extra=self.game/"Data"
+        if extra.exists():
+            self.skipTest("case-insensitive filesystem cannot create distinct Data directory")
+        extra.mkdir()
         with self.assertRaisesRegex(ValueError,"ambiguous"):
             m.analyze(self.game,self.mlink)
     def test_readonly_never_changes_files(self):
