@@ -109,6 +109,58 @@ class LocalRSynthetic(unittest.TestCase):
             run_wine(Path("/tmp/nonexistent-rayman2.exe"),5,
                      TraceSummary(Path.home()),
                      launch_prefix=["gamescope","-f"])
+    def test_default_no_timer_uses_gamescope_and_saves_report(self):
+        import contextlib
+        import io
+        from unittest.mock import patch
+        with tempfile.TemporaryDirectory() as folder:
+            report=Path(folder)/"report.json"
+            with (patch.object(m,"verify_executable",return_value={"test":"verified"}),
+                  patch.object(m,"run_wine",return_value={
+                      "stop_reason":"exited","time_limit_seconds":None}) as runner,
+                  patch.object(m.shutil,"which",return_value="/usr/bin/gamescope"),
+                  contextlib.redirect_stdout(io.StringIO())):
+                result=m.main(["--exe",str(Path(folder)/"game.exe"),
+                               "--out",str(report)])
+            self.assertEqual(result,0)
+            self.assertEqual(runner.call_args.args[1],0.0)
+            self.assertEqual(runner.call_args.kwargs["max_bytes"],256*1024*1024)
+            self.assertEqual(runner.call_args.kwargs["launch_prefix"],
+                             m.gamescope_prefix(1920,1080))
+            import json
+            payload=json.loads(report.read_text(encoding="utf-8"))
+            self.assertTrue(payload["display"]["gamescope"])
+            self.assertEqual(payload["wine_session"]["stop_reason"],"exited")
+    def test_no_gamescope_override_and_explicit_long_timer(self):
+        import contextlib
+        import io
+        from unittest.mock import patch
+        with tempfile.TemporaryDirectory() as folder:
+            report=Path(folder)/"report.json"
+            with (patch.object(m,"verify_executable",return_value={"test":"verified"}),
+                  patch.object(m,"run_wine",return_value={
+                      "stop_reason":"time_limit","time_limit_seconds":900}) as runner,
+                  contextlib.redirect_stdout(io.StringIO())):
+                result=m.main(["--no-gamescope","--seconds","900",
+                               "--out",str(report)])
+            self.assertEqual(result,0)
+            self.assertEqual(runner.call_args.args[1],900)
+            self.assertEqual(runner.call_args.kwargs["launch_prefix"],())
+            import json
+            self.assertFalse(json.loads(report.read_text())["display"]["gamescope"])
+    def test_no_timer_wine_helper_exits_without_killing_game(self):
+        import os
+        from rayman2_v2_filetrace import TraceSummary,run_wine
+        if os.name=="nt":
+            self.skipTest("Unix child process groups are not provided by Windows")
+        with tempfile.TemporaryDirectory() as folder:
+            child=Path(folder)/"child.py"
+            child.write_text("print('wine stdout stream test')\\n",encoding="utf-8")
+            trace=TraceSummary(Path.home())
+            status=run_wine(child,0,trace,max_bytes=1024*1024,wine_command=sys.executable)
+        self.assertEqual(status["stop_reason"],"exited")
+        self.assertEqual(status["wine_launcher_exit_code"],0)
+        self.assertIsNone(status["time_limit_seconds"])
     def test_missing_source_refused_without_running_game(self):
         with tempfile.TemporaryDirectory() as t:
             missing=Path(t)/"absent.exe"
