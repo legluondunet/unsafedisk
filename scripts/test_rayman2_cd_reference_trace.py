@@ -50,6 +50,26 @@ class TestReference(unittest.TestCase):
   with tempfile.TemporaryDirectory() as d:
    p=Path(d)/'trace.json';p.write_text('{}');l=Path(d)/'link';l.symlink_to(p)
    with self.assertRaises(ValueError):m.load_v2(l)
+ def test_same_directory_required(self):
+  with tempfile.TemporaryDirectory() as d:
+   d=Path(d);a=d/'one';b=d/'two';a.mkdir();b.mkdir()
+   exe=a/'pe32.exe';exe.write_bytes(b'A'*m.EXPECTED_EXE_SIZE)
+   ctrl=b/'v2.exe';ctrl.write_bytes(b'B'*m.EXPECTED_EXE_SIZE)
+   prior=d/'old.json';prior.write_text(json.dumps({'input':{'sha256':m.V2_SHA},'trace':{},'asset_inventory':{}}))
+   with patch.object(m,'PE32_SHA',hashlib.sha256(exe.read_bytes()).hexdigest()):
+    with patch.object(m,'run_wine',return_value={'stop_reason':'exited'}):
+     with self.assertRaisesRegex(ValueError,'same installed game directory'):
+      m.perform(exe,prior,5,v2_exe=ctrl)
+ def test_same_cd_runs_both_checked(self):
+  with tempfile.TemporaryDirectory() as d:
+   root=Path(d);exe=root/'pe32.exe';exe.write_bytes(b'A'*m.EXPECTED_EXE_SIZE)
+   v2=root/'v2.exe';v2.write_bytes(b'B'*m.EXPECTED_EXE_SIZE)
+   old=root/'prev.json';old.write_text(json.dumps({'input':{'sha256':m.V2_SHA},'trace':{'last_file_events':[],'first_asset_references':[]},'asset_inventory':{}}))
+   with patch.object(m,'PE32_SHA',hashlib.sha256(exe.read_bytes()).hexdigest()),patch.object(m,'V2_SHA',m.V2_SHA),patch.object(m,'verify_v2',return_value={'sha256':'mocked'}),patch.object(m,'run_wine',return_value={'stop_reason':'exited'}) as w:
+    result=m.perform(exe,old,5,v2_exe=v2)
+   self.assertEqual(w.call_count,2)
+   self.assertIn('v2_cd_summary',result)
+   self.assertEqual(result['version'],2)
  def test_real_v2_trace_integration(self):
   p=Path('/mnt/data/rayman2-v2-resource-trace.json')
   if not p.exists():self.skipTest('private user trace not in public repo CI')
