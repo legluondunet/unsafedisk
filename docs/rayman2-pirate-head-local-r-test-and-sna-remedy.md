@@ -166,3 +166,11 @@ Historical community references identify missing retail `DATA/Vignette.cnt` and 
 Next read-only, low-cost discriminator: check the CD-root `Vignette.cnt` against the installed copy with the existing `scripts/rayman2_vignette_probe.py` script, using `--disc ./CD --game .` in the user's installed game working directory; CD extraction is partial, so if this relative source file is absent use the original mounted CD root without bulk extraction. Do not request copies of giant/fake DAT entries, and do not write any game files at this stage. No need to relaunch the game while collecting this information.
 
 Do not merge a new DRM patch or conclude a specific check is at fault until the asset presence and actual file-access outcomes are verified.
+
+## November 16: Vignette.cnt eliminated as missing/byte-mismatched file
+
+The owner ran `rayman2_vignette_probe.py --game . --disc ./CD --out rayman2-vignette-check.json` against the available extracted CD root, reporting exactly **one** source candidate `Data/Vignette.cnt`, size **21,758,404 bytes**, and local status **`identical`**, action **`unchanged`**. The tool compares SHA-256, so the installed `Vignette.cnt` is confirmed byte-identical to this available CD copy. Nothing was copied or modified.
+
+Therefore stop suggesting missing `Vignette.cnt` as this local-R run's root cause, do not copy or replace it, and do not rerun that particular check. Caution: one matching file does not prove all CD-dependent resources are intact or that media authentication is bypassed.
+
+**Next discriminant, no game run and no bulk CD copy:** compare the two already present `LEVELS0.DAT` files (installed `data/world/levels/levels0.dat` and `CD/Data/World/Levels/LEVELS0.DAT`; previous provenance reported both at **150,775,808 bytes**). The existing read-only `scripts/rayman2_anti_tamper_assets.py --cd-root ./CD --installed-root .` hashes precisely Vignette.cnt and LEVELS0.DAT, hard-limits each input to 1 GiB, refuses symlinks and makes no file changes. It repeats Vignette as incidental output, but no repeat test in game is needed. Capture JSON into a new file. If both match, focus on native retail DAT indexed selection / 512-byte reads vs GOG fixed LEVELS0 path; if different, first explain the mismatch before altering the binary. Never attempt copying the CD's implausibly oversized entries.
