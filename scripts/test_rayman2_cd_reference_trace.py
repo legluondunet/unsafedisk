@@ -69,7 +69,9 @@ class TestReference(unittest.TestCase):
     result=m.perform(exe,old,5,v2_exe=v2)
    self.assertEqual(w.call_count,2)
    self.assertIn('v2_cd_summary',result)
-   self.assertEqual(result['version'],2)
+   self.assertEqual(result['version'],3)
+   self.assertEqual(result['cd_mount_verification'],'not_performed')
+   self.assertNotIn('working_cd_mounted_confirmed',result)
  def test_real_v2_trace_integration(self):
   p=Path('/mnt/data/rayman2-v2-resource-trace.json')
   if not p.exists():self.skipTest('private user trace not in public repo CI')
