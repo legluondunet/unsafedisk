@@ -36,6 +36,7 @@ class TestVignette(unittest.TestCase):
    r=m.inspect(game,disc,True)
    self.assertEqual(r['installed']['status'],'different')
    self.assertEqual((game/'data'/'vignette.cnt').read_bytes(),b'BAD')
+ @unittest.skipIf(__import__('os').path.normcase('Data') == __import__('os').path.normcase('data'), 'Requires case-sensitive filesystem: Data and data must be distinct')
  def test_uppercase_data_conflict(self):
   with TemporaryDirectory() as d:
    game,disc=self.setup(d)
@@ -58,6 +59,7 @@ class TestVignette(unittest.TestCase):
    game,disc=self.setup(d)
    (game/'data'/'vignette.cnt').symlink_to(disc/'Data'/'Vignette.cnt')
    with self.assertRaisesRegex(ValueError,'ordinary file'):m.inspect(game,disc,True)
+ @unittest.skipIf(__import__('os').path.normcase('Data') == __import__('os').path.normcase('data'), 'Requires case-sensitive filesystem: Data and data must be distinct')
  def test_duplicate_local_variants(self):
   with TemporaryDirectory() as d:
    game,disc=self.setup(d)
@@ -69,6 +71,7 @@ class TestVignette(unittest.TestCase):
    game,disc=self.setup(d)
    r=m.inspect(game,disc,True)
    self.assertEqual(r['source']['sha256'],hashlib.sha256(b'good data').hexdigest())
+ @unittest.skipIf(__import__('os').path.normcase('Data') == __import__('os').path.normcase('data'), 'Requires case-sensitive filesystem: Data and data must be distinct')
  def test_two_cd_variants_identical_can_copy(self):
   with TemporaryDirectory() as d:
    game,disc=self.setup(d)
@@ -79,6 +82,7 @@ class TestVignette(unittest.TestCase):
    self.assertEqual(r['cd_candidate_count'],2)
    self.assertEqual(r['action'],'copied_and_verified')
    self.assertEqual((game/'data'/'vignette.cnt').read_bytes(),b'good data')
+ @unittest.skipIf(__import__('os').path.normcase('Data') == __import__('os').path.normcase('data'), 'Requires case-sensitive filesystem: Data and data must be distinct')
  def test_two_cd_variants_different_refuse_all_writes(self):
   with TemporaryDirectory() as d:
    game,disc=self.setup(d)
@@ -87,6 +91,7 @@ class TestVignette(unittest.TestCase):
    with self.assertRaisesRegex(ValueError,'Different CD Data/Vignette.cnt'):
     m.inspect(game,disc,True)
    self.assertFalse((game/'data'/'vignette.cnt').exists())
+ @unittest.skipIf(__import__('os').path.normcase('Data') == __import__('os').path.normcase('data'), 'Requires case-sensitive filesystem: Data and data must be distinct')
  def test_duplicate_cd_files_same_inode(self):
   with TemporaryDirectory() as d:
    game,disc=self.setup(d)
@@ -95,6 +100,7 @@ class TestVignette(unittest.TestCase):
    r=m.inspect(game,disc,False)
    self.assertEqual(r['cd_candidate_count'],2)
    self.assertEqual(r['installed']['status'],'missing')
+ @unittest.skipIf(__import__('os').path.normcase('Data') == __import__('os').path.normcase('data'), 'Requires case-sensitive filesystem: Data and data must be distinct')
  def test_symlinked_cd_data_refused(self):
   with TemporaryDirectory() as d:
    game,disc=self.setup(d)
@@ -102,6 +108,7 @@ class TestVignette(unittest.TestCase):
    with self.assertRaisesRegex(ValueError,'Symlinked CD data directory'):
     m.inspect(game,disc,True)
    self.assertFalse((game/'data'/'vignette.cnt').exists())
+ @unittest.skipIf(__import__('os').path.normcase('Data') == __import__('os').path.normcase('data'), 'Requires case-sensitive filesystem: Data and data must be distinct')
  def test_two_variants_same_bytes_existing_local_untouched(self):
   with TemporaryDirectory() as d:
    game,disc=self.setup(d)
