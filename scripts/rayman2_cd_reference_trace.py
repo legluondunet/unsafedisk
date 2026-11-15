@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Compare a working CD-mounted PE32-only Rayman 2 run with a failed V2 trace.
+"""Trace a working CD-mounted PE32-only Rayman 2 run; optionally compare a V2 trace.
 
 Read-only: rejects unknown EXEs, does not modify game files or Wine settings.
 On timeout only its own launched process group is terminated (via base tracer).
@@ -73,9 +73,9 @@ def load_v2(path:Path)->dict:
     return x
 
 
-def perform(exe:Path, previous:Path,seconds:float,*,wine_command='wine',v2_exe:Path|None=None)->dict:
+def perform(exe:Path, previous:Path|None,seconds:float,*,wine_command='wine',v2_exe:Path|None=None)->dict:
     ident=verify_reference(exe)
-    old=load_v2(previous)
+    old=load_v2(previous) if previous is not None else None
     inventory=inventory_assets(exe.parent)
     trace=TraceSummary(Path.home())
     info=run_wine(exe,seconds,trace,wine_command=wine_command)
@@ -91,24 +91,27 @@ def perform(exe:Path, previous:Path,seconds:float,*,wine_command='wine',v2_exe:P
         second_raw = second_trace.report()
         extra = {'v2_cd_run':second_run,'v2_cd_identity':second_identity,
                  'v2_cd_summary':summarize_trace(second_raw),'v2_cd_trace':second_raw}
-    return {'version':3,'timestamp_utc':datetime.now(timezone.utc).isoformat(),
-            'reference':ident,'cd_mount_verification':'not_performed',
-            'reference_game_assets':inventory,
-            'comparison_v2_sha256':V2_SHA,'v2_asset_inventory':old['asset_inventory'],
-            'v2_summary':summarize_trace(old['trace']),
-            'pe32_summary':summarize_trace(t),
-            'reference_run':info,'reference_trace':t,**extra,
-            'limitations':[
-                'The script does not verify that the CD is actually mounted; user must mount it.',
-                'Wine file traces report successful byte counts, not the actual bytes or file offsets.',
-                'The log retains first and last samples and cannot prove an event never happened.',
-                'No new game patch, no DRM authentication conclusion, no asset bytes collected.']}
+    report = {'version':4,'timestamp_utc':datetime.now(timezone.utc).isoformat(),
+              'reference':ident,'cd_mount_verification':'not_performed',
+              'reference_game_assets':inventory,
+              'pe32_summary':summarize_trace(t),
+              'reference_run':info,'reference_trace':t,**extra,
+              'limitations':[
+                  'The script does not verify that the CD is actually mounted; user must mount it.',
+                  'Wine file traces report successful byte counts, not the actual bytes or file offsets.',
+                  'The log retains first and last samples and cannot prove an event never happened.',
+                  'No new game patch, no DRM authentication conclusion, no asset bytes collected.']}
+    if old is not None:
+        report.update({'comparison_v2_sha256':V2_SHA,
+                       'v2_asset_inventory':old['asset_inventory'],
+                       'v2_summary':summarize_trace(old['trace'])})
+    return report
 
 
 def main(argv=None)->int:
     ap=argparse.ArgumentParser(description=__doc__)
     ap.add_argument('exe',type=Path,help='Known PE32-only Rayman2-PE32-test.exe (not V2)')
-    ap.add_argument('--compare',type=Path,required=True,help='Existing V2 resource trace JSON')
+    ap.add_argument('--compare',type=Path,help='Optional existing V2 resource trace JSON (not needed for reference-only mode)')
     ap.add_argument('--out',type=Path,default=Path('rayman2-working-cd-comparison.json'))
     ap.add_argument('--seconds',type=float,default=25.0)
     ap.add_argument('--also-v2',type=Path,help='Optional verified V2 EXE to compare under the SAME mounted CD')
@@ -126,6 +129,7 @@ def main(argv=None)->int:
     print(f'File: {args.out} ({args.out.stat().st_size} bytes)')
     print('CD-ROM mapping and volume label were NOT verified; the flag is an acknowledgement only.')
     print('Reference run:',result['reference_run']['stop_reason'])
+    if args.compare is None:print('Reference-only mode: prior V2 JSON not needed.')
     print('Opening paths observed:',result['pe32_summary']['observed_asset_open_paths_sample'][:15])
     if 'v2_cd_summary' in result:
         print('V2 under mounted CD:',result['v2_cd_run']['stop_reason'])
