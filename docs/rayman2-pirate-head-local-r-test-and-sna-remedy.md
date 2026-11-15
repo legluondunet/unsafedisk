@@ -77,3 +77,35 @@ Protocol adjustment:
 4. Before another no-CD launch or another SNA rewrite, capture a **bounded runtime file trace of actual requested resource paths, successful opens/read sizes, and errors** while the original is running with the disc. Then compare candidate behavior with those requests to identify the minimal genuine asset set and distinguish missing resources from another protection check. Do not patch mounted CD content.
 
 The pirate head persisted after the installed SNA patch. This is a negative outcome of that precise experiment, not evidence that full-CD copying is required, and not proof that SafeDisc cryptography caused the visual symptom.
+
+## 15 November follow-up: exact installed/R provenance and next bounded runtime discriminator
+
+Owner-provided `rayman2-local-r-provenance.json` confirms a local `R` symlink to a **directory** named `CD`, not to a verified mounted original-disc volume. The two accessible file trees differ:
+
+| Exact observed filesystem inventory | Installed `data/world/levels` | `R/Data/World/Levels` |
+|---|---:|---:|
+| Historical SNA basenames | 28 | 28 |
+| Fully corrected historic SNA copies | **28** | **0** |
+| SNA SHA-256 differences between trees | 28 of 28 | 28 of 28 |
+| DAT directory entries | **1** (`levels0.dat`) | **24** (eight groups x banks 0/1/2) |
+| Sum of declared DAT file lengths | **150,775,808 B** | **6,368,056,591 B** |
+
+The last figure is **logical lengths only**. It is **not** verified allocated filesystem capacity, actual readable data, physical CD content or authenticated resources; the original disc's malformed/oversized ISO records are known to make a full copy impossible. Do not ask the owner to copy the alleged 6.37 GB, allocate fake replacements, or edit the local `CD` directory.
+
+The previous SNA experiment changed only installed data, while the candidate may construct relative paths under `R`. Therefore its continuing pirate-head overlay **cannot establish that the modified SNA copy was read**. Even finding an R file name does not establish actual reads, because DAT fallback and runtime resource selection have different semantics.
+
+### New bounded read-only Wine trace
+
+`scripts/rayman2_local_r_filetrace.py` uses the previously tested `rayman2_v2_filetrace.py` streaming observer. It first **reverses the known local-R candidate's 25-byte scanner correction, 11-byte volume selector and five formatter bytes in memory**, then compares the full restored SHA-256 to the **exact original retail digest**. Unknown executable modifications are rejected. The source EXE is not modified on disk.
+
+It then launches the approved local-R EXE under Wine, records only bounded file-API path samples and class counts, and writes a compact JSON. It caps observation to 10..180 seconds (90 default) and Wine output consumed to 64 MiB, and terminates only the child process group on timeout. The game installation, CD folder, Wine registry, SNA and DAT files remain unmodified. It **does not copy or hash the multi-GB DAT contents** and does not retain a raw Wine trace.
+
+From the known game directory, where `Rayman2-local-R-test.exe` resides, download **both** plain-Python sources from the same PR branch (the second supplies the proven stream/timeout utility):
+
+    curl -fL -o rayman2_v2_filetrace.py 'https://raw.githubusercontent.com/legluondunet/unsafedisk/feature/safedisc-135-rayman2-inspection/scripts/rayman2_v2_filetrace.py'
+    curl -fL -o rayman2_local_r_filetrace.py 'https://raw.githubusercontent.com/legluondunet/unsafedisk/feature/safedisc-135-rayman2-inspection/scripts/rayman2_local_r_filetrace.py'
+    python3 rayman2_local_r_filetrace.py --exe ./Rayman2-local-R-test.exe --seconds 90 --out ./rayman2-local-r-filetrace.json
+
+The user may end playback after the pirate head and let the bounded observer stop/terminate the temporary session. The report distinguishes *attempted opens whose path text contains `R/Data` or `CD/Data`* from installed `Data/World/Levels` requests, and lists DAT/SNA path examples. This classification is **heuristic and text-derived**; multiple Wine API records can reflect one logical request, and ReadFile successes are **not matched to a particular path** without a handle-aware trace. Do not infer a SafeDisc verdict or a working no-CD game from these path records.
+
+This is the **first diagnostic to ask the owner to run** after the no-effect SNA patch and provenance comparison; no new binary or asset modification is justified before its results. Keep the PR draft, and do not repeat the installed-only SNA patch.
