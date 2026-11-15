@@ -86,7 +86,6 @@ def reconstruct_original(candidate:bytes,*,strict_hash:bool=True)->bytes:
             raise ValueError(f"unexpected local-R x86 bytes at 0x{va:08X}")
         original[at:at+len(expected)]=restored
     actual=[]
-    data_start=file_offset(candidate,0x49F000,1,b".data")
     # Census within .data file-backed bytes. The targeted five strings
     # are the only candidates permitted by the verified original hash.
     for va in FORMATS:
@@ -118,7 +117,7 @@ def verify_executable(path:Path)->dict:
 
 def classify(path:str)->str:
     p=path.replace("/","\\").lower()
-    p=re.sub(r"\\+","\\",p)
+    p=re.sub(r"\\+",lambda _: "\\",p)
     # A relative R\Data path, or absolute Wine path to an R or CD subtree.
     # Classification is a hypothesis from printed path syntax only.
     if re.search(r'(^|\\)r\\data\\',p) or re.search(r'(^|\\)cd\\data\\',p):
