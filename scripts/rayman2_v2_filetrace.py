@@ -159,7 +159,7 @@ class TraceSummary:
 
 
 def run_wine(exe: Path, seconds: float, trace: TraceSummary,
-             max_bytes: int = 120 * 1024 * 1024,
+             max_bytes: int | None = 120 * 1024 * 1024,
              wine_command: str = 'wine',
              launch_prefix: Sequence[str] = ()) -> dict:
     env = dict(os.environ)
@@ -192,7 +192,7 @@ def run_wine(exe: Path, seconds: float, trace: TraceSummary,
             if deadline is not None and now >= deadline:
                 reason = 'time_limit'
                 break
-            if total >= max_bytes:
+            if max_bytes is not None and total >= max_bytes:
                 reason = 'trace_input_limit'
                 break
             events = selector.select(timeout=(0.20 if deadline is None
