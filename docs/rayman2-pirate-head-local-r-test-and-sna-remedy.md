@@ -150,3 +150,19 @@ From game directory (the two Python scripts must already be refreshed from this 
     python3 rayman2_local_r_filetrace.py --exe ./Rayman2-local-R-test.exe --out rayman2-local-r-filetrace-no-timer.json
 
 No change to SafeDisc, any game executable, original CD, or SNA resources: test harness only.
+
+## November 16: confirmed in-game CD MISSING pirate-head overlay with no timeout
+
+The owner shared a screenshot: the giant Robo-Pirate head obscures the jungle first level and the literal warning reads 'CD MISSING! INSERT THE CD AND RESTART THE GAME'. This is an in-game protection response, not the earlier Windows-style startup CD volume dialog or an EXE crash. This observation does not by itself distinguish a physical media check from an asset-integrity check.
+
+The attached `rayman2-local-r-no-timeout.json` reports `time_limit_seconds=null`, `stop_reason=user_interrupt`, `gamescope=true` at 1920x1080, 186590 Wine file trace lines, 140939 file-read API lines, and 306 resource pathname API records (160 installed, 146 under R). Exit code -9 is due to diagnostic process-group termination after the user's interrupt, NOT proof of a crash. The wrapper did not time out.
+
+Critically, the trace shows a request for the INSTALLED `Data/World/Levels/learn_10/learn_10.sna`, in addition to many `R/Data/World/Levels/LEVELS0.DAT` and other indexed DAT references. The provenance audit had previously shown 28/28 installed SNA patched and 0/28 on R. Since the actual game requests installed SNA during the episode, it is not justified to say that our SNA patch was irrelevant merely because R has unmodified copies.
+
+The old resource name filter **excluded `.cnt`** files; thus there is NO evidence in the supplied JSON that `Vignette.cnt` was or was not opened. That omission is now corrected for future filetraces: capture `.cnt` resource open attempts.
+
+Historical community references identify missing retail `DATA/Vignette.cnt` and `DATA/World/Levels/LEVELS0.DAT` as potential causes of 'insert CD' problems when using no-CD EXEs: https://raymanpc.com/forum/threads/cancelled-rayman-2-installer-for-newer-systems.24570/page-2 . The user's earlier provenance audit already showed installed `LEVELS0.DAT` size 150775808 and same reported size in R, but **equal sizes do not prove equal content**, and we have not inspected Vignette presence.
+
+Next read-only, low-cost discriminator: check the CD-root `Vignette.cnt` against the installed copy with the existing `scripts/rayman2_vignette_probe.py` script, using `--disc ./CD --game .` in the user's installed game working directory; CD extraction is partial, so if this relative source file is absent use the original mounted CD root without bulk extraction. Do not request copies of giant/fake DAT entries, and do not write any game files at this stage. No need to relaunch the game while collecting this information.
+
+Do not merge a new DRM patch or conclude a specific check is at fault until the asset presence and actual file-access outcomes are verified.
