@@ -25,7 +25,10 @@ class StaticDataTests(unittest.TestCase):
             root = Path(temp)
             target = root / 'bin.exe'
             target.write_bytes(b'fake')
-            (root / 'link.exe').symlink_to(target)
+            try:
+                (root / 'link.exe').symlink_to(target)
+            except (OSError, NotImplementedError):
+                self.skipTest('OS does not permit creating symlinks')
             with self.assertRaisesRegex(ValueError, 'no symlinks'):
                 probe.validate_exe(root / 'link.exe')
 
@@ -95,7 +98,10 @@ class StaticDataTests(unittest.TestCase):
             (root / 'DATA/WORLD/LEVELS/LEVELS0.DAT').write_bytes(b'Z'*4)
             (root / 'DATA/WORLD/LEVELS/MAP2.dat').write_bytes(b'Z'*3)
             (root / 'DATA/WORLD/LEVELS/ASTRO.GPT').write_bytes(b'Z'*2)
-            (root / 'LINK').symlink_to(root / 'DATA', target_is_directory=True)
+            try:
+                (root / 'LINK').symlink_to(root / 'DATA', target_is_directory=True)
+            except (OSError, NotImplementedError):
+                pass  # Some Windows CI runners forbid unprivileged symlink creation.
             v = probe.inventory_assets(root)
             self.assertEqual(v['dat_file_count'],2)
             self.assertEqual(v['gpt_file_count'],1)
