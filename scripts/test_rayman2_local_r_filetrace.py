@@ -155,7 +155,7 @@ class LocalRSynthetic(unittest.TestCase):
             self.skipTest("Unix child process groups are not provided by Windows")
         with tempfile.TemporaryDirectory() as folder:
             child=Path(folder)/"child.py"
-            child.write_text("print('wine stdout stream test')\\n",encoding="utf-8")
+            child.write_text("print('wine stdout stream test')\n",encoding="utf-8")
             trace=TraceSummary(Path.home())
             status=run_wine(child,0,trace,max_bytes=1024*1024,wine_command=sys.executable)
         self.assertEqual(status["stop_reason"],"exited")
