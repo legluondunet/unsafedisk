@@ -45,7 +45,7 @@ def digest(path: Path) -> str:
     return h.hexdigest()
 
 
-def generate_report(raw: Path, path: Path, vol_result: str, exe_sha: str, timed_out: bool, cleanup_ok: bool) -> int:
+def generate_report(raw: Path, path: Path, vol_result: str, exe_sha: str, timed_out: bool, cleanup_ok: bool, interrupted: bool=False) -> int:
     # Preserve relevant API entry/return lines and volume probes; never claim
     # actual volume-label contents if the API only logs the input handle.
     count=0
@@ -53,7 +53,7 @@ def generate_report(raw: Path, path: Path, vol_result: str, exe_sha: str, timed_
         out.write('Rayman2 CD scanner — Wine relay + volume diagnosis\n')
         out.write(f'EXE SHA-256: {exe_sha}\n')
         out.write('CD test: '+vol_result.strip().replace('\n',' | ')+'\n')
-        out.write(f'Timed out: {timed_out} | Temporary Wine RelayInclude removed: {cleanup_ok}\n')
+        out.write(f'Timed out: {timed_out} | Interrupted by user: {interrupted} | Temporary Wine RelayInclude removed: {cleanup_ok}\n')
         out.write('IMPORTANT: Wine API result/status can be logged, not necessarily the output label buffer.\n')
         out.write('=== Relevant lines from raw trace ===\n')
         for line in trace:
@@ -88,6 +88,7 @@ def inspect(exe: Path, raw: Path, report: Path, seconds: int=45) -> tuple[int,bo
     wrote=False
     cleaned=False
     timed_out=False
+    interrupted=False
     return_code=-999
     try:
         change=runner(['wine','reg','add',REG,'/v','RelayInclude','/t','REG_SZ','/d',FILTER,'/f'],env=clean)
@@ -103,23 +104,22 @@ def inspect(exe: Path, raw: Path, report: Path, seconds: int=45) -> tuple[int,bo
                 return_code=proc.wait(timeout=seconds)
             except (subprocess.TimeoutExpired, KeyboardInterrupt) as failure:
                 timed_out = isinstance(failure, subprocess.TimeoutExpired)
+                interrupted = isinstance(failure, KeyboardInterrupt)
                 if proc.poll() is None:
                     os.killpg(proc.pid,signal.SIGTERM)
                     try:proc.wait(timeout=5)
                     except subprocess.TimeoutExpired:
                         os.killpg(proc.pid,signal.SIGKILL)
                         proc.wait(timeout=5)
-                if isinstance(failure, KeyboardInterrupt):
-                    raise
     finally:
         if wrote:
             removed=runner(['wine','reg','delete',REG,'/v','RelayInclude','/f'],env=clean)
             cleaned=removed.returncode==0
-    count=generate_report(raw,report,volume.stdout,actual,timed_out,cleaned)
+    count=generate_report(raw,report,volume.stdout,actual,timed_out,cleaned,interrupted)
     if not cleaned:
         print('WARNING: cleanup of temporary Wine RelayInclude failed: inspect reg query manually!')
     print(f'Relay trace: {raw} | filtered report: {report}')
-    print(f'Volume API calls/results in report: {count}; process exit: {return_code}; timeout: {timed_out}; setting restored: {cleaned}')
+    print(f'Volume API calls/results in report: {count}; process exit: {return_code}; timeout: {timed_out}; interrupted: {interrupted}; setting restored: {cleaned}')
     return count,timed_out,cleaned
 
 
