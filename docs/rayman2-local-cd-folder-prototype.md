@@ -30,7 +30,9 @@ Mode **wine-drive** preserves every original .data format byte. With the R selec
 
 ## Recommended first test under Linux
 
-Download the Linux artifact, unzip its native executable, and put it in the game directory. Ensure a separate, accessible directory contains the originally extracted CD root, including Data/World/Levels and other original assets. If the local installation lacks original numbered DAT files, it may not be a sufficient test input. Prefer a known complete image extraction over a partial installed game folder.
+Download the Linux artifact, unzip its native executable, and put it in the game directory. **Important correction: do NOT attempt to copy or fully extract the original CD.** The owner's Rayman 2 CD exposes oversized/malformed entries (several gigabytes, with extents that may exceed the real image volume), which cannot reliably be copied and may be deliberate protection/decoy entries. Such entries must not be treated as missing mandatory game assets, synthesized as sparse/zero-filled files, or used as evidence that the portable prototype has passed copy protection. The earlier requirement of a 'complete extracted CD root' was invalid and is withdrawn.
+
+For a **CD-present control only**, use the already known playable original retail-CD configuration with the genuine mounted image/disc and its native source paths, without copying the whole filesystem. This is not evidence of no-CD functionality. For a **no-CD candidate**, supply only the verified real extracted assets that the game is observed to request; determine those paths from a bounded Wine file trace. The fixed local-R prefix can be a source of failure, and partial extraction cannot by itself establish whether pirate-head activation is a DRM response or a missing/incorrect resource. If a path lands on an oversized/unreadable ISO entry, record the read failure and investigate it rather than retrying enormous copies.
 
 From the directory from which the game is normally launched:
 
@@ -38,10 +40,10 @@ From the directory from which the game is normally launched:
     ./rayman2-local-disc-probe --source '/path/to/original/Rayman2.exe' \
       --output ./Rayman2-local-R-test.exe --mode relative-folder
 
-Create a link to the already-extracted CD files only if no R entry exists:
+Optional local-R test **only after tracing which genuine assets are needed** (do not link to a supposedly complete copy of the CD; no full-copy requirement):
 
     test ! -e ./R && test ! -L ./R && \
-      ln -s -- '/path/to/extracted-CD-root' ./R
+      ln -s -- '/path/to/selected-real-assets-root' ./R
 
 Then launch from this directory, without using the physical CD:
 
@@ -56,6 +58,6 @@ For the Windows artifact the command-line option names are identical. On Windows
 
 This is a candidate generator, not a packaged proprietary Rayman2.exe. Only a user-supplied original game input can produce that binary. No game files are provided or modified in the repository. The resulting executable is **not authenticated by a known expected output SHA** until executed on the exact original. The tool prints both hashes, and all modified bytes must remain within allowlisted PE code/data ranges.
 
-Success would be evidence that one logical CD-selection hurdle and file paths can be satisfied without a physical CD, not evidence of recovery of SafeDisc encryption or all later in-game anti-tamper. Failure may come from missing/incomplete original DAT resources, a remaining in-game protection, or another runtime dependency. The historical Rayman Control Panel anti-piracy SNA patch is a separate mechanism.
+Success with a tested, independently verified no-CD asset set would be evidence that one logical CD-selection hurdle and file paths can be satisfied without a physical CD, not evidence of recovery of SafeDisc encryption or all later in-game anti-tamper. Failure may come from missing/incomplete original DAT resources, a remaining in-game protection, or another runtime dependency. The historical Rayman Control Panel anti-piracy SNA patch is a separate mechanism.
 
 Do not merge or tag a release without a real owner runtime test and code review.
