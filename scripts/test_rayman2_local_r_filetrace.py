@@ -82,6 +82,12 @@ class LocalRSynthetic(unittest.TestCase):
         self.assertEqual(out["api_open_path_records"],4)
         self.assertEqual(len(out["resource_first"]),3)
         self.assertEqual(len(out["resource_last"]),3)
+    def test_vignette_cnt_now_included_in_file_trace(self):
+        trace=m.SourceTrace(Path.home())
+        trace.push(r'0000:trace:file:CreateFileW L"Data\\Vignette.cnt"')
+        report=trace.compact()
+        self.assertEqual(report["resource_path_records"],1)
+        self.assertEqual(report["top_resource_paths"][0]["path"],r"Data\\Vignette.cnt")
     def test_do_not_claim_wine_log_success_from_attempt(self):
         x=m.SourceTrace(Path.home())
         x.push(r'0000:trace:file:CreateFileW L"R\Data\World\Levels\LEVELS0.DAT"')
