@@ -91,8 +91,8 @@ def perform(exe:Path, previous:Path,seconds:float,*,wine_command='wine',v2_exe:P
         second_raw = second_trace.report()
         extra = {'v2_cd_run':second_run,'v2_cd_identity':second_identity,
                  'v2_cd_summary':summarize_trace(second_raw),'v2_cd_trace':second_raw}
-    return {'version':2,'timestamp_utc':datetime.now(timezone.utc).isoformat(),
-            'reference':ident,'working_cd_mounted_confirmed':False,
+    return {'version':3,'timestamp_utc':datetime.now(timezone.utc).isoformat(),
+            'reference':ident,'cd_mount_verification':'not_performed',
             'reference_game_assets':inventory,
             'comparison_v2_sha256':V2_SHA,'v2_asset_inventory':old['asset_inventory'],
             'v2_summary':summarize_trace(old['trace']),
@@ -112,7 +112,7 @@ def main(argv=None)->int:
     ap.add_argument('--out',type=Path,default=Path('rayman2-working-cd-comparison.json'))
     ap.add_argument('--seconds',type=float,default=25.0)
     ap.add_argument('--also-v2',type=Path,help='Optional verified V2 EXE to compare under the SAME mounted CD')
-    ap.add_argument('--cd-mounted',action='store_true',help='Acknowledge the original CD is mounted before launch')
+    ap.add_argument('--cd-mounted',action='store_true',help='Acknowledge you mounted the original CD (NOT checked by this program)')
     args=ap.parse_args(argv)
     if not args.cd_mounted:ap.error('Please mount your original CD and pass --cd-mounted')
     if not 5<=args.seconds<=60:ap.error('--seconds must be in 5..60')
@@ -124,6 +124,7 @@ def main(argv=None)->int:
     except (ValueError,OSError,KeyError,json.JSONDecodeError) as ex:
         ap.error(str(ex))
     print(f'File: {args.out} ({args.out.stat().st_size} bytes)')
+    print('CD-ROM mapping and volume label were NOT verified; the flag is an acknowledgement only.')
     print('Reference run:',result['reference_run']['stop_reason'])
     print('Opening paths observed:',result['pe32_summary']['observed_asset_open_paths_sample'][:15])
     if 'v2_cd_summary' in result:
