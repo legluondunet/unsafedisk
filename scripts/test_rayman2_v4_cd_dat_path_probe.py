@@ -1,5 +1,6 @@
 """No retail game data in tests; synthetic PE32 with optional owner-only SHA check."""
 import hashlib
+import os
 from pathlib import Path
 import struct
 from tempfile import TemporaryDirectory
@@ -122,6 +123,7 @@ class TestCDDatPathOnly(TestCase):
             self.assertEqual(err.exception.code, 2)
             self.assertEqual(output.read_bytes(), b'keep')
 
+    @__import__('unittest').skipIf(os.name == 'nt', 'requires symlink creation privileges on Windows')
     def test_source_symlink_rejected(self):
         with TemporaryDirectory() as d:
             source = Path(d)/'source.exe'; source.write_bytes(fixture())
