@@ -103,6 +103,9 @@ class TestRelay(TestCase):
             class MockProc:
                 pid=777
                 calls=0
+                terminated=0
+                def terminate(self):self.terminated+=1
+                def kill(self):self.terminated+=1
                 def poll(self):return None
                 def wait(self,timeout=45):
                     self.calls+=1
@@ -111,13 +114,16 @@ class TestRelay(TestCase):
             def fake_popen(*a,**kw):
                 kw['stdout'].write('0124:Ret KERNEL32.GetVolumeInformationA() retval=00000001\n')
                 return MockProc()
-            with patch.object(m,'EXPECTED_EXE_SHA',hashlib.sha256(b'test').hexdigest()),patch.object(m,'runner',side_effect=values) as runner,patch.object(m.subprocess,'Popen',side_effect=fake_popen),patch.object(m.os,'killpg') as killpg:
+            with patch.object(m,'EXPECTED_EXE_SHA',hashlib.sha256(b'test').hexdigest()),patch.object(m,'runner',side_effect=values) as runner,patch.object(m.subprocess,'Popen',side_effect=fake_popen),patch.object(m.os,'killpg',create=True) as killpg:
                 count,timed_out,cleaned=m.inspect(exe,root/'raw.log',root/'report.txt')
             self.assertEqual(count,1)
             self.assertFalse(timed_out)
             self.assertTrue(cleaned)
             self.assertEqual(runner.call_count,4)
-            killpg.assert_called_once()
+            if m.os.name == 'nt':
+                self.assertEqual(killpg.call_count, 0)
+            else:
+                killpg.assert_called_once()
             self.assertIn('Interrupted by user: True',(root/'report.txt').read_text())
 
     def test_report_marks_interrupt(self):
