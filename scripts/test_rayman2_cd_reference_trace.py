@@ -69,9 +69,28 @@ class TestReference(unittest.TestCase):
     result=m.perform(exe,old,5,v2_exe=v2)
    self.assertEqual(w.call_count,2)
    self.assertIn('v2_cd_summary',result)
-   self.assertEqual(result['version'],3)
+   self.assertEqual(result['version'],4)
    self.assertEqual(result['cd_mount_verification'],'not_performed')
    self.assertNotIn('working_cd_mounted_confirmed',result)
+ def test_reference_without_prior_v2_json(self):
+  with tempfile.TemporaryDirectory() as d:
+   root=Path(d);exe=root/'pe32.exe';exe.write_bytes(b'A'*m.EXPECTED_EXE_SIZE)
+   with patch.object(m,'PE32_SHA',hashlib.sha256(exe.read_bytes()).hexdigest()),patch.object(m,'run_wine',return_value={'stop_reason':'exited'}) as mocked:
+    result=m.perform(exe,None,5)
+   self.assertEqual(mocked.call_count,1)
+   self.assertEqual(result['version'],4)
+   self.assertEqual(result['cd_mount_verification'],'not_performed')
+   self.assertIn('reference_trace',result)
+   self.assertNotIn('v2_summary',result)
+   self.assertNotIn('comparison_v2_sha256',result)
+ def test_missing_optional_comparison_does_not_raise(self):
+  with tempfile.TemporaryDirectory() as d:
+   root=Path(d);exe=root/'pe32.exe';exe.write_bytes(b'A'*m.EXPECTED_EXE_SIZE)
+   nonexistent=root/'missing.json'
+   with patch.object(m,'PE32_SHA',hashlib.sha256(exe.read_bytes()).hexdigest()),patch.object(m,'run_wine',return_value={'stop_reason':'exited'}):
+    result=m.perform(exe,None,5)
+   self.assertFalse(nonexistent.exists())
+   self.assertEqual(result['reference_run']['stop_reason'],'exited')
  def test_real_v2_trace_integration(self):
   p=Path('/mnt/data/rayman2-v2-resource-trace.json')
   if not p.exists():self.skipTest('private user trace not in public repo CI')
