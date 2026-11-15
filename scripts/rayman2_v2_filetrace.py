@@ -182,19 +182,21 @@ def run_wine(exe: Path, seconds: float, trace: TraceSummary,
     selector.register(fd, selectors.EVENT_READ)
     pending = b''
     total = 0
-    deadline = time.monotonic() + seconds
+    # seconds=0 disables the timer, allowing an interactive visual test.
+    deadline = time.monotonic() + seconds if seconds > 0 else None
     reason = 'exited'
     got_eof = False
     try:
         while True:
             now = time.monotonic()
-            if now >= deadline:
+            if deadline is not None and now >= deadline:
                 reason = 'time_limit'
                 break
             if total >= max_bytes:
                 reason = 'trace_input_limit'
                 break
-            events = selector.select(timeout=min(0.20, max(0, deadline - now)))
+            events = selector.select(timeout=(0.20 if deadline is None
+                                               else min(0.20, max(0, deadline - now))))
             if not events:
                 if child.poll() is not None:
                     # Pipe may still hold final buffered output.
@@ -221,6 +223,12 @@ def run_wine(exe: Path, seconds: float, trace: TraceSummary,
                 break
         if pending:
             trace.push(pending.decode('utf-8', 'replace'))
+    except KeyboardInterrupt:
+        # Ctrl+C in the diagnostic terminal stops its private process group,
+        # but must still produce the JSON summary in the calling script.
+        reason = 'user_interrupt'
+        if pending:
+            trace.push(pending.decode('utf-8', 'replace'))
     finally:
         selector.close()
         if child.poll() is None:
@@ -241,7 +249,7 @@ def run_wine(exe: Path, seconds: float, trace: TraceSummary,
     return {'wine_launcher_exit_code': child.returncode,
             'stop_reason': reason,
             'total_wine_output_bytes_processed': total,
-            'time_limit_seconds': seconds,
+            'time_limit_seconds': seconds if seconds > 0 else None,
             'wine_debug': env['WINEDEBUG']}
 
 
