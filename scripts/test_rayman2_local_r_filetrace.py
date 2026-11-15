@@ -88,6 +88,27 @@ class LocalRSynthetic(unittest.TestCase):
         out=x.compact()
         self.assertNotIn("successful_opens",out)
         self.assertIn("attempts",out["limitations"][0])
+    def test_gamescope_1080p_fullscreen_and_preserved_43_aspect(self):
+        self.assertEqual(
+            m.gamescope_prefix(1920,1080),
+            ["gamescope","-f","-W","1920","-H","1080",
+             "-w","2048","-h","1536","--"])
+        self.assertEqual(
+            m.gamescope_prefix(2560,1440,1600,1200),
+            ["gamescope","-f","-W","2560","-H","1440",
+             "-w","1600","-h","1200","--"])
+        self.assertNotIn("stretch",m.gamescope_prefix(1920,1080))
+    def test_gamescope_rejects_invalid_dimensions(self):
+        for args in ((0,1080),(-1,1080),(1920,0),(1920,1080,9000,1536),
+                     (1920,1080,2048,0)):
+            with self.subTest(args=args),self.assertRaisesRegex(ValueError,"dimensions"):
+                m.gamescope_prefix(*args)
+    def test_launcher_prefix_must_terminate_in_double_dash(self):
+        from rayman2_v2_filetrace import TraceSummary,run_wine
+        with self.assertRaisesRegex(ValueError,"must end"):
+            run_wine(Path("/tmp/nonexistent-rayman2.exe"),5,
+                     TraceSummary(Path.home()),
+                     launch_prefix=["gamescope","-f"])
     def test_missing_source_refused_without_running_game(self):
         with tempfile.TemporaryDirectory() as t:
             missing=Path(t)/"absent.exe"
