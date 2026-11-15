@@ -45,18 +45,19 @@ class Inventory(unittest.TestCase):
             (self.remote/name).write_bytes(bytes([i]))
         (self.local/"levels0.dat").write_bytes(b"a")
         with (self.remote/"ANIMS2.DAT").open("wb") as f:
-            f.truncate(3*1024**3)  # sparse fixture; never physically written
+            f.truncate(2048)  # tiny synthetic size fixture; never allocate multi-gigabytes
         # Prohibit Python's file-open path during the audit. Stats remain usable.
-        with patch("builtins.open",side_effect=AssertionError("file content read forbidden")):
+        with (patch("builtins.open",side_effect=AssertionError("file content read forbidden")),
+              patch.object(m,"SUSPICIOUS_SIZE",1024)):
             report=m.audit(self.game,self.r)
         self.assertEqual(report["R"]["entries"]["LEVELS0.DAT"]["logical_size_bytes"],1)
-        self.assertEqual(report["R"]["entries"]["ANIMS2.DAT"]["logical_size_bytes"],3*1024**3)
+        self.assertEqual(report["R"]["entries"]["ANIMS2.DAT"]["logical_size_bytes"],2048)
         self.assertEqual(report["r_nominal_files_over_1gib"],["ANIMS2.DAT"])
         self.assertEqual(len(report["R"]["entries"]),24)
         self.assertEqual(report["installed"]["entries"]["LEVELS0.DAT"]["status"],"regular")
         self.assertEqual(report["installed"]["entries"]["MENU2.DAT"]["status"],"missing")
         self.assertEqual(len(report["different_presence_or_size"]),23)
-        self.assertEqual((self.remote/"ANIMS2.DAT").stat().st_size,3*1024**3)
+        self.assertEqual((self.remote/"ANIMS2.DAT").stat().st_size,2048)
     def test_different_size_report(self):
         (self.local/"LEVELS0.DAT").write_bytes(b"abc")
         (self.remote/"LEVELS0.DAT").write_bytes(b"abcd")
