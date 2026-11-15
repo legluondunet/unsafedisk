@@ -87,7 +87,7 @@ class LocalRSynthetic(unittest.TestCase):
         trace.push(r'0000:trace:file:CreateFileW L"Data\\Vignette.cnt"')
         report=trace.compact()
         self.assertEqual(report["resource_path_records"],1)
-        self.assertEqual(report["top_resource_paths"][0]["path"],r"Data\\Vignette.cnt")
+        self.assertEqual(report["top_resource_paths"][0]["path"],r"Data\Vignette.cnt")
     def test_do_not_claim_wine_log_success_from_attempt(self):
         x=m.SourceTrace(Path.home())
         x.push(r'0000:trace:file:CreateFileW L"R\Data\World\Levels\LEVELS0.DAT"')
