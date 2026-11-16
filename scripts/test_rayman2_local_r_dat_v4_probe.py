@@ -34,7 +34,7 @@ def fixture() -> tuple[bytes,bytes]:
         retail[at:at+len(name)]=name
         struct.pack_into("<IIII",retail,at+8,vsize,rva,size,raw)
         struct.pack_into("<I",retail,at+36,flags)
-    pe=m.map_pe(retail)
+    pe=m.map_pe(bytes(retail))
     def fill(va,data,sect=b".text"):
         at=m.at_va(pe,va,len(data),sect)
         retail[at:at+len(data)]=data
