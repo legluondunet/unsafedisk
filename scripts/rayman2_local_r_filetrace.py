@@ -106,7 +106,29 @@ def verify_executable(path:Path)->dict:
     if path.is_symlink() or not path.is_file() or path.stat().st_size!=EXE_SIZE:
         raise ValueError("source must be a regular 676352-byte local-R EXE, not a symlink")
     data=path.read_bytes()
-    reconstruct_original(data)
+    try:
+        reconstruct_original(data)
+        variant="retail-local-R-original-DAT"
+        dat_changes=0
+    except ValueError as original_err:
+        # A second exact variant adds the four previously researched V2/V3/V4
+        # code sites. Undo those sites first and then demand full retail SHA
+        # ancestry; never accept an unknown EXE merely because some bytes match.
+        try:
+            from rayman2_local_r_dat_v4_probe import DAT_SITE_CHANGES
+        except ImportError:
+            raise original_err
+        before=bytearray(data)
+        for va,old,new,_ in DAT_SITE_CHANGES:
+            at=file_offset(data,va,len(new),b".text")
+            if data[at:at+len(new)]!=new:
+                raise ValueError(
+                    "not a verified original local-R or known DAT-V4 hybrid"
+                ) from original_err
+            before[at:at+len(old)]=old
+        reconstruct_original(bytes(before))
+        variant="retail-local-R-plus-DAT-V4"
+        dat_changes=len(DAT_SITE_CHANGES)
     return {
         "path_name":path.name,
         "bytes":len(data),
@@ -114,6 +136,8 @@ def verify_executable(path:Path)->dict:
         "source_reconstructed_sha256":RETAIL_SHA,
         "validated_against_complete_original_sha":True,
         "mode":"relative-folder",
+        "DAT_variant":variant,
+        "verified_DAT_code_sites":dat_changes,
     }
 
 def classify(path:str)->str:
