@@ -6,7 +6,7 @@ from pathlib import Path
 import struct
 import tempfile
 import unittest
-from iso9660_alias_probe import EXPECTED, SECTOR, _record, scan, scan_iso_file, summarize_candidate_extents
+from iso9660_alias_probe import EXPECTED, SECTOR, _record, scan, scan_iso_file, summarize_candidate_extents, check_linear_dat_lba_grid, ORDERED_NAMES
 
 
 def rec(name: bytes, lba: int, length: int, directory=False, bad_endian=False):
@@ -86,6 +86,30 @@ class IsoProbeTests(unittest.TestCase):
         self.assertEqual(report["successive_lba_step_counts"],{"1":2})
         self.assertEqual(report["missing_candidate_names"],
                          sorted(EXPECTED-{"LEVELS0.DAT","MAP0.DAT","ANIMS0.DAT"}))
+    def test_full_24_name_grid_with_six_absent_slots(self):
+        missing={2,6,10,14,18,22}
+        records=[{"base_name":name,"lba":133104+3067*i,"declared_bytes":100}
+                 for i,name in enumerate(ORDERED_NAMES) if i not in missing]
+        report=check_linear_dat_lba_grid(records)
+        self.assertTrue(report["fits_linear_grid"])
+        self.assertEqual(report["base_lba"],133104)
+        self.assertEqual(report["stride_sectors"],3067)
+        self.assertEqual(report["observed_name_count"],18)
+        self.assertEqual(report["missing_names_with_extrapolated_lba"],
+                         [{"name":ORDERED_NAMES[i],"table_index":i,
+                           "extrapolated_lba":133104+3067*i}
+                          for i in sorted(missing)])
+    def test_grid_false_for_non_linear_observations(self):
+        rows=[{"base_name":ORDERED_NAMES[i],"lba":100+3*i+(1 if i==2 else 0)}
+              for i in range(5)]
+        self.assertFalse(check_linear_dat_lba_grid(rows)["fits_linear_grid"])
+    def test_grid_requires_three_independent_entries(self):
+        rows=[{"base_name":ORDERED_NAMES[0],"lba":10},
+              {"base_name":ORDERED_NAMES[1],"lba":20}]
+        self.assertFalse(check_linear_dat_lba_grid(rows)["fits_linear_grid"])
+    def test_grid_rejects_duplicate_name(self):
+        rows=[{"base_name":ORDERED_NAMES[0],"lba":10}]*4
+        self.assertFalse(check_linear_dat_lba_grid(rows)["fits_linear_grid"])
     def test_nonoverlapping_distinct_lbas(self):
         records=[{"base_name":"LEVELS0.DAT","lba":4,"declared_bytes":2*SECTOR},
                  {"base_name":"MAP0.DAT","lba":10,"declared_bytes":2*SECTOR}]
