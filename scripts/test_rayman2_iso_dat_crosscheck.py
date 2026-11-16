@@ -45,6 +45,14 @@ class Crosscheck(unittest.TestCase):
         self.assertEqual(r["size_mismatch_names"],["ANIMS0.DAT","MAP0.DAT"])
         self.assertEqual(r["present_in_R_but_absent_from_iso_primary_directory"],["GRAPHICS1.DAT"])
         self.assertFalse(r["reads_any_cd_or_dat_payload"])
+    def test_3mib_aligned_truncation_classification(self):
+        iso,inv=input_reports()
+        iso["candidates"][1]["declared_bytes"]=4*1024*1024
+        inv["R"]["entries"]["MAP0.DAT"]["logical_size_bytes"]=3*1024*1024
+        result=m.check(iso,inv)
+        self.assertTrue(next(row for row in result["data"] if row["name"]=="MAP0.DAT")
+                        ["R_size_exact_multiple_of_3MiB"])
+        self.assertEqual(result["out_of_bounds_different_R_sizes_multiple_of_3MiB"],1)
     def test_missing_extracted_path_not_truncation(self):
         iso,inv=input_reports()
         inv["R"]["entries"].pop("ANIMS0.DAT")
