@@ -21,6 +21,7 @@ MAX_RECORDS = 50000
 MAX_DEPTH = 24
 FAMILIES = ("LEVELS", "MAP", "TEXTURES", "ANIMS", "SOUNDS", "MUSIC", "GRAPHICS", "MENU")
 EXPECTED = {f"{family}{i}.DAT" for i in range(3) for family in FAMILIES}
+ORDERED_NAMES = tuple(f"{family}{i}.DAT" for i in range(3) for family in FAMILIES)
 
 
 def _both32(data: bytes, pos: int) -> tuple[int, bool]:
@@ -110,6 +111,52 @@ def summarize_candidate_extents(dat: list[dict], physical_bytes: int) -> dict:
     }
 
 
+def check_linear_dat_lba_grid(dat: list[dict]) -> dict:
+    """Find a data-driven linear LBA grid in the executable's 24-name order.
+
+    A predicted LBA for an *absent* directory entry is a mathematical
+    extrapolation only, NOT evidence that the ISO really contains that file.
+    """
+    loc={name:index for index,name in enumerate(ORDERED_NAMES)}
+    present=[]
+    seen=set()
+    for record in dat:
+        name=record["base_name"]
+        if name in seen or name not in loc:
+            return {"fits_linear_grid":False,"reason":"duplicate or unexpected DAT name"}
+        seen.add(name)
+        present.append((loc[name],record["lba"]))
+    present.sort()
+    if len(present)<3:
+        return {"fits_linear_grid":False,"reason":"fewer than three known DAT entries"}
+    first_index,first_lba=present[0]
+    last_index,last_lba=present[-1]
+    delta=last_index-first_index
+    distance=last_lba-first_lba
+    if delta<=0 or distance<=0 or distance%delta:
+        return {"fits_linear_grid":False,"reason":"no exact positive integral step"}
+    step=distance//delta
+    base=first_lba-step*first_index
+    fits=base>=0 and all(base+step*i==lba for i,lba in present)
+    if not fits:
+        return {"fits_linear_grid":False,
+                "reason":"observed LBAs do not all lie on one indexed grid"}
+    return {
+        "fits_linear_grid":True,
+        "first_table_index_zero_based":0,
+        "first_table_name":ORDERED_NAMES[0],
+        "base_lba":base,
+        "stride_sectors":step,
+        "observed_name_count":len(present),
+        "all_observed_positions_match":True,
+        "missing_names_with_extrapolated_lba":[
+           {"name":name,"table_index":i,"extrapolated_lba":base+i*step}
+           for i,name in enumerate(ORDERED_NAMES) if name not in seen
+        ],
+        "important_limit":"Extrapolated LBAs are not actual ISO directory entries and are not permission to read or extract nonexistent files."
+    }
+
+
 def scan_iso_file(f, physical_bytes: int) -> dict:
     pvd = _read_at(f, physical_bytes, 16 * SECTOR, SECTOR)
     if pvd[:7] != b'\x01CD001\x01':
@@ -190,6 +237,7 @@ def scan_iso_file(f, physical_bytes: int) -> dict:
       'expected_candidate_count':len(EXPECTED),
       'candidates':dat, 'same_lba_groups':shared,
       'declared_extent_analysis':summarize_candidate_extents(dat,physical_bytes),
+      'table_order_LBA_grid':check_linear_dat_lba_grid(dat),
       'warnings':warnings,
       'interpretation':'Matching LBA values are metadata aliases, not proof of readable identical payloads. Oversized declared lengths are not extracted or trusted. Missing names may be in other volume descriptors or archives.'
     }
