@@ -95,6 +95,9 @@ mod unsafedisc_dll_a310;
 #[path = "../unsafedisc_dll_bed0.rs"]
 mod unsafedisc_dll_bed0;
 
+#[path = "../unsafedisc_generic_inspect.rs"]
+mod unsafedisc_generic_inspect;
+
 use std::env;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -4036,7 +4039,7 @@ Usage:\n\
 The --key-research first word defaults to the exact-version 0x7496538F;\n\
 use --reported-key only to override it for controlled experiments.\n\
 Scope: exact SHA-256 verified Crimson Skies 1.0.2.0 SafeDisc 1.50.20 files.\n\\
---generic-inspect bypasses exact hashes for bounded PE32 metadata only; cannot combine with research flags.\n\
+--generic-inspect bypasses exact hashes for bounded PE32 metadata and opaque ICD/DLL diagnostics; cannot combine with research flags.\n\
 Inspect commands are read-only. The native unwrap command creates only a NEW output EXE.\\n\\
 No protected DLL is executed; unsupported SafeDisc editions are rejected.");
 }
@@ -4167,32 +4170,15 @@ fn parse_args() -> Result<Option<Options>> {
 
 // This path deliberately has no access to per-version key/offset operations.
 // It never calls read_original, never executes a PE, and never writes files.
-fn inspect_generic(options:&Options)->Result<()> {
-    for (role,path) in [
-        ("loader",options.loader.as_ref().unwrap()),
-        ("icd",options.icd.as_ref().unwrap()),
-        ("dplayerx",options.dplayerx.as_ref().unwrap())
-    ] {
-        let meta=fs::symlink_metadata(path)
-            .map_err(|e|format!("{}: {e}",path.display()))?;
-        if meta.file_type().is_symlink() || !meta.is_file() || meta.len()>MAX_INPUT_LEN {
-            return Err(format!("refusing symlink/non-regular or oversized file: {}",path.display()));
-        }
-        let data=fs::read(path).map_err(|e|format!("{}: {e}",path.display()))?;
-        let pe=parse_pe32(&data)?;
-        println!("{role}: {} ({} bytes)",path.display(),data.len());
-        println!("  SHA-256: {}",sha256(&data));
-        println!("  PE32 x86 entry RVA: 0x{:08X}; sections: {}",pe.entry_rva,pe.sections.len());
-        if options.layout || options.sections {
-            for section in &pe.sections {
-                let name=String::from_utf8_lossy(section.name.split(|x|*x==0).next().unwrap_or(&[]));
-                println!("  {name}: RVA=0x{:08X} virtual=0x{:X} raw_offset=0x{:X} raw_length=0x{:X} flags=0x{:08X}",
-                    section.virtual_address,section.virtual_size,section.raw_offset,section.raw_len,section.characteristics);
-            }
-        }
-    }
-    println!("Read-only generic PE inspection; no SafeDisc version, key, or decryptability asserted.");
-    Ok(())
+fn inspect_generic(options: &Options) -> Result<()> {
+    unsafedisc_generic_inspect::inspect_inputs(
+        [
+            ("loader", options.loader.as_ref().unwrap().as_path()),
+            ("icd", options.icd.as_ref().unwrap().as_path()),
+            ("dplayerx", options.dplayerx.as_ref().unwrap().as_path()),
+        ],
+        options.layout || options.sections,
+    )
 }
 
 fn inspect(options: Options) -> Result<()> {
