@@ -62,6 +62,37 @@ class LocalRSynthetic(unittest.TestCase):
             f.write_bytes(candidate_from_synthetic_original(make_fixture()))
             with self.assertRaisesRegex(ValueError,"pinned original"):
                 m.verify_executable(f)
+    def test_hybrid_DAT_V4_candidate_checked_through_retail_SHA_ancestry(self):
+        from unittest.mock import patch
+        import rayman2_local_r_dat_v4_probe as hybrid
+        from test_rayman2_local_r_dat_v4_probe import fixture
+        original,local=fixture()
+        with (patch.object(hybrid,"RETAIL_SHA",hybrid.digest(original)),
+              patch.object(m,"RETAIL_SHA",hybrid.digest(original))):
+            new,report=hybrid.patch_bytes(local)
+            with tempfile.TemporaryDirectory() as d:
+                file=Path(d)/"experimental-v4.exe"
+                file.write_bytes(new)
+                ident=m.verify_executable(file)
+                self.assertEqual(ident["DAT_variant"],"retail-local-R-plus-DAT-V4")
+                self.assertEqual(ident["verified_DAT_code_sites"],4)
+                self.assertTrue(ident["validated_against_complete_original_sha"])
+                bad=bytearray(new)
+                bad[900]=1
+                file.write_bytes(bad)
+                with self.assertRaisesRegex(ValueError,"pinned original"):
+                    m.verify_executable(file)
+    def test_original_candidate_variant_still_supported(self):
+        from unittest.mock import patch
+        original=make_fixture()
+        local=candidate_from_synthetic_original(original)
+        with (patch.object(m,"RETAIL_SHA",m.sha256(original))):
+            with tempfile.TemporaryDirectory() as d:
+                f=Path(d)/"localr.exe"
+                f.write_bytes(local)
+                ident=m.verify_executable(f)
+                self.assertEqual(ident["DAT_variant"],"retail-local-R-original-DAT")
+                self.assertEqual(ident["verified_DAT_code_sites"],0)
     def test_paths(self):
         self.assertEqual(m.classify(r"R\Data\World\Levels\LEVELS1.DAT"),"local_R_or_CD_tree")
         self.assertEqual(m.classify(r"Z:\mnt\2\Rayman2\CD\Data\World\Levels\LEVELS2.DAT"),"local_R_or_CD_tree")
