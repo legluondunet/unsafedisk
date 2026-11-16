@@ -211,3 +211,21 @@ The original `iso9660_alias_probe.py` reported exact LBA-sharing but missed over
 
 **Implication for no-CD Rayman2:** we must not ask the owner to copy all the DAT files from the original CD or assume the `R` directory offers faithful standalone pseudo-archive streams. The static CD/GOG comparison already found that GOG suppresses retail-only 512-byte reads and changes dynamic DAT selection to `LEVELS0.DAT`. This now deserves priority for a carefully scoped, exact-hash prototype, while preserving real level file paths and avoiding spurious 'CD MISSING' warnings. No causation between those code edits and the pirate-head predicate has been established yet. Do not merge the experimental no-CD fix or claim SafeDisc unpacked.
 
+
+
+## Follow-up: exact 24-position ISO LBA grid and controlled V4 hybrid
+
+The 18 primary ISO9660 DAT entries match the **24-slot executable DAT filename table** by the exact arithmetic law:
+
+    LBA(name[index]) = 133104 + 3067 * index
+
+Indices are zero-based in the established order LEVELS, MAP, TEXTURES, ANIMS, SOUNDS, MUSIC, GRAPHICS, MENU for each suffix 0, 1, 2. Every observed entry is an exact match: 18/18, zero errors. The six gaps are indices 2, 6, 10, 14, 18, 22 — precisely TEXTURES0/1/2 and GRAPHICS0/1/2. Their **extrapolated**, NOT actually present, LBAs are 139238, 151506, 163774, 176042, 188310 and 200578. This is additional evidence of deliberate overlapping pseudo-file placement. Do not treat extrapolation as a sector-address permission or a legitimate file record. The read-only ISO probe now reports this as table_order_LBA_grid and has synthetic regression tests.
+
+A distinct second pattern is that **8/8 nominal out-of-image DAT copies under R have byte sizes divisible exactly by 3 MiB (3145728)**, while their declared ISO file lengths differ. This suggests an extractor/reconstruction boundary, not a valid full-length copy. The crosscheck script now reports this correlation, with synthetic fixture coverage.
+
+### New experimental no-CD A/B
+
+See docs/rayman2-local-R-DAT-V4-hybrid-experiment.md. The producer rayman2_local_r_dat_v4_probe.py takes the owner's **already existing** Rayman2-local-R-test.exe and generates a new candidate, applying ONLY four known GOG-style DAT changes to the local-R version. It verifies ancestry to the exact SHA-pinned retail CD by reversing the Rust local-R patches entirely in memory before writing. It does not require copying any DAT or remounting the original CD.
+
+The original local-R path formatters and volume selector are unchanged. The 4 DAT code changes (two 512-byte read bypasses, first filename fixed to LEVELS0.DAT, offset subtraction neutralized) were already independently researched in previous V2-V4 work, but NOT in this exact local-R combination. The Wine/Gamescope filetrace now supports both this hybrid and old local-R, with no timeout. The producer has fail-closed tests for source SHA, byte anchors, output overwrite, input symlinks, and exclusive-create race. All new results remain experimental; no SafeDisc 1.35 decryption has been demonstrated and the pirate-head trigger is not yet isolated.
+
