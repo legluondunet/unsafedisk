@@ -6,7 +6,7 @@ from pathlib import Path
 import struct
 import tempfile
 import unittest
-from iso9660_alias_probe import EXPECTED, SECTOR, _record, scan, scan_iso_file
+from iso9660_alias_probe import EXPECTED, SECTOR, _record, scan, scan_iso_file, summarize_candidate_extents
 
 
 def rec(name: bytes, lba: int, length: int, directory=False, bad_endian=False):
@@ -67,6 +67,38 @@ class IsoProbeTests(unittest.TestCase):
         r=scan_iso_file(BytesIO(make_iso(['LEVELS0.DAT'])),SECTOR*32)
         self.assertEqual(r['candidate_name_count'],1)
         self.assertEqual(len(r['same_lba_groups']),0)
+
+    def test_distinct_lbas_can_still_have_complete_common_overlap(self):
+        records=[
+            {"base_name":"LEVELS0.DAT","lba":10,"declared_bytes":20*SECTOR},
+            {"base_name":"MAP0.DAT","lba":11,"declared_bytes":8*SECTOR},
+            {"base_name":"ANIMS0.DAT","lba":12,"declared_bytes":7*SECTOR},
+        ]
+        report=summarize_candidate_extents(records,physical_bytes=15*SECTOR)
+        self.assertEqual(report["candidate_count"],3)
+        self.assertEqual(report["pair_count"],3)
+        self.assertEqual(report["overlapping_declared_interval_pairs"],3)
+        self.assertTrue(report["every_pair_overlaps"])
+        self.assertEqual(report["all_candidate_common_start_byte"],12*SECTOR)
+        self.assertEqual(report["all_candidate_common_end_byte_exclusive"],19*SECTOR)
+        self.assertEqual(report["all_candidate_common_length_bytes"],7*SECTOR)
+        self.assertEqual(report["directory_entries_extend_beyond_physical_iso"],3)
+        self.assertEqual(report["successive_lba_step_counts"],{"1":2})
+        self.assertEqual(report["missing_candidate_names"],
+                         sorted(EXPECTED-{"LEVELS0.DAT","MAP0.DAT","ANIMS0.DAT"}))
+    def test_nonoverlapping_distinct_lbas(self):
+        records=[{"base_name":"LEVELS0.DAT","lba":4,"declared_bytes":2*SECTOR},
+                 {"base_name":"MAP0.DAT","lba":10,"declared_bytes":2*SECTOR}]
+        report=summarize_candidate_extents(records,32*SECTOR)
+        self.assertEqual(report["overlapping_declared_interval_pairs"],0)
+        self.assertFalse(report["every_pair_overlaps"])
+        self.assertEqual(report["all_candidate_common_length_bytes"],0)
+        self.assertIsNone(report["all_candidate_common_start_byte"])
+    def test_same_lba_ranged_overlap_separate_from_lba_identity(self):
+        r=scan_iso_file(BytesIO(make_iso(["LEVELS0.DAT","MAP0.DAT"],
+                                           shared_lba=False)),SECTOR*32)
+        self.assertEqual(r["same_lba_groups"],[])
+        self.assertEqual(r["declared_extent_analysis"]["overlapping_declared_interval_pairs"],1)
 
     def test_nested_data_world_levels(self):
         # The original Rayman 2 DAT names live under DATA/WORLD/LEVELS,
