@@ -198,14 +198,20 @@ def main(argv=None) -> int:
             raise ValueError("input file changed while reading")
         output, report=patch_bytes(content)
         if not args.dry_run:
+            created=False
             try:
                 with args.output.open("xb") as f:
+                    created=True
                     f.write(output)
                     f.flush()
             except OSError:
-                # Leave no incomplete executable with a trusted output name.
-                if args.output.exists() and not args.output.is_symlink():
-                    args.output.unlink()
+                # Remove only a NEW output actually created by this process.
+                # Never delete a preexisting file after exclusive open fails.
+                if created:
+                    try:
+                        args.output.unlink()
+                    except OSError:
+                        pass
                 raise
         print(json.dumps(report,indent=2,ensure_ascii=False))
         print("DRY RUN: no EXE written" if args.dry_run else "Created NEW test EXE; original files unchanged")
