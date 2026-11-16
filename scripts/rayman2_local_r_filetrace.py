@@ -123,7 +123,7 @@ def verify_executable(path:Path)->dict:
             at=file_offset(data,va,len(new),b".text")
             if data[at:at+len(new)]!=new:
                 raise ValueError(
-                    "not a verified original local-R or known DAT-V4 hybrid"
+                    "not pinned original local-R or known DAT-V4 hybrid"
                 ) from original_err
             before[at:at+len(old)]=old
         reconstruct_original(bytes(before))
