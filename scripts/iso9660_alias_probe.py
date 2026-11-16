@@ -6,7 +6,7 @@ an image. Primary volume (2048-byte data sectors) only, NOT a raw 2352 BIN/CUE.
 """
 from __future__ import annotations
 import argparse
-from collections import defaultdict
+from collections import defaultdict, Counter
 import json
 import os
 from pathlib import Path
@@ -63,6 +63,51 @@ def _read_at(f, size: int, offset: int, length: int) -> bytes:
     if len(data) != length:
         raise ValueError("ISO changed during reading")
     return data
+
+
+def summarize_candidate_extents(dat: list[dict], physical_bytes: int) -> dict:
+    """Compare declared ISO9660 byte intervals, even if LBAs differ.
+
+    Does not read candidate file payloads. Out-of-volume spans are arithmetic
+    on untrusted directory metadata, not proof of accessible disc sectors.
+    """
+    if physical_bytes <= 0:
+        raise ValueError("invalid physical ISO size")
+    intervals = []
+    for record in dat:
+        begin = record["lba"] * SECTOR
+        length = record["declared_bytes"]
+        if begin < 0 or length < 0:
+            raise ValueError("negative ISO9660 extent")
+        intervals.append((begin, begin + length))
+    pair_count = len(intervals) * (len(intervals) - 1) // 2
+    overlap_pairs = sum(a < d and c < b
+                        for i, (a, b) in enumerate(intervals)
+                        for c, d in intervals[i + 1:])
+    common_start = max((a for a, _ in intervals), default=None)
+    common_end = min((b for _, b in intervals), default=None)
+    common_length = max(0, common_end - common_start) if intervals else 0
+    sorted_lbas = sorted(rec["lba"] for rec in dat)
+    steps = Counter(right - left
+                    for left, right in zip(sorted_lbas, sorted_lbas[1:]))
+    return {
+        "candidate_count": len(dat),
+        "declared_sum_bytes": sum(rec["declared_bytes"] for rec in dat),
+        "pair_count": pair_count,
+        "overlapping_declared_interval_pairs": overlap_pairs,
+        "every_pair_overlaps": pair_count > 0 and overlap_pairs == pair_count,
+        "all_candidate_common_start_byte": common_start if common_length else None,
+        "all_candidate_common_end_byte_exclusive": common_end if common_length else None,
+        "all_candidate_common_length_bytes": common_length,
+        "directory_entries_extend_beyond_physical_iso":
+            sum(end > physical_bytes for _, end in intervals),
+        "directory_entries_start_beyond_physical_iso":
+            sum(start >= physical_bytes for start, _ in intervals),
+        "successive_lba_step_counts": {str(k): v for k, v in sorted(steps.items())},
+        "missing_candidate_names": sorted(EXPECTED -
+                                          {r["base_name"] for r in dat}),
+        "interpretation": "Geometric overlap of declared ISO9660 ranges; not evidence of physically independent, identical or readable data."
+    }
 
 
 def scan_iso_file(f, physical_bytes: int) -> dict:
@@ -144,6 +189,7 @@ def scan_iso_file(f, physical_bytes: int) -> dict:
       'candidate_name_count':len(set(r['base_name'] for r in dat)),
       'expected_candidate_count':len(EXPECTED),
       'candidates':dat, 'same_lba_groups':shared,
+      'declared_extent_analysis':summarize_candidate_extents(dat,physical_bytes),
       'warnings':warnings,
       'interpretation':'Matching LBA values are metadata aliases, not proof of readable identical payloads. Oversized declared lengths are not extracted or trusted. Missing names may be in other volume descriptors or archives.'
     }
