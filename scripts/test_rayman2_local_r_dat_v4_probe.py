@@ -133,6 +133,22 @@ class Hybrid(unittest.TestCase):
                 m.main([str(source),str(dest)])
             self.assertEqual(dest.read_bytes(),expected)
 
+    def test_exclusive_output_race_must_not_delete_other_file(self):
+        real_open=Path.open
+        with tempfile.TemporaryDirectory() as folder:
+            source=Path(folder)/"source.exe"
+            dest=Path(folder)/"other-file.exe"
+            source.write_bytes(self.local)
+            def concurrent_create(path,mode="r",*args,**kwargs):
+                if path==dest and mode=="xb":
+                    with real_open(dest,"wb") as out:
+                        out.write(b"another process owns this file")
+                    raise FileExistsError("simulated exclusive creation collision")
+                return real_open(path,mode,*args,**kwargs)
+            with patch.object(Path,"open",autospec=True,side_effect=concurrent_create):
+                with self.assertRaises(SystemExit):
+                    m.main([str(source),str(dest)])
+            self.assertEqual(dest.read_bytes(),b"another process owns this file")
     def test_dry_run_does_not_write_exe(self):
         with tempfile.TemporaryDirectory() as folder:
             source=Path(folder)/"source.exe"
