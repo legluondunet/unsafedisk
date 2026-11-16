@@ -54,6 +54,8 @@ def check(iso: dict, inventory: dict) -> dict:
                      "R_extracted_status":status,
                      "size_status":equality,
                      "size_delta_bytes":delta,
+                     "R_size_exact_multiple_of_3MiB":
+                         copied % (3*1024*1024)==0 if copied is not None and copied>0 else None,
                      "declared_end_inside_physical_iso":src["inside_physical_image"]})
     mismatches=[r for r in rows if r["size_status"]=="size_different"]
     in_bounds=[r for r in rows if r["declared_end_inside_physical_iso"]]
@@ -70,6 +72,9 @@ def check(iso: dict, inventory: dict) -> dict:
         "different_size_for_out_of_bounds":sum(r["size_status"]=="size_different" for r in out_bounds),
         "out_of_bounds_all_differ":len(out_bounds)>0 and
             all(r["size_status"]=="size_different" for r in out_bounds),
+        "out_of_bounds_different_R_sizes_multiple_of_3MiB":sum(
+            r["R_size_exact_multiple_of_3MiB"] is True
+            for r in out_bounds if r["size_status"]=="size_different"),
         "in_bounds_all_same":len(in_bounds)>0 and
             all(r["size_status"]=="same_size" for r in in_bounds),
         "all_size_mismatches":len(mismatches),
@@ -81,6 +86,7 @@ def check(iso: dict, inventory: dict) -> dict:
             "Matching size is not a hash or content comparison.",
             "Out-of-bounds declared extents do not identify the anti-tamper trigger.",
             "Metadata cannot establish real DAT reads, disc sector access or protection outcome.",
+            "3MiB-aligned extracted lengths may indicate an extraction or reconstruction rule, not real ISO file contents.",
         ],
     }
 
