@@ -85,7 +85,7 @@ def map_pe(data: bytes) -> dict[bytes, tuple[int,int,int]]:
     mapped={}
     for i in range(sections):
         at=opt+optsz+i*40
-        name=data[at:at+8].split(b"\0",1)[0]
+        name=bytes(data[at:at+8]).split(b"\0",1)[0]
         vsize,rva,rsize,offset=struct.unpack_from("<IIII",data,at+8)
         if (name in mapped or not name or offset+rsize>len(data) or
             (name==b".text" and not struct.unpack_from("<I",data,at+36)[0]&0x20000000)):
