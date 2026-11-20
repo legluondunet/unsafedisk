@@ -8,6 +8,9 @@
 #[path = "../unsafedisc_retail_metadata.rs"]
 mod unsafedisc_retail_metadata;
 
+#[path = "../crimson_retail_100.rs"]
+mod crimson_retail_100;
+
 #[path = "../unsafedisc_french_callsites.rs"]
 mod unsafedisc_french_callsites;
 
@@ -6410,6 +6413,10 @@ fn inspect_import_codec_cli() -> Result<()> {
 }
 
 fn main() {
+    if env::args().nth(1).as_deref()==Some("unwrap-retail100") {
+        if let Err(e)=crimson_retail_100::cli(){eprintln!("ERROR: {e}");process::exit(1);}
+        return;
+    }
     if matches!(env::args().nth(1).as_deref(),Some("unwrap")|Some("unwrap-french")) {
         if let Err(e)=unwrap_cli(){eprintln!("ERROR: {e}");process::exit(1);}
         return;
