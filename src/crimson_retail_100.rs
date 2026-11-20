@@ -2,7 +2,8 @@
 // GPL-3.0-or-later. No game bytes, protected DLL or memory snapshot included.
 // Uses only strictly SHA-pinned original CD loader+ICD sources.
 // WARNING: the 1.00 candidate is NOT the official 1.02 and has NOT passed gameplay tests.
-// Nine uncalled import-table positions are inferred by elimination and need verification.
+// Canonical import positions are recovered from cross-version context, including
+// indirect MOV/JMP sites. Gameplay validation and complete semantic proof remain open.
 
 use std::collections::HashSet;
 use std::env;
@@ -13,8 +14,8 @@ use std::path::PathBuf;
 type Result<T> = std::result::Result<T,String>;
 const SIZE:usize=2_560_095;
 const RESULT_LEN:usize=2_560_000;
-const RESULT_SHA:&str="3ffe9e2914cbc91b6d79f1e3fdefdc95d377f774bf197bf582a1d666c5b848d4";
-const IDATA_SHA:&str="b196a9d5925e8d014de0e404a4e6e15734b79b06c642b147ea3fdb75686ba5d4";
+const RESULT_SHA:&str="11242994ee568065a30fcfcfa1c9c23f86d60ea56f937bb00648bf9558fa1e70";
+const IDATA_SHA:&str="a35c901dbec1e96c0b0809d1ba13a6656b12d0f003e5f4fead72139f208e5ba9";
 
 #[derive(Clone,Copy)]
 struct Profile {
@@ -40,8 +41,9 @@ const DE:Profile=Profile{
 // Canonical import index -> API-name record number in the ORIGINAL CD.
 // Derived using cross-version instruction-context matches with the owner's
 // independently prepared 1.02 reference; no proprietary API implementation.
-// Four KERNEL32 / five USER32 indices not referenced by any direct FF15 call
-// are assigned by elimination pending Windows/gameplay validation.
+// Indices are inferred from direct calls and additional indirect IAT uses.
+// A few positions within modified blocks use unique near-code anchor alignment;
+// validate gameplay before claiming complete semantic equivalence.
 const K_ORDER:[usize;74]=[
  1,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,20,21,19,
  23,24,22,26,27,25,29,30,28,32,33,31,35,36,34,38,39,37,41,42,
@@ -49,7 +51,7 @@ const K_ORDER:[usize;74]=[
  63,64,62,68,69,67,0,73,72,71,66,65,70,2
 ];
 const U_ORDER:[usize;60]=[
- 52,51,50,45,53,54,48,46,49,44,43,57,58,47,56,55,37,36,35,34,
+ 52,51,50,49,53,54,48,46,45,44,43,57,58,47,56,55,37,36,35,34,
  33,32,31,30,29,28,27,0,9,8,59,40,39,38,42,41,1,2,13,12,
  15,26,25,24,23,22,21,20,19,18,17,16,7,14,4,10,11,3,5,6
 ];
@@ -364,7 +366,7 @@ pub fn cli()->Result<()>{
         return Err(format!("incomplete output removed: {e}"));
     }
     println!("CREATED experimental v1.00 PE32: {} bytes; SHA-256 {}",image.len(),RESULT_SHA);
-    println!("NOTICE: 9 unreferenced import slots need semantic validation. This is NOT the 1.02 EXE accepted by CrimsonSkiesFix.");
+    println!("NOTICE: IAT mapping is reconstructed experimentally; Windows/gameplay validation remains pending. This is NOT the 1.02 EXE accepted by CrimsonSkiesFix.");
     Ok(())
 }
 
