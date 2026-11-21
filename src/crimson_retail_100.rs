@@ -346,11 +346,13 @@ pub fn cli()->Result<()>{
     if fs::symlink_metadata(&output).is_ok(){
         return Err("REFUSING: output already exists".into());
     }
-    let meta=fs::symlink_metadata(&icd).map_err(|e|e.to_string())?;
+    let meta=fs::symlink_metadata(&icd)
+        .map_err(|e|format!("cannot access ICD '{}': {e}",icd.display()))?;
     if !meta.file_type().is_file()||meta.len()!=SIZE as u64{
-        return Err("ICD is not a regular verified-size 1.00 source".into());
+        return Err(format!("ICD '{}' is not a regular verified-size 1.00 source (got {} bytes; expected {SIZE})",icd.display(),meta.len()));
     }
-    let cipher=fs::read(&icd).map_err(|e|e.to_string())?;
+    let cipher=fs::read(&icd)
+        .map_err(|e|format!("cannot read ICD '{}': {e}",icd.display()))?;
     let hash=super::sha256(&cipher);
     let p=if hash==US.icd_sha{US}else if hash==DE.icd_sha{DE}else{
         return Err(format!("unsupported 1.00 CD ICD SHA-256 {hash}"));
