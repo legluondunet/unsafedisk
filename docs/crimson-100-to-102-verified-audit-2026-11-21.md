@@ -19,7 +19,7 @@ All temporary proprietary extractions and reconstructed test files were deleted 
 
 - Decrypted retail 1.00 and 1.02 have identical six named sections but different geometry: 1.00 `.text` has 2,084,864 raw bytes and entry RVA `0x1F2F1C`; 1.02 `.text` has 2,105,344 raw bytes and entry RVA `0x1F7056`.
 - Both import from 21 DLLs. In 1.02, USER32 has 62 imported functions versus 60 in 1.00, including `TranslateMessage` and `DispatchMessageA`; import-table ordering can change across versions.
-- Matching relocation-masked `.text` segments with sampled exact anchors allowed examination of 1,921 IAT-site pairings: 1,892 named-API agreements; 29 differences primarily in jump relays, including MFC42 ordinal thunks. **This is heuristic evidence, not proof of semantic identity or a demonstrated corruption.**
+- Matching relocation-masked `.text` segments with sampled exact anchors allowed examination of 1,921 IAT-site pairings: 1,892 named-API agreements; 29 differences, all at indirect JMP relays into MFC42 ordinal imports (no mismatches among the comparable CALL or MOV sites). **This is heuristic evidence, not proof of semantic identity or a demonstrated corruption.**
 - A local Zstandard `--patch-from` experiment on the decrypted 1.00→1.02 pair created a 338,112-byte compressed delta; decoding recreated the exact 1.02 hash. The delta was immediately deleted and **must not be distributed**: it may embed copyrighted game code.
 
 ## Implications for CrimsonSkiesFix
