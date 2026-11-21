@@ -8,8 +8,9 @@
 
 use std::path::Path;
 
-#[path = "bin/unsafedisc-linux.rs"]
-mod binary_reconstruction;
+// Include the existing native reconstruction implementation at the crate
+// root. Its internal research modules rely on `crate::unsafedisc_*` paths.
+include!("bin/unsafedisc-linux.rs");
 
 /// Reconstruct the exact approved PE32 game executable from the original
 /// matching 1.02 SafeDisc loader and ICD files already extracted locally.
@@ -21,7 +22,7 @@ mod binary_reconstruction;
 pub fn reconstruct_verified_crimson_102(
     loader: &Path, icd: &Path, new_output: &Path,
 ) -> Result<(), String> {
-    binary_reconstruction::unwrap_verified_102_files(loader,icd,new_output)
+    unwrap_verified_102_files(loader,icd,new_output)
 }
 
 #[cfg(test)]
