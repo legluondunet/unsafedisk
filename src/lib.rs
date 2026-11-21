@@ -6,7 +6,6 @@
 //! Source compatibility: internal API for experimental preservation research.
 //! Redistribution or gameplay claims require independent legal/runtime review.
 
-use std::path::Path;
 
 // Include the existing native reconstruction implementation at the crate
 // root. Its internal research modules rely on `crate::unsafedisc_*` paths.
@@ -26,7 +25,7 @@ pub fn reconstruct_verified_crimson_102(
 }
 
 #[cfg(test)]
-mod tests {
+mod native_library_tests {
     use super::*;
     #[test]
     fn absent_original_sources_fail_closed() {
