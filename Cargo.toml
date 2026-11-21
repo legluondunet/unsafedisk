@@ -5,4 +5,8 @@ edition = "2021"
 license = "GPL-3.0-or-later"
 description = "Conservative, reversible Crimson Skies EXE and Wine ROF compatibility patcher"
 
+[lib]
+name = "unsafedisk_native"
+path = "src/lib.rs"
+
 [dependencies]

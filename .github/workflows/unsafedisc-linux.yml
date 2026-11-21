@@ -32,7 +32,9 @@ jobs:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
       - name: Unit tests (synthetic fixtures only)
-        run: cargo test --bin unsafedisc-linux
+        run: |
+          cargo test --bin unsafedisc-linux
+          cargo test --lib
       - name: Python SafeDisc research syntax and synthetic tests
         run: |
           python -m compileall -q python scripts
@@ -70,7 +72,9 @@ jobs:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
       - name: Unit tests (synthetic fixtures only)
-        run: cargo test --bin unsafedisc-linux
+        run: |
+          cargo test --bin unsafedisc-linux
+          cargo test --lib
       - name: Python SafeDisc research syntax and synthetic tests
         run: |
           python -m compileall -q python scripts

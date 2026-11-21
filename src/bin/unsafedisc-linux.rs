@@ -5753,8 +5753,27 @@ fn compare_unwrapped_cli() -> Result<()> {
 // strictly pinned; output is create_new (no overwrites or symlink following).
 // Legacy cosmetics are explicitly reference-guided, not a generic algorithm.
 fn unwrap_cli() -> Result<()> {
+    unwrap_cli_with_args(env::args().skip(2))
+}
+
+/// Native library entry point. The verified original files must come from the
+/// owner's media. The same SHA-gated reconstruction is used by the CLI; no
+/// SafeDisc executable/DLL is executed or bundled.
+/// The caller chooses a private, non-existing output in its transaction stage.
+pub fn unwrap_verified_102_files(loader:&Path, icd:&Path, output:&Path)->Result<()> {
+    let path_text=|p:&Path|p.to_str().map(str::to_owned)
+        .ok_or_else(||format!("non-Unicode SafeDisc input/output path: {}",p.display()));
+    let args=[
+        "--loader".to_owned(),path_text(loader)?,
+        "--icd".to_owned(),path_text(icd)?,
+        "--output".to_owned(),path_text(output)?,
+    ];
+    unwrap_cli_with_args(args)
+}
+
+fn unwrap_cli_with_args(args:impl IntoIterator<Item=String>)->Result<()> {
     use std::io::Write;
-    let mut args=env::args().skip(2);
+    let mut args=args.into_iter();
     let mut loader:Option<PathBuf>=None;
     let mut icd:Option<PathBuf>=None;
     let mut snap:Option<PathBuf>=None;
