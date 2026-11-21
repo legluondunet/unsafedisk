@@ -8,6 +8,8 @@ on:
     paths:
       - 'src/bin/unsafedisc-linux.rs'
       - 'src/unsafedisc_*.rs'
+      - 'src/crimson_retail_100.rs'
+      - 'scripts/windows/**'
       - 'docs/unsafedisc-linux.md'
       - 'docs/dll-state-references.md'
       - '.github/workflows/unsafedisc-linux.yml'
@@ -103,9 +105,32 @@ jobs:
           }
           Write-Host "Missing historical original was correctly rejected."
           exit 0
-      - name: Upload experimental Windows executable
+      - name: Package Windows binary with self-diagnosing German 1.00 test
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Path package -Force | Out-Null
+          Copy-Item target/release/unsafedisc-linux.exe package/unsafedisc-linux.exe
+          Copy-Item scripts/windows/TEST-DE.cmd package/TEST-DE.cmd
+          Copy-Item scripts/windows/TEST-DE.ps1 package/TEST-DE.ps1
+
+          # No commercial test files in CI. Missing files must fail with a
+          # precise, non-cumulative log rather than generic "os error 2".
+          $PSNativeCommandUseErrorActionPreference = $false
+          & powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File .\package\TEST-DE.ps1
+          if ($LASTEXITCODE -eq 0) {
+            throw "Missing German CD sources unexpectedly accepted"
+          }
+          $testLog = Get-Content package/TEST-DE.log -Raw
+          if ($testLog -notmatch 'German loader: 0 valid file') {
+            throw "Missing-input diagnostic did not identify German loader"
+          }
+          if (Test-Path package/CRIMSON-DE-100-CANDIDATE.EXE) {
+            throw "Missing-input test unexpectedly created a game executable"
+          }
+          Remove-Item package/TEST-DE.log
+      - name: Upload experimental Windows executable and test scripts
         uses: actions/upload-artifact@v4
         with:
           name: unsafedisc-windows-x86_64
-          path: target/release/unsafedisc-linux.exe
+          path: package/*
           if-no-files-found: error
