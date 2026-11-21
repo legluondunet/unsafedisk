@@ -18,7 +18,7 @@ include!("bin/unsafedisc-linux.rs");
 /// owner material and verify its final install transaction separately.
 pub fn reconstruct_verified_crimson_102_bytes(
     loader:&[u8], icd:&[u8]
-)->Result<Vec<u8>,String>{
+)->Result<Vec<u8>>{
     reconstruct_verified_102_in_memory(loader,icd)
 }
 
