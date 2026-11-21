@@ -20,7 +20,7 @@ include!("bin/unsafedisc-linux.rs");
 /// any subsequent installation transaction.
 pub fn reconstruct_verified_crimson_102(
     loader: &Path, icd: &Path, new_output: &Path,
-) -> Result<(), String> {
+) -> Result<()> {
     unwrap_verified_102_files(loader,icd,new_output)
 }
 
