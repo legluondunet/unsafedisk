@@ -24,9 +24,30 @@ pub fn reconstruct_verified_crimson_102(
     unwrap_verified_102_files(loader,icd,new_output)
 }
 
+/// Reconstruct *experimental retail version 1.00* from the matching US/EU
+/// or German original CD loader + ICD. Both discs produce the same SHA-256
+/// candidate, but this is NOT the 1.02 executable accepted by CrimsonSkiesFix.
+/// The caller must provide a private non-existing output path.
+pub fn reconstruct_verified_crimson_100(
+    loader:&Path, icd:&Path, new_output:&Path
+)->Result<()> {
+    crimson_retail_100::reconstruct(loader,icd,new_output)
+}
+
 #[cfg(test)]
 mod native_library_tests {
     use super::*;
+    #[test]
+    fn retail100_rejects_absent_cd_sources_without_output() {
+        let root=std::env::temp_dir().join(format!(
+            "usde-cd-no-original-{}-{}.test",
+            std::process::id(),
+            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH)
+                .unwrap().as_nanos()));
+        let exe=root.with_extension("exe");
+        assert!(reconstruct_verified_crimson_100(&root,&root,&exe).is_err());
+        assert!(!exe.exists());
+    }
     #[test]
     fn absent_original_sources_fail_closed() {
         let impossible=std::env::temp_dir().join(format!(
