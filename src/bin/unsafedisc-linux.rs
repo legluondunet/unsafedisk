@@ -5771,60 +5771,29 @@ pub fn unwrap_verified_102_files(loader:&Path, icd:&Path, output:&Path)->Result<
     unwrap_cli_with_args(args)
 }
 
-fn unwrap_cli_with_args(args:impl IntoIterator<Item=String>)->Result<()> {
-    use std::io::Write;
-    let mut args=args.into_iter();
-    let mut loader:Option<PathBuf>=None;
-    let mut icd:Option<PathBuf>=None;
-    let mut snap:Option<PathBuf>=None;
-    let mut output:Option<PathBuf>=None;
-    let mut reference:Option<PathBuf>=None;
-    while let Some(arg)=args.next(){
-        if arg=="--help" {
-            println!("Usage: unsafedisc-linux unwrap --loader crimson.exe --icd crimson.icd [--modifier-snapshot CS98-DLL-00.BIN] --output CRIMSON-UNWRAPPED.EXE [--reference testme.exe]");
-            return Ok(());
-        }
-        let value=args.next().ok_or_else(||format!("missing value for {arg}"))?;
-        match arg.as_str(){
-            "--loader" if loader.is_none()=>loader=Some(PathBuf::from(value)),
-            "--icd" if icd.is_none()=>icd=Some(PathBuf::from(value)),
-            "--modifier-snapshot" if snap.is_none()=>snap=Some(PathBuf::from(value)),
-            "--output" if output.is_none()=>output=Some(PathBuf::from(value)),
-            "--reference" if reference.is_none()=>reference=Some(PathBuf::from(value)),
-            _=>return Err(format!("unknown or repeated unwrap argument {arg}"))
-        }
-    }
-    let output=output.ok_or("missing --output")?;
-    if fs::symlink_metadata(&output).is_ok(){
-        return Err("REFUSING: output path already exists; choose another NEW file".into());
-    }
+/// Create the complete, SHA-256-authenticated 1.02 executable entirely in
+/// memory from the matching original protected owner loader and ICD bytes.
+/// No proprietary updater or protected input is ever written by this API.
+pub fn reconstruct_verified_102_in_memory(loader_input:&[u8],icd_input:&[u8])->Result<Vec<u8>>{
     const FRENCH_LOADER_SHA:&str=
         "cf9ec31364e1893c21636f53bc9410d0e1aa49ee6c32a555cf3adab9df4712ae";
-    let icd_path=icd.ok_or("missing --icd")?;
-    let metadata=fs::metadata(&icd_path).map_err(|e|format!("{}: {e}",icd_path.display()))?;
-    if metadata.len()!=ICD_LEN as u64 {
+    if icd_input.len()!=ICD_LEN{
         return Err("unsupported protected ICD length".into());
     }
-    let candidate=fs::read(&icd_path).map_err(|e|format!("{}: {e}",icd_path.display()))?;
-    let incoming_sha=sha256(&candidate);
+    let incoming_sha=sha256(icd_input);
     let retail=match incoming_sha.as_str(){
         ICD_SHA=>true,
         unsafedisc_import_codec::FRENCH_ICD_SHA=>false,
         _=>return Err(format!("unsupported protected ICD SHA-256: {incoming_sha}")),
     };
-    let edition=if retail{"original"}else{"French"};
-    let ciphertext=candidate;
-    let loader=read_original(&loader.ok_or("missing --loader")?,
-        if retail {LOADER_LEN} else {344_925},
-        if retail {LOADER_SHA} else {FRENCH_LOADER_SHA})?;
-    let modifiers=unsafedisc_modifier_snapshot::Pair::crimson_static();
-    if let Some(snapshot_path)=snap {
-        let observed=load_verified_modifier_snapshot(&snapshot_path)?;
-        if !observed.matches_static_sequence(){
-            return Err("Win98 snapshot's F1/F2 arithmetic differs from the standalone verified implementation".into());
-        }
-        println!("Optional historical snapshot: all 57 F1/F2 arithmetic operations verified.");
+    let loader_len=if retail{LOADER_LEN}else{344_925};
+    let loader_sha=if retail{LOADER_SHA}else{FRENCH_LOADER_SHA};
+    if loader_input.len()!=loader_len || sha256(loader_input)!=loader_sha{
+        return Err("unsupported protected 1.02 loader size or SHA-256".into());
     }
+    let ciphertext=icd_input.to_vec();
+    let loader=loader_input.to_vec();
+    let modifiers=unsafedisc_modifier_snapshot::Pair::crimson_static();
     let original=parse_pe32(&ciphertext)?;
     let (blocks,_)=pe_relocation_blocks(&ciphertext,&original)?;
     let text=original.section(b".text")?;
@@ -5965,29 +5934,71 @@ fn unwrap_cli_with_args(args:impl IntoIterator<Item=String>)->Result<()> {
     if final_hash!=TESTME_SHA{
         return Err(format!("REFUSING TO WRITE: final PE SHA-256 mismatch {final_hash}"));
     }
-    if let Some(reference)=reference {
+    Ok(image)
+}
+
+fn unwrap_cli_with_args(args:impl IntoIterator<Item=String>)->Result<()> {
+    use std::io::Write;
+    let mut args=args.into_iter();
+    let mut loader:Option<PathBuf>=None;
+    let mut icd:Option<PathBuf>=None;
+    let mut snap:Option<PathBuf>=None;
+    let mut output:Option<PathBuf>=None;
+    let mut reference:Option<PathBuf>=None;
+    while let Some(arg)=args.next(){
+        if arg=="--help"{
+            println!("Usage: unsafedisc-linux unwrap --loader crimson.exe --icd crimson.icd [--modifier-snapshot CS98-DLL-00.BIN] --output CRIMSON-UNWRAPPED.EXE [--reference testme.exe]");
+            return Ok(());
+        }
+        let value=args.next().ok_or_else(||format!("missing value for {arg}"))?;
+        match arg.as_str(){
+            "--loader" if loader.is_none()=>loader=Some(PathBuf::from(value)),
+            "--icd" if icd.is_none()=>icd=Some(PathBuf::from(value)),
+            "--modifier-snapshot" if snap.is_none()=>snap=Some(PathBuf::from(value)),
+            "--output" if output.is_none()=>output=Some(PathBuf::from(value)),
+            "--reference" if reference.is_none()=>reference=Some(PathBuf::from(value)),
+            _=>return Err(format!("unknown or repeated unwrap argument {arg}")),
+        }
+    }
+    let output=output.ok_or("missing --output")?;
+    if fs::symlink_metadata(&output).is_ok(){
+        return Err("REFUSING: output path already exists; choose another NEW file".into());
+    }
+    let loader_path=loader.ok_or("missing --loader")?;
+    let icd_path=icd.ok_or("missing --icd")?;
+    for (path,max_size) in [(&loader_path,LOADER_LEN as u64+100),(&icd_path,ICD_LEN as u64)]{
+        let meta=fs::symlink_metadata(path).map_err(|e|format!("{}: {e}",path.display()))?;
+        if !meta.file_type().is_file() || meta.len()>max_size{
+            return Err(format!("refusing invalid original owner file {}",path.display()));
+        }
+    }
+    let loader_bytes=fs::read(&loader_path).map_err(|e|format!("{}: {e}",loader_path.display()))?;
+    let icd_bytes=fs::read(&icd_path).map_err(|e|format!("{}: {e}",icd_path.display()))?;
+    if let Some(snapshot_path)=snap{
+        let observed=load_verified_modifier_snapshot(&snapshot_path)?;
+        if !observed.matches_static_sequence(){
+            return Err("Win98 snapshot's F1/F2 arithmetic differs from the standalone verified implementation".into());
+        }
+        println!("Optional historical snapshot: all 57 F1/F2 arithmetic operations verified.");
+    }
+    let image=reconstruct_verified_102_in_memory(&loader_bytes,&icd_bytes)?;
+    if let Some(reference)=reference{
         let historical=read_original(&reference,TESTME_LEN,TESTME_SHA)?;
         if historical!=image{
             return Err("REFUSING TO WRITE: output differs from historical owner reference".into());
         }
         println!("Independent Windows 98 reference: byte-for-byte identical.");
     }
-    println!("Exact {edition} Crimson inputs authenticated; code checksum 0x{checksum:08X}");
-    println!("TEA F1/F2 reconstruction: .text {} words, .data {} words",
-        text_rebuilt.complete_words,data_rebuilt.complete_words);
-    println!("Imports: {} API names, {} ILT/IAT entries and {} callsites restored",
-        names.names,imports.reconstructed_thunks,callsites.sites_corrected);
-    println!("Full reconstructed PE: {} bytes SHA-256 {} VERIFIED",image.len(),final_hash);
+    println!("Exact Crimson 1.02 original inputs authenticated.");
+    println!("Full reconstructed PE: {} bytes SHA-256 {} VERIFIED",image.len(),sha256(&image));
     let mut file=fs::OpenOptions::new().write(true).create_new(true)
         .open(&output).map_err(|e|format!("refusing output path {}: {e}",output.display()))?;
     if let Err(e)=file.write_all(&image){
-        drop(file);
-        let _=fs::remove_file(&output);
+        drop(file);let _=fs::remove_file(&output);
         return Err(format!("output write failed; incomplete file removed: {e}"));
     }
     if let Err(e)=file.sync_all(){
-        drop(file);
-        let _=fs::remove_file(&output);
+        drop(file);let _=fs::remove_file(&output);
         return Err(format!("output flush failed; incomplete file removed: {e}"));
     }
     println!("CREATED: {}",output.display());
